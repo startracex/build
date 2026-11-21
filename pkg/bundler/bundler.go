@@ -34,12 +34,14 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/startracex/build/pkg/asset"
+	"github.com/startracex/build/pkg/cache"
+	"github.com/startracex/build/pkg/resolve"
 	"github.com/startracex/tsgo/pkg/ast"
 	"github.com/startracex/tsgo/pkg/binder"
 	"github.com/startracex/tsgo/pkg/core"
 	"github.com/startracex/tsgo/pkg/diagnostics"
 	"github.com/startracex/tsgo/pkg/locale"
-	tsmodule "github.com/startracex/tsgo/pkg/module"
 	"github.com/startracex/tsgo/pkg/parser"
 	"github.com/startracex/tsgo/pkg/transpile"
 	"github.com/startracex/tsgo/pkg/tspath"
@@ -244,10 +246,6 @@ func buildOnce(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 	entry := roots[0]
-	resolver, err := newResolver(filepath.Dir(entry), opts.Conditions)
-	if err != nil {
-		return nil, err
-	}
 	resolution := core.ModuleKindESNext
 	if format == FormatCJS {
 		resolution = core.ModuleKindCommonJS
@@ -259,17 +257,27 @@ func buildOnce(ctx context.Context, opts Options) (*Result, error) {
 		outMode:   outMode,
 		jsx:       jsx,
 		mode:      resolution,
-		resolver:  resolver,
-		externals: map[string]struct{}{},
 		loading:   map[string]bool{},
 		units:     map[string]*unit{},
-		assets:    map[string]*assetUnit{},
+		assets:    map[string]*asset.Unit{},
 		decl:      opts.declaration() && outMode == ModeLib,
 		declMap:   opts.declarationMap() && outMode == ModeLib,
 		sourceMap: opts.sourceMap(),
 		target:    opts.emitTarget(),
 		cache:     newTranspileCache(opts.CacheDir),
 	}
+	res, err := resolve.New(filepath.Dir(entry), opts.Conditions, resolution, resolve.Config{
+		Alias:       opts.Alias,
+		External:    opts.External,
+		Format:      string(format),
+		LibBuild:    outMode == ModeLib,
+		ResolveHook: opts.Resolve,
+		OnAsset:     b.onAsset,
+	})
+	if err != nil {
+		return nil, err
+	}
+	b.res = res
 	for _, root := range roots {
 		if err := b.load(root); err != nil {
 			return nil, err
@@ -294,7 +302,7 @@ func buildOnce(ctx context.Context, opts Options) (*Result, error) {
 			b.format = FormatCJS
 		}
 		var js string
-		js, err = linkESM(b, moduleID(entry))
+		js, err = b.linkModules(moduleID(entry))
 		if err != nil {
 			return nil, err
 		}
@@ -333,17 +341,16 @@ type bundler struct {
 	format    Format
 	outMode   Mode
 	jsx       core.JsxEmit
-	mode      core.ResolutionMode
-	resolver  *tsmodule.DefaultResolver
-	externals map[string]struct{}
-	loading   map[string]bool
-	units     map[string]*unit
-	assets    map[string]*assetUnit
+	mode    core.ResolutionMode
+	res     *resolve.Resolver
+	loading map[string]bool
+	units   map[string]*unit
+	assets  map[string]*asset.Unit
 	decl      bool
 	declMap   bool
 	sourceMap bool
 	target    core.ScriptTarget
-	cache     *transpileCache
+	cache     *cache.TranspileCache
 	// chunkPaths maps module id -> relative chunk path for splitting.
 	chunkPaths map[string]string
 	// linkingChunk is the chunk path currently being linked (empty for entry).
@@ -363,7 +370,7 @@ func (b *bundler) load(path string) error {
 		return nil
 	}
 	b.loading[id] = true
-	if !supportedSource(path) {
+	if !asset.SupportedSource(path) {
 		return fmt.Errorf("unsupported module %s", path)
 	}
 	if b.units[id] != nil && b.units[id].asset {
@@ -429,8 +436,8 @@ func (b *bundler) load(path string) error {
 	var js, jsMap string
 	cached := false
 	if b.cache != nil {
-		cacheKey = b.cache.key(path, src, int(moduleKind), int(b.target), int(b.jsx), b.sourceMap)
-		if ent, ok := b.cache.get(cacheKey); ok {
+		cacheKey = b.cache.Key(path, src, int(moduleKind), int(b.target), int(b.jsx), b.sourceMap)
+		if ent, ok := b.cache.Get(cacheKey); ok {
 			js, jsMap = ent.JS, ent.Map
 			cached = true
 		}
@@ -455,7 +462,7 @@ func (b *bundler) load(path string) error {
 		js = stripSourceMappingComment(stripShebang(out.OutputText))
 		jsMap = out.SourceMapText
 		if b.cache != nil && cacheKey != "" {
-			b.cache.put(cacheKey, cacheEntry{JS: js, Map: jsMap})
+			b.cache.Put(cacheKey, cacheEntry{JS: js, Map: jsMap})
 		}
 	}
 	if b.outMode == ModeLib {
@@ -495,6 +502,58 @@ func (b *bundler) load(path string) error {
 		}
 	}
 	return nil
+}
+
+func (b *bundler) resolve(importer, spec string) (resolved string, external bool, err error) {
+	return b.res.Resolve(importer, spec)
+}
+
+func (b *bundler) onAsset(abs string, q asset.Query) error {
+	kind, ok := asset.KindForPath(abs, q)
+	if !ok {
+		return nil
+	}
+	return b.loadAsset(abs, kind)
+}
+
+func (b *bundler) loadAsset(abs string, kind asset.Kind) error {
+	id := moduleID(abs)
+	if _, ok := b.assets[id]; ok {
+		return nil
+	}
+	au, js, err := asset.Load(abs, kind, b.opts.RootDir, b.opts.PublicPath)
+	if err != nil {
+		return err
+	}
+	b.assets[id] = au
+	b.units[id] = &unit{code: js, source: string(au.Data), asset: true, json: false}
+	return nil
+}
+
+func (b *bundler) emitAssetFiles(result *Result) {
+	if result.Manifest == nil {
+		result.Manifest = map[string]string{}
+	}
+	outRoot := b.opts.OutDir
+	if outRoot == "" && b.opts.OutFile != "" {
+		outRoot = filepath.Dir(b.opts.OutFile)
+	}
+	files, manifest := asset.CollectEmit(b.assets, outRoot)
+	for _, f := range files {
+		result.Files = append(result.Files, Output{Path: f.Path, Data: f.Data})
+	}
+	for k, v := range manifest {
+		result.Manifest[k] = v
+	}
+}
+
+func manifestOutput(opts Options, manifest map[string]string) []Output {
+	if len(manifest) == 0 {
+		manifest = map[string]string{}
+	}
+	raw, _ := json.MarshalIndent(manifest, "", "  ")
+	path := asset.ManifestPath(opts.OutDir, opts.OutFile)
+	return []Output{{Path: path, Data: string(raw) + "\n"}}
 }
 
 func (b *bundler) depsFromSpecifiers(importer string, specs []string) ([]string, error) {
@@ -577,16 +636,6 @@ func jsxEmit(mode JSX) (core.JsxEmit, error) {
 	}
 }
 
-func stripShebang(js string) string {
-	if !strings.HasPrefix(js, "#!") {
-		return js
-	}
-	if i := strings.IndexByte(js, '\n'); i >= 0 {
-		return js[i+1:]
-	}
-	return ""
-}
-
 func errorFromDiagnostics(path, src string, diags []*ast.Diagnostic) error {
 	var b strings.Builder
 	n := 0
@@ -626,65 +675,10 @@ func lineCol(src string, pos int) (int, int) {
 	return line, col
 }
 
-func parseEmittedJS(src string) *ast.SourceFile {
-	fileName := tspath.RootedFilePathFromNormalized("/emit.js")
-	return parser.ParseSourceFile(ast.SourceFileParseOptions{
-		FileName: fileName,
-		PathKey:  tspath.CaseSensitive.PathKey(tspath.RootedPath(fileName)),
-	}, src, core.ScriptKindJS)
-}
-
 func unitPaths(b *bundler, entry string) []string {
 	paths := []string{entry}
 	for id := range b.units {
 		paths = append(paths, filepath.FromSlash(id))
 	}
 	return paths
-}
-
-func displayRoot(paths []string) string {
-	cwd, err := os.Getwd()
-	if err == nil && len(paths) > 0 {
-		inside := true
-		for _, p := range paths {
-			rel, relErr := filepath.Rel(cwd, p)
-			if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				inside = false
-				break
-			}
-		}
-		if inside {
-			return cwd
-		}
-	}
-	if len(paths) == 0 {
-		return cwd
-	}
-	root := filepath.Dir(paths[0])
-	for _, p := range paths[1:] {
-		root = commonDir(root, p)
-	}
-	return root
-}
-
-func commonDir(dir, path string) string {
-	for {
-		rel, err := filepath.Rel(dir, path)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return dir
-		}
-		dir = parent
-	}
-}
-
-func displayRel(root, path string) string {
-	rel, err := filepath.Rel(root, path)
-	if err != nil || rel == "." {
-		return filepath.ToSlash(filepath.Base(path))
-	}
-	return filepath.ToSlash(rel)
 }

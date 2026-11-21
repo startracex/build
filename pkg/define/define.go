@@ -1,9 +1,10 @@
-package bundler
+package define
 
 import (
 	"regexp"
 	"strings"
 
+	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/tsgo/pkg/ast"
 )
 
@@ -12,7 +13,8 @@ var (
 	reConsoleCall = regexp.MustCompile(`(?m)^\s*console\.[a-zA-Z_]\w*\s*\([^;]*\)\s*;?\s*$`)
 )
 
-func applyDefineDrop(src string, define map[string]string, drop []string) string {
+// ApplyDefineDrop applies define replacements and drop directives to transpiled source.
+func ApplyDefineDrop(src string, define map[string]string, drop []string) string {
 	if len(drop) == 0 && len(define) == 0 {
 		return src
 	}
@@ -39,25 +41,24 @@ func applyDefineDrop(src string, define map[string]string, drop []string) string
 }
 
 func stripConsoleCalls(src string) string {
-	file := parseEmittedJS(src)
+	file := jsedit.ParseEmittedJS(src)
 	if file.Statements == nil {
 		return reConsoleCall.ReplaceAllString(src, "")
 	}
-	var edits []edit
+	var edits []jsedit.Edit
 	for _, stmt := range file.Statements.Nodes {
 		if stmt.Kind != ast.KindExpressionStatement {
 			continue
 		}
 		expr := stmt.AsExpressionStatement().Expression
 		if isConsoleCall(expr) {
-			edits = append(edits, edit{start: stmt.Pos(), end: stmt.End(), text: ""})
+			edits = append(edits, jsedit.Edit{Start: stmt.Pos(), End: stmt.End(), Text: ""})
 		}
 	}
-	// Also strip console.* as expression statements missed nested — fallback line regex for simple cases.
 	if len(edits) == 0 {
 		return reConsoleCall.ReplaceAllString(src, "")
 	}
-	out, err := applyEdits(src, edits)
+	out, err := jsedit.ApplyEdits(src, edits)
 	if err != nil {
 		return reConsoleCall.ReplaceAllString(src, "")
 	}
@@ -79,7 +80,6 @@ func isConsoleCall(n *ast.Node) bool {
 }
 
 func applyDefines(src string, define map[string]string) string {
-	// Longer keys first so process.env.NODE_ENV wins over process.
 	keys := make([]string, 0, len(define))
 	for k := range define {
 		keys = append(keys, k)

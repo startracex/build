@@ -1,15 +1,16 @@
-package bundler
+package sourcemap
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/startracex/build/pkg/modpath"
 )
 
-// appSourceMap builds a line-level source map from the file comments the
-// linker writes. Each section maps back to that source file.
-func appSourceMap(js, file string) string {
+// AppSourceMap builds a line-level source map from linker source comments.
+func AppSourceMap(js, file string) string {
 	lines := strings.Split(js, "\n")
 	var sources []string
 	index := map[string]int{}
@@ -65,7 +66,6 @@ type mapPoint struct {
 
 func encodeMappings(points []mapPoint) string {
 	var b strings.Builder
-	lastGen := 0
 	lastSrc := 0
 	lastLine := 0
 	lastCol := 0
@@ -85,11 +85,9 @@ func encodeMappings(points []mapPoint) string {
 		b.WriteString(vlq(p.source - lastSrc))
 		b.WriteString(vlq(p.srcLine - lastLine))
 		b.WriteString(vlq(0 - lastCol))
-		lastGen = p.genLine
 		lastSrc = p.source
 		lastLine = p.srcLine
 		lastCol = 0
-		_ = lastGen
 	}
 	return b.String()
 }
@@ -139,7 +137,8 @@ func vlq(n int) string {
 	return string(out)
 }
 
-func retargetSourceMap(mapText, fileName, sourceName, sourceContent string) string {
+// RetargetSourceMap rewrites file/sources for a per-module map.
+func RetargetSourceMap(mapText, fileName, sourceName, sourceContent string) string {
 	if strings.TrimSpace(mapText) == "" {
 		return ""
 	}
@@ -157,7 +156,8 @@ func retargetSourceMap(mapText, fileName, sourceName, sourceContent string) stri
 	return string(buf)
 }
 
-func relativizeDeclarationMap(mapText, fileName, root string) string {
+// RelativizeDeclarationMap makes absolute source paths relative to root.
+func RelativizeDeclarationMap(mapText, fileName, root string) string {
 	if strings.TrimSpace(mapText) == "" {
 		return ""
 	}
@@ -171,7 +171,7 @@ func relativizeDeclarationMap(mapText, fileName, root string) string {
 		name, _ := source.(string)
 		cleaned := filepath.FromSlash(name)
 		if filepath.IsAbs(cleaned) {
-			sources[i] = displayRel(root, cleaned)
+			sources[i] = modpath.DisplayRel(root, cleaned)
 		}
 	}
 	raw["sources"] = sources

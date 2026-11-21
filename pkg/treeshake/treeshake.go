@@ -1,4 +1,4 @@
-package bundler
+package treeshake
 
 import (
 	"encoding/json"
@@ -11,7 +11,7 @@ import (
 	"github.com/startracex/tsgo/pkg/scanner"
 )
 
-func isPureDecl(src string, stmt *ast.Node) bool {
+func IsPureDecl(src string, stmt *ast.Node) bool {
 	switch stmt.Kind {
 	case ast.KindFunctionDeclaration:
 		return true
@@ -28,7 +28,7 @@ func isPureDecl(src string, stmt *ast.Node) bool {
 		}
 		for _, declNode := range list.Declarations.Nodes {
 			init := declNode.AsVariableDeclaration().Initializer
-			if init != nil && !isPureExpr(src, init) {
+			if init != nil && !IsPureExpr(src, init) {
 				return false
 			}
 		}
@@ -54,7 +54,7 @@ func isPureClass(src string, stmt *ast.Node) bool {
 				default:
 					expr = t
 				}
-				if !isPureExpr(src, expr) {
+				if !IsPureExpr(src, expr) {
 					return false
 				}
 			}
@@ -72,7 +72,7 @@ func isPureClass(src string, stmt *ast.Node) bool {
 				continue
 			}
 			init := mem.AsPropertyDeclaration().Initializer
-			if init != nil && !isPureExpr(src, init) {
+			if init != nil && !IsPureExpr(src, init) {
 				return false
 			}
 		}
@@ -80,7 +80,7 @@ func isPureClass(src string, stmt *ast.Node) bool {
 	return true
 }
 
-func isPureExpr(src string, n *ast.Node) bool {
+func IsPureExpr(src string, n *ast.Node) bool {
 	if n == nil {
 		return true
 	}
@@ -94,17 +94,17 @@ func isPureExpr(src string, n *ast.Node) bool {
 		if hasPureAnnotation(src, n.Pos()) && isPureCallOrNew(src, inner) {
 			return pureCallArgs(src, inner)
 		}
-		return isPureExpr(src, inner)
+		return IsPureExpr(src, inner)
 	case ast.KindArrayLiteralExpression:
 		list := n.AsArrayLiteralExpression().Elements
 		if list == nil {
 			return true
 		}
 		for _, el := range list.Nodes {
-			if el.Kind != ast.KindSpreadElement && el.Kind != ast.KindOmittedExpression && !isPureExpr(src, el) {
+			if el.Kind != ast.KindSpreadElement && el.Kind != ast.KindOmittedExpression && !IsPureExpr(src, el) {
 				return false
 			}
-			if el.Kind == ast.KindSpreadElement && !isPureExpr(src, el.AsSpreadElement().Expression) {
+			if el.Kind == ast.KindSpreadElement && !IsPureExpr(src, el.AsSpreadElement().Expression) {
 				return false
 			}
 		}
@@ -117,7 +117,7 @@ func isPureExpr(src string, n *ast.Node) bool {
 		for _, prop := range list.Nodes {
 			switch prop.Kind {
 			case ast.KindPropertyAssignment:
-				if !isPureExpr(src, prop.AsPropertyAssignment().Initializer) {
+				if !IsPureExpr(src, prop.AsPropertyAssignment().Initializer) {
 					return false
 				}
 			case ast.KindShorthandPropertyAssignment:
@@ -128,7 +128,7 @@ func isPureExpr(src string, n *ast.Node) bool {
 		}
 		return true
 	case ast.KindPropertyAccessExpression:
-		return isPureExpr(src, n.AsPropertyAccessExpression().Expression)
+		return IsPureExpr(src, n.AsPropertyAccessExpression().Expression)
 	case ast.KindCallExpression, ast.KindNewExpression:
 		if !hasPureAnnotation(src, n.Pos()) {
 			return false
@@ -159,22 +159,22 @@ func pureCallArgs(src string, n *ast.Node) bool {
 	switch n.Kind {
 	case ast.KindCallExpression:
 		call := n.AsCallExpression()
-		if call.Expression != nil && !isPureExpr(src, call.Expression) {
+		if call.Expression != nil && !IsPureExpr(src, call.Expression) {
 			return false
 		}
 		for _, arg := range n.Arguments() {
-			if !isPureExpr(src, arg) {
+			if !IsPureExpr(src, arg) {
 				return false
 			}
 		}
 		return true
 	case ast.KindNewExpression:
 		nw := n.AsNewExpression()
-		if nw.Expression != nil && !isPureExpr(src, nw.Expression) {
+		if nw.Expression != nil && !IsPureExpr(src, nw.Expression) {
 			return false
 		}
 		for _, arg := range n.Arguments() {
-			if !isPureExpr(src, arg) {
+			if !IsPureExpr(src, arg) {
 				return false
 			}
 		}
@@ -233,9 +233,9 @@ func commentHasPure(s string) bool {
 	return strings.Contains(s, "#__PURE__") || strings.Contains(s, "@__PURE__")
 }
 
-// moduleSideEffectsFree reports whether file can be skipped when imported only
+// ModuleSideEffectsFree reports whether file can be skipped when imported only
 // for side effects, based on the nearest package.json "sideEffects" field.
-func moduleSideEffectsFree(file string) bool {
+func ModuleSideEffectsFree(file string) bool {
 	pkgDir, side, ok := findSideEffectsField(file)
 	if !ok {
 		return false

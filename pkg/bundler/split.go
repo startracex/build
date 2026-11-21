@@ -3,11 +3,9 @@ package bundler
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"path"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/startracex/tsgo/pkg/ast"
@@ -119,7 +117,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 		if r, err := filepath.Rel(rootDir, javascriptOutputAbs(e)); err == nil {
 			rel = r
 		}
-		js, err := linkESM(b, moduleID(e))
+		js, err := b.linkModules(moduleID(e))
 		if err != nil {
 			return nil, err
 		}
@@ -138,7 +136,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 func (b *bundler) linkChunk(entryID, chunkRel string) (string, error) {
 	prev := b.linkingChunk
 	b.linkingChunk = chunkRel
-	js, err := linkESM(b, entryID)
+	js, err := b.linkModules(entryID)
 	b.linkingChunk = prev
 	if err != nil {
 		return "", err
@@ -237,13 +235,3 @@ func chunkName(moduleID string) string {
 	return base + "-" + shortHash([]string{moduleID})
 }
 
-func (b *bundler) splitDynamicImport(moduleID string) (string, bool) {
-	if b == nil || b.chunkPaths == nil {
-		return "", false
-	}
-	rel, ok := b.chunkPaths[moduleID]
-	if !ok || rel == "" {
-		return "", false
-	}
-	return fmt.Sprintf("import(%s)", strconv.Quote("./"+rel)), true
-}

@@ -39,24 +39,6 @@ func (o Options) emitTarget() core.ScriptTarget {
 	return core.ScriptTargetESNext
 }
 
-func isJavaScriptOutput(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".js", ".mjs", ".cjs":
-		return !strings.HasSuffix(strings.ToLower(path), ".d.ts")
-	default:
-		return false
-	}
-}
-
-func isTypeScriptPath(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".ts", ".tsx", ".mts", ".cts":
-		return !strings.HasSuffix(strings.ToLower(path), ".d.ts")
-	default:
-		return false
-	}
-}
-
 func (b *bundler) declarationText(path, src string) (string, error) {
 	out := transpile.TranspileDeclaration(b.ctx, src, transpile.Options{
 		FileName: filepath.Base(path),
@@ -93,28 +75,4 @@ func (b *bundler) appResult(entry, js string) (*Result, error) {
 		files = append(files, Output{Path: jsName + ".map", Data: appSourceMap(js, filepath.Base(jsName))})
 	}
 	return &Result{Files: files, entry: js}, nil
-}
-
-func stripSourceMappingComment(src string) string {
-	lines := strings.Split(src, "\n")
-	var kept []string
-	for _, line := range lines {
-		trim := strings.TrimSpace(line)
-		if strings.HasPrefix(trim, "//# sourceMappingURL=") || strings.HasPrefix(trim, "//@ sourceMappingURL=") {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	return strings.Join(kept, "\n")
-}
-
-
-func javascriptOutputAbs(abs string) string {
-	ext := strings.ToLower(filepath.Ext(abs))
-	switch ext {
-	case ".ts", ".tsx", ".mts", ".cts", ".json":
-		return strings.TrimSuffix(abs, filepath.Ext(abs)) + ".js"
-	default:
-		return abs
-	}
 }

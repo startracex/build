@@ -1,4 +1,4 @@
-package bundler
+package cache
 
 import (
 	"crypto/sha256"
@@ -9,24 +9,28 @@ import (
 	"sync"
 )
 
-type transpileCache struct {
+// TranspileCache stores transpile results keyed by content hash on disk.
+type TranspileCache struct {
 	dir string
 	mu  sync.Mutex
 }
 
-type cacheEntry struct {
+// Entry is one cached transpile result.
+type Entry struct {
 	JS  string `json:"js"`
 	Map string `json:"map,omitempty"`
 }
 
-func newTranspileCache(dir string) *transpileCache {
+// NewTranspileCache returns a disk cache, or nil when dir is empty.
+func NewTranspileCache(dir string) *TranspileCache {
 	if dir == "" {
 		return nil
 	}
-	return &transpileCache{dir: dir}
+	return &TranspileCache{dir: dir}
 }
 
-func (c *transpileCache) key(path, src string, moduleKind, target, jsx int, sourceMap bool) string {
+// Key hashes path, source, and emit options.
+func (c *TranspileCache) Key(path, src string, moduleKind, target, jsx int, sourceMap bool) string {
 	h := sha256.New()
 	h.Write([]byte(path))
 	h.Write([]byte{0})
@@ -43,24 +47,26 @@ func (c *transpileCache) key(path, src string, moduleKind, target, jsx int, sour
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func (c *transpileCache) get(key string) (cacheEntry, bool) {
+// Get loads a cache entry when present.
+func (c *TranspileCache) Get(key string) (Entry, bool) {
 	if c == nil {
-		return cacheEntry{}, false
+		return Entry{}, false
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	raw, err := os.ReadFile(filepath.Join(c.dir, key+".json"))
 	if err != nil {
-		return cacheEntry{}, false
+		return Entry{}, false
 	}
-	var ent cacheEntry
+	var ent Entry
 	if json.Unmarshal(raw, &ent) != nil || ent.JS == "" {
-		return cacheEntry{}, false
+		return Entry{}, false
 	}
 	return ent, true
 }
 
-func (c *transpileCache) put(key string, ent cacheEntry) {
+// Put stores a cache entry.
+func (c *TranspileCache) Put(key string, ent Entry) {
 	if c == nil {
 		return
 	}

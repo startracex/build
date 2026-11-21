@@ -1,4 +1,4 @@
-package bundler
+package link
 
 import (
 	"fmt"
@@ -8,45 +8,11 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/startracex/build/pkg/jsedit"
+	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/build/pkg/treeshake"
 	"github.com/startracex/tsgo/pkg/ast"
-	"github.com/startracex/tsgo/pkg/scanner"
 )
-
-// linkESM scope-hoists the module graph into one ECMAScript module.
-// Local imports are inlined. Node built-ins and other externals stay as
-// import declarations. Side-effect-free exports that nothing uses are omitted.
-func linkESM(b *bundler, entryID string) (string, error) {
-	mods := map[string]*esModule{}
-	var order []string
-	for id, unit := range b.units {
-		mod, err := parseLinkedModule(b, id, unit.code)
-		if err != nil {
-			return "", err
-		}
-		mod.effectsFree = moduleSideEffectsFree(mod.osPath())
-		mods[id] = mod
-		order = append(order, id)
-	}
-	slices.Sort(order)
-	entry := mods[entryID]
-	if entry == nil {
-		return "", fmt.Errorf("missing entry module")
-	}
-	if err := markLive(mods, entry); err != nil {
-		return "", err
-	}
-	names := &namer{used: map[string]int{}, taken: map[string]struct{}{}}
-	helper := ""
-	if anyCJSDynamicMap(mods) {
-		// Reserve before module locals so a user binding named __commonJS
-		// is renamed instead of colliding with the runtime helper.
-		helper = names.take("__commonJS")
-	}
-	if err := assignNames(mods, order, names); err != nil {
-		return "", err
-	}
-	return renderLinked(mods, order, entry, b.format, helper), nil
-}
 
 type esModule struct {
 	id            string
@@ -62,7 +28,8 @@ type esModule struct {
 	liveExp       map[string]bool
 	liveLoc       map[string]bool
 	extFinal      map[extKey]string
-	b             *bundler
+	ctx           *linkContext
+	path          string // os path for resolve importer
 	effectsFree   bool
 	cjsMode       cjsMode
 	cjsSkip       map[*ast.Node]bool
@@ -113,7 +80,7 @@ type namer struct {
 
 func (n *namer) take(preferred string) string {
 	base := preferred
-	if !isIdentifierName(base) {
+	if !jsedit.IsIdentifierName(base) {
 		base = "binding"
 	}
 	for {
@@ -131,10 +98,14 @@ func (n *namer) take(preferred string) string {
 	}
 }
 
-func parseLinkedModule(b *bundler, id, src string) (*esModule, error) {
-	file := parseEmittedJS(src)
+func parseLinkedModule(ctx *linkContext, id, src, path string) (*esModule, error) {
+	file := jsedit.ParseEmittedJS(src)
 	if err := errorFromDiagnostics(id, src, file.Diagnostics()); err != nil {
 		return nil, err
+	}
+	impPath := path
+	if impPath == "" {
+		impPath = filepath.FromSlash(id)
 	}
 	m := &esModule{
 		id:      id,
@@ -145,11 +116,12 @@ func parseLinkedModule(b *bundler, id, src string) (*esModule, error) {
 		exports: map[string]*esExp{},
 		liveExp: map[string]bool{},
 		liveLoc: map[string]bool{},
-		b:       b,
+		ctx:     ctx,
+		path:    impPath,
 	}
 	if file.Statements != nil {
 		for _, stmt := range file.Statements.Nodes {
-			if err := m.declareStmt(b, stmt); err != nil {
+			if err := m.declareStmt(stmt); err != nil {
 				return nil, err
 			}
 		}
@@ -158,12 +130,12 @@ func parseLinkedModule(b *bundler, id, src string) (*esModule, error) {
 	return m, nil
 }
 
-func (m *esModule) declareStmt(b *bundler, stmt *ast.Node) error {
+func (m *esModule) declareStmt(stmt *ast.Node) error {
 	switch stmt.Kind {
 	case ast.KindImportDeclaration, ast.KindJSImportDeclaration:
-		return m.declareImport(b, stmt)
+		return m.declareImport(stmt)
 	case ast.KindExportDeclaration:
-		return m.declareExport(b, stmt)
+		return m.declareExport(stmt)
 	case ast.KindExportAssignment:
 		exp := stmt.AsExportAssignment()
 		if exp.Expression != nil && exp.Expression.Kind == ast.KindIdentifier && !exp.IsExportEquals {
@@ -237,23 +209,23 @@ func (m *esModule) declareVars(stmt *ast.Node) {
 	}
 }
 
-func (m *esModule) declareImport(b *bundler, stmt *ast.Node) error {
+func (m *esModule) declareImport(stmt *ast.Node) error {
 	decl := stmt.AsImportDeclaration()
 	spec := specifierText(decl.ModuleSpecifier)
-	resolved, external, err := b.resolve(m.osPath(), spec)
+	resolved, external, err := m.ctx.resolve(m.osPath(), spec)
 	if err != nil {
 		return err
 	}
 	chunkExt := ""
-	if !external && resolved != "" && b.chunkPaths != nil {
-		if cp := b.chunkPaths[moduleID(resolved)]; cp != "" && cp != b.linkingChunk {
+	if !external && resolved != "" && m.ctx.opts.Chunks != nil {
+		if cp := m.ctx.chunkRel(modpath.ModuleID(resolved)); cp != "" && cp != m.ctx.opts.LinkingChunk {
 			external = true
 			chunkExt = "./" + cp
 		}
 	}
 	if decl.ImportClause == nil {
 		if !external {
-			m.sideImps = append(m.sideImps, moduleID(resolved))
+			m.sideImps = append(m.sideImps, modpath.ModuleID(resolved))
 		}
 		return nil
 	}
@@ -269,7 +241,7 @@ func (m *esModule) declareImport(b *bundler, stmt *ast.Node) error {
 		m.imports[local] = &esImport{
 			local:     local,
 			spec:      useSpec,
-			module:    moduleID(resolved),
+			module:    modpath.ModuleID(resolved),
 			external:  external,
 			imported:  imported,
 			namespace: namespace,
@@ -309,7 +281,7 @@ func (m *esModule) declareImport(b *bundler, stmt *ast.Node) error {
 	return nil
 }
 
-func (m *esModule) declareExport(b *bundler, stmt *ast.Node) error {
+func (m *esModule) declareExport(stmt *ast.Node) error {
 	decl := stmt.AsExportDeclaration()
 	if decl.IsTypeOnly {
 		return nil
@@ -337,13 +309,13 @@ func (m *esModule) declareExport(b *bundler, stmt *ast.Node) error {
 		return nil
 	}
 	spec := specifierText(decl.ModuleSpecifier)
-	resolved, external, err := b.resolve(m.osPath(), spec)
+	resolved, external, err := m.ctx.resolve(m.osPath(), spec)
 	if err != nil {
 		return err
 	}
 	from := ""
 	if !external {
-		from = moduleID(resolved)
+		from = modpath.ModuleID(resolved)
 	}
 	if decl.ExportClause == nil {
 		if external {
@@ -392,6 +364,9 @@ func (m *esModule) declareExport(b *bundler, stmt *ast.Node) error {
 }
 
 func (m *esModule) osPath() string {
+	if m.path != "" {
+		return m.path
+	}
 	return filepath.FromSlash(m.id)
 }
 
@@ -558,7 +533,7 @@ func (m *esModule) scanSideEffects(mods map[string]*esModule) error {
 		if m.cjsSkip[stmt] {
 			continue
 		}
-		if isSkippableStmt(m.src, stmt) || isPureDecl(m.src, stmt) {
+		if isSkippableStmt(m.src, stmt) || treeshake.IsPureDecl(m.src, stmt) {
 			continue
 		}
 		if err := m.scanNode(mods, stmt); err != nil {
@@ -606,8 +581,8 @@ func (m *esModule) applyRef(mods map[string]*esModule, r ref) error {
 		if r.external {
 			return nil
 		}
-		if m.b != nil {
-			if _, ok := m.b.splitDynamicImport(r.module); ok {
+		if m.ctx != nil {
+			if _, ok := m.ctx.splitDynamicImport(r.module); ok {
 				return nil
 			}
 		}
@@ -895,12 +870,12 @@ func (m *esModule) noteDynamic(n *ast.Node, fn func(ref)) {
 		return
 	}
 	spec := args[0].Text()
-	resolved, external, err := m.b.resolve(m.osPath(), spec)
+	resolved, external, err := m.ctx.resolve(m.osPath(), spec)
 	if err != nil || external {
 		fn(ref{kind: refDynamic, name: spec, external: true, node: n})
 		return
 	}
-	fn(ref{kind: refDynamic, name: spec, module: moduleID(resolved), node: n})
+	fn(ref{kind: refDynamic, name: spec, module: modpath.ModuleID(resolved), node: n})
 }
 
 func (m *esModule) noteIdent(n, parent *ast.Node, sc *scope, fn func(ref)) {
@@ -1047,7 +1022,7 @@ func isSkippableStmt(src string, stmt *ast.Node) bool {
 			return true
 		}
 		// Pure expression statements (incl. /*#__PURE__*/ calls) have no live binding.
-		return isPureExpr(src, expr)
+		return treeshake.IsPureExpr(src, expr)
 	default:
 		return false
 	}
@@ -1221,17 +1196,17 @@ func (m *esModule) markImport(mods map[string]*esModule, imp *esImport, prop str
 	return markExport(mods, dep, imported, map[string]bool{})
 }
 
-func renderLinked(mods map[string]*esModule, order []string, entry *esModule, format Format, helper string) string {
+func renderLinked(mods map[string]*esModule, order []string, entry *esModule, format string, helper string) string {
 	var paths []string
 	for _, id := range order {
 		paths = append(paths, filepath.FromSlash(id))
 	}
-	root := displayRoot(paths)
+	root := modpath.DisplayRoot(paths)
 	sorted := topoModules(mods, entry)
 
 	var b strings.Builder
 	var lines []string
-	if format == FormatCJS {
+	if format == "cjs" {
 		lines = externalRequires(sorted)
 	} else {
 		lines = externalImports(sorted)
@@ -1252,10 +1227,10 @@ func renderLinked(mods map[string]*esModule, order []string, entry *esModule, fo
 		if body == "" {
 			continue
 		}
-		fmt.Fprintf(&b, "// %s\n%s\n\n", displayRel(root, m.osPath()), body)
+		fmt.Fprintf(&b, "// %s\n%s\n\n", modpath.DisplayRel(root, m.osPath()), body)
 	}
 	named, def := entry.exportList(mods)
-	if format == FormatCJS {
+	if format == "cjs" {
 		b.WriteString("module.exports = {\n")
 		for _, item := range named {
 			key := item
@@ -1263,7 +1238,7 @@ func renderLinked(mods map[string]*esModule, order []string, entry *esModule, fo
 			if left, right, ok := strings.Cut(item, " as "); ok {
 				binding, key = left, right
 			}
-			if isIdentifierName(key) {
+			if jsedit.IsIdentifierName(key) {
 				fmt.Fprintf(&b, "  %s: %s,\n", key, binding)
 			} else {
 				fmt.Fprintf(&b, "  %s: %s,\n", strconv.Quote(key), binding)
@@ -1498,11 +1473,11 @@ func (entry *esModule) exportList(mods map[string]*esModule) (named []string, de
 			def = binding
 			continue
 		}
-		if binding == name && isIdentifierName(name) {
+		if binding == name && jsedit.IsIdentifierName(name) {
 			named = append(named, name)
 			continue
 		}
-		if isIdentifierName(name) {
+		if jsedit.IsIdentifierName(name) {
 			named = append(named, binding+" as "+name)
 			continue
 		}
@@ -1579,7 +1554,7 @@ func (m *esModule) namespaceObjects(mods map[string]*esModule) []string {
 }
 
 func propLine(name, binding string) string {
-	if isIdentifierName(name) {
+	if jsedit.IsIdentifierName(name) {
 		return "  get " + name + "() { return " + binding + "; },"
 	}
 	return "  get " + strconv.Quote(name) + "() { return " + binding + "; },"
@@ -1621,7 +1596,7 @@ func (m *esModule) statementEdits(mods map[string]*esModule, stmt *ast.Node) []e
 			} else if final == r.node.Text() {
 				return
 			}
-			edits = append(edits, edit{start: tokenStart(m.src, r.node), end: r.node.End(), text: text})
+			edits = append(edits, edit{start: jsedit.TokenStart(m.src, r.node), end: r.node.End(), text: text})
 		case refNSProp:
 			imp := m.imports[r.name]
 			if imp == nil {
@@ -1631,19 +1606,19 @@ func (m *esModule) statementEdits(mods map[string]*esModule, stmt *ast.Node) []e
 				if imp.final != "" && imp.final != r.name {
 					obj := objectIdent(r.node)
 					if obj != nil {
-						edits = append(edits, edit{start: tokenStart(m.src, obj), end: obj.End(), text: imp.final})
+						edits = append(edits, edit{start: jsedit.TokenStart(m.src, obj), end: obj.End(), text: imp.final})
 					}
 				}
 				return
 			}
 			if final := m.propBinding(mods, imp, r.prop); final != "" {
-				edits = append(edits, edit{start: tokenStart(m.src, r.node), end: r.node.End(), text: final})
+				edits = append(edits, edit{start: jsedit.TokenStart(m.src, r.node), end: r.node.End(), text: final})
 			}
 		case refDynamic:
 			if r.external || r.module == "" {
 				return
 			}
-			edits = append(edits, edit{start: tokenStart(m.src, r.node), end: r.node.End(), text: dynamicNamespace(mods, r.module)})
+			edits = append(edits, edit{start: jsedit.TokenStart(m.src, r.node), end: r.node.End(), text: dynamicNamespace(mods, r.module)})
 		}
 	})
 	for _, loc := range m.locals {
@@ -1654,7 +1629,7 @@ func (m *esModule) statementEdits(mods map[string]*esModule, stmt *ast.Node) []e
 			if id.Text() == loc.final {
 				continue
 			}
-			edits = append(edits, edit{start: tokenStart(m.src, id), end: id.End(), text: loc.final})
+			edits = append(edits, edit{start: jsedit.TokenStart(m.src, id), end: id.End(), text: loc.final})
 		}
 	}
 	return edits
@@ -1667,7 +1642,7 @@ func (m *esModule) keepStmt(stmt *ast.Node) bool {
 	if isSkippableStmt(m.src, stmt) {
 		return false
 	}
-	if isPureDecl(m.src, stmt) {
+	if treeshake.IsPureDecl(m.src, stmt) {
 		names := declaredLocals(stmt)
 		for _, name := range names {
 			if m.liveLoc[name] {
@@ -1773,8 +1748,8 @@ func objectIdent(n *ast.Node) *ast.Node {
 
 func dynamicNamespace(mods map[string]*esModule, id string) string {
 	for _, m := range mods {
-		if m != nil && m.b != nil {
-			if expr, ok := m.b.splitDynamicImport(id); ok {
+		if m != nil && m.ctx != nil {
+			if expr, ok := m.ctx.splitDynamicImport(id); ok {
 				return expr
 			}
 			break
@@ -1799,22 +1774,15 @@ func dynamicNamespace(mods map[string]*esModule, id string) string {
 			continue
 		}
 		switch {
-		case binding == name && isIdentifierName(name):
+		case binding == name && jsedit.IsIdentifierName(name):
 			parts = append(parts, name)
-		case isIdentifierName(name):
+		case jsedit.IsIdentifierName(name):
 			parts = append(parts, name+": "+binding)
 		default:
 			parts = append(parts, strconv.Quote(name)+": "+binding)
 		}
 	}
 	return "Promise.resolve({ " + strings.Join(parts, ", ") + " })"
-}
-
-func tokenStart(src string, n *ast.Node) int {
-	if n == nil || n.Pos() < 0 {
-		return 0
-	}
-	return scanner.SkipTrivia(src, n.Pos())
 }
 
 func stripExportSpan(src string, stmt *ast.Node) (int, int, bool) {

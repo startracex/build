@@ -1,13 +1,19 @@
-package bundler
+package wrap
 
 import (
 	"fmt"
 	"strings"
 )
 
-// wrapFormat converts linked ESM/CJS body into IIFE or UMD when requested.
-// ESM and CJS pass through; linkESM already emits the right shape for those.
-func wrapFormat(js string, format Format, globalName string) string {
+const (
+	FormatESM  = "esm"
+	FormatCJS  = "cjs"
+	FormatIIFE = "iife"
+	FormatUMD  = "umd"
+)
+
+// WrapFormat converts linked ESM/CJS body into IIFE or UMD when requested.
+func WrapFormat(js string, format string, globalName string) string {
 	switch format {
 	case FormatIIFE:
 		return wrapIIFE(js, globalName)
@@ -24,13 +30,9 @@ func wrapIIFE(js string, globalName string) string {
 		name = "exports"
 	}
 	body := strings.TrimSpace(js)
-	// linkESM CJS path uses module.exports; for IIFE we force CJS-style link
-	// then assign onto the global. Prefer rewriting from ESM export form.
 	if strings.Contains(body, "module.exports") {
 		return fmt.Sprintf("var %s = (function () {\n%s\n  return typeof module !== \"undefined\" && module.exports ? module.exports : {};\n})();\n", name, indentBlock(body, "  "))
 	}
-	// ESM-looking: wrap and expose via return of bindings is hard; emit as
-	// side-effect IIFE that attaches named exports onto the global object.
 	return fmt.Sprintf("(function (global) {\n  var exports = {};\n%s\n  global[%q] = exports;\n})(typeof globalThis !== \"undefined\" ? globalThis : typeof window !== \"undefined\" ? window : this);\n",
 		indentBlock(stripESMExportsToAssignments(body), "  "), name)
 }
@@ -71,8 +73,6 @@ func indentBlock(src, pad string) string {
 	return strings.Join(lines, "\n")
 }
 
-// stripESMExportsToAssignments is a best-effort rewrite for wrapping ESM link
-// output when the caller requested IIFE/UMD without going through FormatCJS.
 func stripESMExportsToAssignments(src string) string {
 	lines := strings.Split(src, "\n")
 	var out []string

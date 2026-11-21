@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/tsgo/pkg/ast"
 	"github.com/startracex/tsgo/pkg/core"
 	"github.com/startracex/tsgo/pkg/parser"
@@ -48,7 +49,7 @@ func rewriteRelativeSpecifiers(src, fromAbs string, b *bundler, typescript bool)
 			}
 			next := relativeOutputSpecifier(fromAbs, resolved)
 			edits = append(edits, edit{
-				start: tokenStart(src, specNode),
+				start: jsedit.TokenStart(src, specNode),
 				end:   specNode.End(),
 				text:  quoteJS(next),
 			})
@@ -63,7 +64,7 @@ func rewriteRelativeSpecifiers(src, fromAbs string, b *bundler, typescript bool)
 				return
 			}
 			edits = append(edits, edit{
-				start: tokenStart(src, arg),
+				start: jsedit.TokenStart(src, arg),
 				end:   arg.End(),
 				text:  quoteJS(relativeOutputSpecifier(fromAbs, resolved)),
 			})
@@ -78,7 +79,7 @@ func rewriteRelativeSpecifiers(src, fromAbs string, b *bundler, typescript bool)
 				return
 			}
 			edits = append(edits, edit{
-				start: tokenStart(src, arg),
+				start: jsedit.TokenStart(src, arg),
 				end:   arg.End(),
 				text:  quoteJS(relativeOutputSpecifier(fromAbs, resolved)),
 			})

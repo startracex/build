@@ -1,4 +1,4 @@
-package bundler
+package link
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/tsgo/pkg/ast"
 )
 
@@ -111,7 +112,7 @@ func (m *esModule) ensureCJSProp(name string) {
 }
 
 func (m *esModule) cjsAllowsProp(name string) bool {
-	if m.cjsMode == cjsNone || !isIdentifierName(name) {
+	if m.cjsMode == cjsNone || !jsedit.IsIdentifierName(name) {
 		return false
 	}
 	loc := m.locals[cjsExportsLocal]
@@ -256,7 +257,7 @@ func staticObjectProps(obj *ast.Node) ([]cjsProp, bool) {
 			props = append(props, cjsProp{name: name, init: pa.Initializer})
 		case ast.KindShorthandPropertyAssignment:
 			nameNode := prop.AsShorthandPropertyAssignment().Name()
-			if nameNode == nil || !isIdentifierName(nameNode.Text()) {
+			if nameNode == nil || !jsedit.IsIdentifierName(nameNode.Text()) {
 				return nil, false
 			}
 			props = append(props, cjsProp{name: nameNode.Text(), init: nameNode})
@@ -356,7 +357,7 @@ func exportsPropName(n *ast.Node) (string, bool) {
 		return "", false
 	}
 	name := access.Name().Text()
-	if !isIdentifierName(name) {
+	if !jsedit.IsIdentifierName(name) {
 		return "", false
 	}
 	if access.Expression.Kind == ast.KindIdentifier && access.Expression.Text() == "exports" {
@@ -374,12 +375,12 @@ func staticPropName(name *ast.Node) (string, bool) {
 	}
 	switch name.Kind {
 	case ast.KindIdentifier:
-		if isIdentifierName(name.Text()) {
+		if jsedit.IsIdentifierName(name.Text()) {
 			return name.Text(), true
 		}
 	case ast.KindStringLiteral, ast.KindNoSubstitutionTemplateLiteral:
 		text := name.Text()
-		if isIdentifierName(text) {
+		if jsedit.IsIdentifierName(text) {
 			return text, true
 		}
 	}
@@ -519,7 +520,7 @@ func (m *esModule) renderExpr(n *ast.Node) string {
 		if !ok || final == r.node.Text() {
 			return
 		}
-		tok := tokenStart(m.src, r.node)
+		tok := jsedit.TokenStart(m.src, r.node)
 		edits = append(edits, edit{start: tok - start, end: r.node.End() - start, text: final})
 	})
 	chunk := m.src[start:end]
