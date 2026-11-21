@@ -23,14 +23,14 @@ build -o dist/app.mjs src/index.ts
 node dist/app.mjs
 ```
 
-That command also writes `dist/app.d.ts` and `dist/app.mjs.map`. ESM is the default. Load that file as `.mjs`, or from a package whose `"type"` is `"module"`. A browser can load the same file as a module when it does not import Node built-ins.
+That command also writes `dist/app.mjs.map`. ESM is the default. Load that file as `.mjs`, or from a package whose `"type"` is `"module"`. A browser can load the same file as a module when it does not import Node built-ins. App mode does not write a `.d.ts` file.
 
 ```bash
 build --format cjs -o dist/app.cjs src/index.ts
 node -e 'const app = require("./dist/app.cjs"); console.log(app.default)'
 ```
 
-Library mode writes one JavaScript file per local module. Package imports stay external, and relative imports point at the emitted files.
+Library mode writes one JavaScript file per local module, plus a `.d.ts` and `.d.ts.map` for each TypeScript file. Package imports stay external, and relative imports point at the emitted files. Declaration types come from tsgo's checker, so an exported value keeps its inferred type.
 
 ```bash
 build --mode lib --outdir dist src/index.ts
@@ -51,7 +51,7 @@ build --entry src/index.ts --outfile dist/app.mjs --format esm --jsx react --ext
 | `--external` | Package or specifier left as an import or require. Repeat the flag to list more than one. Library mode already leaves every bare package external. |
 | `--platform` | `node` (default) or `browser`. Selects the matching `package.json` `"exports"` condition. |
 | `--sourcemap` | Write source maps. Default is true. Pass `--sourcemap=false` to skip them. |
-| `--dts` | Write `.d.ts` files with tsgo. Default is true. Pass `--dts=false` to skip them. |
+| `--dts` | Library mode: write `.d.ts` and `.d.ts.map` with tsgo. Default is true. Pass `--dts=false` to skip them. App mode ignores this flag. |
 
 ## Modules
 
@@ -71,9 +71,9 @@ Library mode keeps each local module in its own file. `import()` stays a dynamic
 
 `bundler.Options.Resolve` can replace a specifier with a file. That is the extension point for aliases.
 
-Declarations use tsgo's isolated declaration emit. A function with an explicit return type keeps that type. A `const` whose type is only inferred may be emitted as `any`.
+Library declarations are emitted by tsgo after it type-checks the local program. A `const` whose type is inferred keeps that type, for example `number`, instead of `any`. The `.d.ts.map` points from each declaration file back at its source.
 
-App source maps are line-level maps back to the linked source files. Library source maps are the maps tsgo emits for each file.
+App source maps are line-level maps back to the linked source files. Library JavaScript source maps are the maps tsgo emits for each file.
 
 ## Not supported
 

@@ -156,3 +156,28 @@ func retargetSourceMap(mapText, fileName, sourceName, sourceContent string) stri
 	}
 	return string(buf)
 }
+
+func relativizeDeclarationMap(mapText, fileName, root string) string {
+	if strings.TrimSpace(mapText) == "" {
+		return ""
+	}
+	var raw map[string]any
+	if json.Unmarshal([]byte(mapText), &raw) != nil {
+		return mapText
+	}
+	raw["file"] = fileName
+	sources, _ := raw["sources"].([]any)
+	for i, source := range sources {
+		name, _ := source.(string)
+		cleaned := filepath.FromSlash(name)
+		if filepath.IsAbs(cleaned) {
+			sources[i] = displayRel(root, cleaned)
+		}
+	}
+	raw["sources"] = sources
+	buf, err := json.Marshal(raw)
+	if err != nil {
+		return mapText
+	}
+	return string(buf)
+}

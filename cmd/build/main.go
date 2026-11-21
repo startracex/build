@@ -51,13 +51,13 @@ func run(args []string, stderr, stdout io.Writer) error {
 	outdir := fs.String("outdir", "", "lib mode: directory for JavaScript, declarations, and source maps")
 	platform := fs.String("platform", "node", "package export condition: node or browser")
 	sourcemap := fs.Bool("sourcemap", true, "write source maps (default true)")
-	dts := fs.Bool("dts", true, "write .d.ts files with tsgo (default true)")
+	dts := fs.Bool("dts", true, "library mode: write .d.ts and .d.ts.map with tsgo (default true)")
 	var external stringList
 	fs.Var(&external, "external", "package or specifier to leave unbundled (repeatable)")
 	fs.Usage = func() {
 		fmt.Fprintf(stderr, "Usage:\n  build -o outfile entry\n  build --mode lib --outdir dist entry\n\n")
 		fmt.Fprintf(stderr, "App mode writes one bundle. Library mode writes one file per local module and leaves package imports external.\n")
-		fmt.Fprintf(stderr, "Declarations and source maps are written next to the JavaScript unless disabled.\n\n")
+		fmt.Fprintf(stderr, "Source maps are written next to the JavaScript. Library mode also writes .d.ts and .d.ts.map. App mode does not write declarations.\n\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {

@@ -84,6 +84,9 @@ func TestCLILibraryMode(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(indexDir, "math.d.ts")); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := os.Stat(filepath.Join(indexDir, "math.d.ts.map")); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := os.Stat(filepath.Join(indexDir, "index.js.map")); err != nil {
 		t.Fatal(err)
 	}

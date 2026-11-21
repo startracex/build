@@ -45,19 +45,6 @@ func isJavaScriptOutput(path string) bool {
 	}
 }
 
-func isScriptPath(path string) bool {
-	return isTypeScriptPath(path) || isJavaScriptPath(path)
-}
-
-func isJavaScriptPath(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".js", ".jsx", ".mjs", ".cjs":
-		return !strings.HasSuffix(strings.ToLower(path), ".d.ts")
-	default:
-		return false
-	}
-}
-
 func isTypeScriptPath(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".ts", ".tsx", ".mts", ".cts":
@@ -102,24 +89,7 @@ func (b *bundler) appResult(entry, js string) (*Result, error) {
 	if b.sourceMap {
 		files = append(files, Output{Path: jsName + ".map", Data: appSourceMap(js, filepath.Base(jsName))})
 	}
-	if b.decl {
-		dts, err := assembleAppDTS(b, entry)
-		if err != nil {
-			return nil, err
-		}
-		files = append(files, Output{Path: declarationPath(jsName), Data: dts})
-	}
 	return &Result{Files: files, entry: js}, nil
-}
-
-func declarationPath(jsPath string) string {
-	name := jsPath
-	for _, ext := range []string{".mjs", ".cjs", ".js"} {
-		if strings.HasSuffix(strings.ToLower(name), ext) {
-			return name[:len(name)-len(ext)] + ".d.ts"
-		}
-	}
-	return name + ".d.ts"
 }
 
 func stripSourceMappingComment(src string) string {

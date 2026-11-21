@@ -7,6 +7,9 @@ import (
 )
 
 func (b *bundler) emitLibrary(entry string) (*Result, error) {
+	if err := b.attachDeclarations(); err != nil {
+		return nil, err
+	}
 	root := displayRoot(unitPaths(b, entry))
 	var files []Output
 	var entryJS string
@@ -49,7 +52,17 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			if b.opts.OutDir != "" {
 				dtsPath = filepath.Join(b.opts.OutDir, filepath.FromSlash(dtsRel))
 			}
+			mapName := filepath.Base(dtsRel) + ".map"
+			if strings.TrimSpace(unit.dtsMap) != "" {
+				dts = strings.TrimRight(stripSourceMappingComment(dts), "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
+			}
 			files = append(files, Output{Path: dtsPath, Data: dts})
+			if strings.TrimSpace(unit.dtsMap) != "" {
+				files = append(files, Output{
+					Path: dtsPath + ".map",
+					Data: relativizeDeclarationMap(unit.dtsMap, filepath.Base(dtsRel), root),
+				})
+			}
 		}
 	}
 	if entryJS == "" {

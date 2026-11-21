@@ -449,20 +449,20 @@ func TestAppDeclarationsAndSourceMap(t *testing.T) {
 	if !sawTS || decoded["mappings"] == "" {
 		t.Fatalf("map sources = %v mappings = %v", sources, decoded["mappings"])
 	}
-	dts := outputNamed(t, result.Files, "app.d.ts")
-	if !strings.Contains(dts, "read(): number") || !strings.Contains(dts, "function add") || !strings.Contains(dts, "function greet") {
-		t.Fatalf("declaration missing entry surface:\n%s", dts)
-	}
-	if !strings.Contains(dts, "Ghost") || !strings.Contains(dts, "missing-types") {
-		t.Fatalf("type-only import was dropped:\n%s", dts)
+	for _, file := range result.Files {
+		if strings.HasSuffix(strings.ToLower(file.Path), ".d.ts") || strings.HasSuffix(strings.ToLower(file.Path), ".d.ts.map") {
+			t.Fatalf("app mode wrote a declaration: %s", file.Path)
+		}
 	}
 }
 
 func TestLibraryMode(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `
-export { add } from "./math";
+import { add } from "./math";
+export { add };
 import { secret } from "left-out";
+export const sum = add(2, 3);
 export const leaked: string = secret;
 export function load(): Promise<number> {
   return import("./dep").then((mod) => mod.value);
@@ -498,8 +498,31 @@ export const value = 7;
 	if !strings.Contains(dts, "add(a: number, b: number): number") {
 		t.Fatalf("math.d.ts:\n%s", dts)
 	}
-	if !strings.Contains(outputNamed(t, result.Files, "index.d.ts"), `from "./math.js"`) {
-		t.Fatalf("index.d.ts:\n%s", outputNamed(t, result.Files, "index.d.ts"))
+	indexDTS := outputNamed(t, result.Files, "index.d.ts")
+	if !strings.Contains(indexDTS, `from "./math.js"`) || !strings.Contains(indexDTS, "sum: number") || strings.Contains(indexDTS, "sum: any") {
+		t.Fatalf("index.d.ts:\n%s", indexDTS)
+	}
+	if !strings.Contains(indexDTS, "sourceMappingURL=index.d.ts.map") {
+		t.Fatalf("index.d.ts missing declaration map comment:\n%s", indexDTS)
+	}
+	declMap := outputNamed(t, result.Files, "index.d.ts.map")
+	var declDecoded map[string]any
+	if err := json.Unmarshal([]byte(declMap), &declDecoded); err != nil {
+		t.Fatal(err)
+	}
+	if declDecoded["version"] != float64(3) || declDecoded["mappings"] == "" {
+		t.Fatalf("declaration map = %s", declMap)
+	}
+	declSources, _ := declDecoded["sources"].([]any)
+	var sawDeclSource bool
+	for _, source := range declSources {
+		name, _ := source.(string)
+		if strings.HasSuffix(name, "index.ts") && !filepath.IsAbs(name) {
+			sawDeclSource = true
+		}
+	}
+	if !sawDeclSource {
+		t.Fatalf("declaration map sources = %v", declSources)
 	}
 	raw := outputNamed(t, result.Files, "index.js.map")
 	var decoded map[string]any
