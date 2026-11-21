@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,11 +52,75 @@ func TestCLILongFlags(t *testing.T) {
 	}
 }
 
+func TestCLILibraryMode(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "index.ts"), []byte("import { add } from \"./math.js\";\nexport const product: number = add(2, 3);\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "math.ts"), []byte("export function add(a: number, b: number): number { return a + b; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "dist")
+	var stdout strings.Builder
+	if err := run([]string{"--mode", "lib", "--outdir", out, filepath.Join(src, "index.ts")}, nil, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	indexPath := findOutput(t, out, "index.js")
+	js, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(js), `from "./math.js"`) {
+		t.Fatalf("index.js:\n%s", js)
+	}
+	indexDir := filepath.Dir(indexPath)
+	if _, err := os.Stat(filepath.Join(indexDir, "math.js")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(indexDir, "math.d.ts")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(indexDir, "index.js.map")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "math.d.ts") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func findOutput(t *testing.T, root, name string) string {
+	t.Helper()
+	var found string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && d.Name() == name {
+			found = path
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found == "" {
+		t.Fatalf("missing %s under %s", name, root)
+	}
+	return found
+}
+
 func TestCLIUsageErrors(t *testing.T) {
 	if err := run(nil, nil, nil); err == nil || !strings.Contains(err.Error(), "missing entry") {
 		t.Fatalf("error = %v", err)
 	}
 	if err := run([]string{"entry.ts"}, nil, nil); err == nil || !strings.Contains(err.Error(), "missing output") {
+		t.Fatalf("error = %v", err)
+	}
+	if err := run([]string{"--mode", "lib", "entry.ts"}, nil, nil); err == nil || !strings.Contains(err.Error(), "missing output directory") {
 		t.Fatalf("error = %v", err)
 	}
 }

@@ -23,6 +23,7 @@ func linkESM(b *bundler, entryID string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		mod.effectsFree = packageEffectsFree(mod.osPath())
 		mods[id] = mod
 		order = append(order, id)
 	}
@@ -38,24 +39,25 @@ func linkESM(b *bundler, entryID string) (string, error) {
 	if err := assignNames(mods, order, names); err != nil {
 		return "", err
 	}
-	return renderESM(mods, order, entry), nil
+	return renderLinked(mods, order, entry, b.format), nil
 }
 
 type esModule struct {
-	id       string
-	src      string
-	file     *ast.SourceFile
-	locals   map[string]*esLocal
-	imports  map[string]*esImport // local name -> import
-	exports  map[string]*esExp
-	stars    []string // module ids re-exported with export *
-	sideImps []string
-	needed   []string
-	inst     bool
-	liveExp  map[string]bool
-	liveLoc  map[string]bool
-	extFinal map[extKey]string
-	b        *bundler
+	id          string
+	src         string
+	file        *ast.SourceFile
+	locals      map[string]*esLocal
+	imports     map[string]*esImport // local name -> import
+	exports     map[string]*esExp
+	stars       []string // module ids re-exported with export *
+	sideImps    []string
+	needed      []string
+	inst        bool
+	liveExp     map[string]bool
+	liveLoc     map[string]bool
+	extFinal    map[extKey]string
+	b           *bundler
+	effectsFree bool
 }
 
 type extKey struct{ spec, name string }
@@ -485,10 +487,12 @@ func (m *esModule) instantiate(mods map[string]*esModule) error {
 	}
 	m.inst = true
 	for _, id := range m.sideImps {
-		if dep := mods[id]; dep != nil {
-			if err := dep.instantiate(mods); err != nil {
-				return err
-			}
+		dep := mods[id]
+		if dep == nil || dep.effectsFree {
+			continue
+		}
+		if err := dep.instantiate(mods); err != nil {
+			return err
 		}
 	}
 	return m.scanSideEffects(mods)
@@ -1216,7 +1220,7 @@ func (m *esModule) markImport(mods map[string]*esModule, imp *esImport, prop str
 	return markExport(mods, dep, imported, map[string]bool{})
 }
 
-func renderESM(mods map[string]*esModule, order []string, entry *esModule) string {
+func renderLinked(mods map[string]*esModule, order []string, entry *esModule, format Format) string {
 	var paths []string
 	for _, id := range order {
 		paths = append(paths, filepath.FromSlash(id))
@@ -1225,7 +1229,12 @@ func renderESM(mods map[string]*esModule, order []string, entry *esModule) strin
 	sorted := topoModules(mods, entry)
 
 	var b strings.Builder
-	lines := externalImports(sorted)
+	var lines []string
+	if format == FormatCJS {
+		lines = externalRequires(sorted)
+	} else {
+		lines = externalImports(sorted)
+	}
 	for _, line := range lines {
 		b.WriteString(line)
 		b.WriteByte('\n')
@@ -1241,6 +1250,26 @@ func renderESM(mods map[string]*esModule, order []string, entry *esModule) strin
 		fmt.Fprintf(&b, "// %s\n%s\n\n", displayRel(root, m.osPath()), body)
 	}
 	named, def := entry.exportList(mods)
+	if format == FormatCJS {
+		b.WriteString("module.exports = {\n")
+		for _, item := range named {
+			key := item
+			binding := item
+			if left, right, ok := strings.Cut(item, " as "); ok {
+				binding, key = left, right
+			}
+			if isIdentifierName(key) {
+				fmt.Fprintf(&b, "  %s: %s,\n", key, binding)
+			} else {
+				fmt.Fprintf(&b, "  %s: %s,\n", strconv.Quote(key), binding)
+			}
+		}
+		if def != "" {
+			fmt.Fprintf(&b, "  default: %s,\n", def)
+		}
+		b.WriteString("};\n")
+		return b.String()
+	}
 	if len(named) == 0 && def == "" {
 		if !strings.Contains(b.String(), "import ") {
 			b.WriteString("export {};\n")
@@ -1258,6 +1287,72 @@ func renderESM(mods map[string]*esModule, order []string, entry *esModule) strin
 		fmt.Fprintf(&b, "export default %s;\n", def)
 	}
 	return b.String()
+}
+
+func externalRequires(mods []*esModule) []string {
+	type named struct{ exported, local string }
+	type group struct {
+		spec  string
+		def   string
+		ns    string
+		named []named
+	}
+	groups := map[string]*group{}
+	var specs []string
+	for _, m := range mods {
+		for _, imp := range m.imports {
+			if !imp.external || !importLive(m, imp) {
+				continue
+			}
+			g := groups[imp.spec]
+			if g == nil {
+				g = &group{spec: imp.spec}
+				groups[imp.spec] = g
+				specs = append(specs, imp.spec)
+			}
+			switch {
+			case imp.namespace && imp.escapes:
+				g.ns = imp.final
+			case imp.namespace:
+				for prop := range imp.props {
+					g.named = append(g.named, named{prop, m.extFinal[extKey{imp.spec, prop}]})
+				}
+			case imp.imported == "default":
+				g.def = imp.final
+			default:
+				g.named = append(g.named, named{imp.imported, imp.final})
+			}
+		}
+	}
+	slices.Sort(specs)
+	var lines []string
+	for _, spec := range specs {
+		g := groups[spec]
+		if g.ns != "" {
+			lines = append(lines, fmt.Sprintf("const %s = require(%s);", g.ns, strconv.Quote(g.spec)))
+		}
+		if g.def != "" {
+			lines = append(lines, fmt.Sprintf("const %s = require(%s);", g.def, strconv.Quote(g.spec)))
+		}
+		seen := map[string]bool{}
+		var parts []string
+		slices.SortFunc(g.named, func(a, b named) int { return strings.Compare(a.exported, b.exported) })
+		for _, item := range g.named {
+			if item.local == "" || seen[item.exported] {
+				continue
+			}
+			seen[item.exported] = true
+			if item.local == item.exported {
+				parts = append(parts, item.exported)
+			} else {
+				parts = append(parts, item.exported+": "+item.local)
+			}
+		}
+		if len(parts) > 0 {
+			lines = append(lines, fmt.Sprintf("const { %s } = require(%s);", strings.Join(parts, ", "), strconv.Quote(g.spec)))
+		}
+	}
+	return lines
 }
 
 func topoModules(mods map[string]*esModule, entry *esModule) []*esModule {

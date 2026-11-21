@@ -415,6 +415,176 @@ Promise.resolve(typeof m.load === "function" ? m.load() : 0).then((load) => {
 	return result
 }
 
+func TestAppDeclarationsAndSourceMap(t *testing.T) {
+	result, err := Build(context.Background(), Options{
+		Entry:   filepath.Join("testdata", "app", "index.ts"),
+		OutFile: filepath.Join("dist", "app.mjs"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := outputNamed(t, result.Files, "app.mjs")
+	if !strings.Contains(js, "sourceMappingURL=app.mjs.map") {
+		t.Fatalf("bundle missing source map comment:\n%s", js)
+	}
+	if strings.Contains(js, "drop-math") || strings.Contains(js, `from "./`) {
+		t.Fatalf("app bundle changed shape:\n%s", js)
+	}
+	raw := outputNamed(t, result.Files, "app.mjs.map")
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded["version"] != float64(3) {
+		t.Fatalf("map version = %v", decoded["version"])
+	}
+	sources, _ := decoded["sources"].([]any)
+	var sawTS bool
+	for _, source := range sources {
+		name, _ := source.(string)
+		if strings.HasSuffix(name, ".ts") || strings.HasSuffix(name, ".tsx") {
+			sawTS = true
+		}
+	}
+	if !sawTS || decoded["mappings"] == "" {
+		t.Fatalf("map sources = %v mappings = %v", sources, decoded["mappings"])
+	}
+	dts := outputNamed(t, result.Files, "app.d.ts")
+	if !strings.Contains(dts, "read(): number") || !strings.Contains(dts, "function add") || !strings.Contains(dts, "function greet") {
+		t.Fatalf("declaration missing entry surface:\n%s", dts)
+	}
+	if !strings.Contains(dts, "Ghost") || !strings.Contains(dts, "missing-types") {
+		t.Fatalf("type-only import was dropped:\n%s", dts)
+	}
+}
+
+func TestLibraryMode(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `
+export { add } from "./math";
+import { secret } from "left-out";
+export const leaked: string = secret;
+export function load(): Promise<number> {
+  return import("./dep").then((mod) => mod.value);
+}
+`)
+	writeFile(t, filepath.Join(dir, "math.ts"), `
+export function add(a: number, b: number): number { return a + b; }
+`)
+	writeFile(t, filepath.Join(dir, "dep.ts"), `
+export const value = 7;
+`)
+	out := filepath.Join(dir, "dist")
+	result, err := Build(context.Background(), Options{
+		Entry:  filepath.Join(dir, "index.ts"),
+		Mode:   ModeLib,
+		OutDir: out,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := outputNamed(t, result.Files, "index.js")
+	if !strings.Contains(js, `from "./math.js"`) || !strings.Contains(js, `from "left-out"`) || !strings.Contains(js, `import("./dep.js")`) {
+		t.Fatalf("library entry did not keep module boundaries:\n%s", js)
+	}
+	if strings.Contains(js, "return a + b") {
+		t.Fatalf("math was inlined into the entry:\n%s", js)
+	}
+	math := outputNamed(t, result.Files, "math.js")
+	if !strings.Contains(math, "function add") {
+		t.Fatalf("math.js:\n%s", math)
+	}
+	dts := outputNamed(t, result.Files, "math.d.ts")
+	if !strings.Contains(dts, "add(a: number, b: number): number") {
+		t.Fatalf("math.d.ts:\n%s", dts)
+	}
+	if !strings.Contains(outputNamed(t, result.Files, "index.d.ts"), `from "./math.js"`) {
+		t.Fatalf("index.d.ts:\n%s", outputNamed(t, result.Files, "index.d.ts"))
+	}
+	raw := outputNamed(t, result.Files, "index.js.map")
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded["version"] != float64(3) || decoded["mappings"] == "" {
+		t.Fatalf("library map = %s", raw)
+	}
+	for _, file := range result.Files {
+		if !strings.HasPrefix(file.Path, out) {
+			t.Fatalf("output %s is outside %s", file.Path, out)
+		}
+	}
+}
+
+func TestExternalPackage(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `
+import { secret } from "left-out";
+export const value = secret;
+`)
+	writeFile(t, filepath.Join(dir, "node_modules", "left-out", "package.json"), `{"type":"module","main":"index.js"}`)
+	writeFile(t, filepath.Join(dir, "node_modules", "left-out", "index.js"), `export const secret = "BUNDLED_SECRET";`)
+	code, err := Bundle(context.Background(), Options{
+		Entry:    filepath.Join(dir, "index.ts"),
+		External: []string{"left-out"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(code, "BUNDLED_SECRET") || !strings.Contains(code, `from "left-out"`) {
+		t.Fatalf("external package was bundled:\n%s", code)
+	}
+}
+
+func TestSideEffectsFalse(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "package.json"), `{"sideEffects":false}`)
+	writeFile(t, filepath.Join(dir, "index.ts"), `
+import "./effect.js";
+export function value(): number { return 1; }
+`)
+	writeFile(t, filepath.Join(dir, "effect.ts"), `
+console.log("SIDE_EFFECT_MARKER");
+`)
+	code, err := Bundle(context.Background(), Options{Entry: filepath.Join(dir, "index.ts")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(code, "SIDE_EFFECT_MARKER") {
+		t.Fatalf("side-effect-free module was kept:\n%s", code)
+	}
+}
+
+func outputNamed(t *testing.T, files []Output, name string) string {
+	t.Helper()
+	var data string
+	n := 0
+	for _, file := range files {
+		if filepath.Base(file.Path) == name {
+			data = file.Data
+			n++
+		}
+	}
+	if n != 1 {
+		var names []string
+		for _, file := range files {
+			names = append(names, file.Path)
+		}
+		t.Fatalf("file %s matched %d outputs in %v", name, n, names)
+	}
+	return data
+}
+
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func runNode(t *testing.T, code, script string) string {
 	t.Helper()
 	return runNodeExt(t, code, "esm", script)

@@ -42,7 +42,7 @@ func (h resolutionHost) FS() vfs.FS { return h.fs }
 
 func (h resolutionHost) GetCurrentDirectory() tspath.RootedDirectoryPath { return h.dir }
 
-func newResolver(entryDir string) (*tsmodule.DefaultResolver, error) {
+func newResolver(entryDir, platform string) (*tsmodule.DefaultResolver, error) {
 	dir, err := filepath.Abs(entryDir)
 	if err != nil {
 		return nil, err
@@ -59,6 +59,7 @@ func newResolver(entryDir string) (*tsmodule.DefaultResolver, error) {
 			ResolveJsonModule:          core.TSTrue,
 			ResolvePackageJsonExports:  core.TSTrue,
 			ResolvePackageJsonImports:  core.TSTrue,
+			CustomConditions:           platformConditions(platform),
 		},
 	}), nil
 }
@@ -84,7 +85,7 @@ func (b *bundler) resolveSpec(importer, spec string, allowModuleField bool) (str
 	if err := unsupportedSpecifier(spec); err != nil {
 		return "", false, err
 	}
-	if isExternalSpecifier(spec) {
+	if isExternalSpecifier(spec) || b.isUserExternal(spec) {
 		b.noteExternal(spec)
 		return "", true, nil
 	}
@@ -150,6 +151,35 @@ func (b *bundler) noteExternal(spec string) {
 		b.externals = map[string]struct{}{}
 	}
 	b.externals[spec] = struct{}{}
+}
+
+func (b *bundler) isUserExternal(spec string) bool {
+	if b.outMode == ModeLib {
+		if _, _, ok := packageSpecifier(spec); ok {
+			return true
+		}
+	}
+	name, _, ok := packageSpecifier(spec)
+	if !ok {
+		return false
+	}
+	for _, ext := range b.opts.External {
+		if spec == ext || name == ext || strings.HasPrefix(spec, ext+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func platformConditions(platform string) []string {
+	switch platform {
+	case "browser":
+		return []string{"browser"}
+	case "", "node":
+		return []string{"node"}
+	default:
+		return []string{platform}
+	}
 }
 
 func isExternalSpecifier(spec string) bool {

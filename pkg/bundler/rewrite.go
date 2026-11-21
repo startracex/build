@@ -3,69 +3,15 @@ package bundler
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/startracex/tsgo/pkg/ast"
-	"github.com/startracex/tsgo/pkg/core"
-	"github.com/startracex/tsgo/pkg/parser"
-	"github.com/startracex/tsgo/pkg/tspath"
 )
 
 type edit struct {
 	start int
 	end   int
 	text  string
-}
-
-// rewriteRequires parses emitted JavaScript and rewrites relative require()
-// specifiers to absolute module ids. Non-relative specifiers are left in
-// place so the runtime can hand them to Node.
-func rewriteRequires(js, importer string, resolve func(importer, spec string) (string, bool, error)) (string, []string, error) {
-	fileName := tspath.RootedFilePathFromNormalized("/emit.js")
-	file := parser.ParseSourceFile(ast.SourceFileParseOptions{
-		FileName: fileName,
-		PathKey:  tspath.CaseSensitive.PathKey(tspath.RootedPath(fileName)),
-	}, js, core.ScriptKindJS)
-	if err := errorFromDiagnostics(importer, js, file.Diagnostics()); err != nil {
-		return "", nil, fmt.Errorf("parse emitted javascript: %w", err)
-	}
-
-	var edits []edit
-	var deps []string
-	var resolveErr error
-	if file.Statements != nil {
-		for _, stmt := range file.Statements.Nodes {
-			walkRequires(stmt, func(arg *ast.Node) {
-				if resolveErr != nil {
-					return
-				}
-				spec := arg.Text()
-				resolved, external, err := resolve(importer, spec)
-				if err != nil {
-					resolveErr = err
-					return
-				}
-				if external {
-					return
-				}
-				deps = append(deps, resolved)
-				edits = append(edits, edit{
-					start: arg.Pos(),
-					end:   arg.End(),
-					text:  strconv.Quote(moduleID(resolved)),
-				})
-			})
-		}
-	}
-	if resolveErr != nil {
-		return "", nil, resolveErr
-	}
-	rewritten, err := applyEdits(js, edits)
-	if err != nil {
-		return "", nil, err
-	}
-	return rewritten, deps, nil
 }
 
 func walkRequires(n *ast.Node, fn func(arg *ast.Node)) {
@@ -80,6 +26,25 @@ func walkRequires(n *ast.Node, fn func(arg *ast.Node)) {
 	}
 	n.ForEachChild(func(child *ast.Node) bool {
 		walkRequires(child, fn)
+		return false
+	})
+}
+
+func walkImportCalls(n *ast.Node, fn func(arg *ast.Node)) {
+	if n == nil {
+		return
+	}
+	if ast.IsImportCall(n) {
+		args := n.Arguments()
+		if len(args) >= 1 && args[0] != nil {
+			switch args[0].Kind {
+			case ast.KindStringLiteral, ast.KindNoSubstitutionTemplateLiteral:
+				fn(args[0])
+			}
+		}
+	}
+	n.ForEachChild(func(child *ast.Node) bool {
+		walkImportCalls(child, fn)
 		return false
 	})
 }
