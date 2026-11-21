@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/startracex/build/bundler"
+	"github.com/startracex/build/pkg/bundler"
 )
 
 func main() {
@@ -36,9 +36,10 @@ func run(args []string, stderr, stdout io.Writer) error {
 	shortOut := fs.String("o", "", "file to write the bundle to")
 	entryFlag := fs.String("entry", "", "entry module")
 	jsx := fs.String("jsx", string(bundler.JSXReact), "JSX transform: react or react-jsx")
+	format := fs.String("format", string(bundler.FormatESM), "output format: esm or cjs")
 	fs.Usage = func() {
 		fmt.Fprintf(stderr, "Usage:\n  build -o outfile entry\n  build --outfile outfile --entry entry\n\n")
-		fmt.Fprintf(stderr, "Bundle a JavaScript or TypeScript entry and its relative imports into one script.\n\n")
+		fmt.Fprintf(stderr, "Bundle a JavaScript or TypeScript entry, including node_modules dependencies, into one file.\n\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -70,8 +71,9 @@ func run(args []string, stderr, stdout io.Writer) error {
 	}
 
 	code, err := bundler.Bundle(context.Background(), bundler.Options{
-		Entry: entry,
-		JSX:   bundler.JSX(*jsx),
+		Entry:  entry,
+		Format: bundler.Format(*format),
+		JSX:    bundler.JSX(*jsx),
 	})
 	if err != nil {
 		return err

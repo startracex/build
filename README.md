@@ -1,8 +1,8 @@
 # build
 
-`build` is a small JavaScript and TypeScript bundler. It follows relative ESM imports, transpiles TypeScript and TSX with [tsgo](https://github.com/startracex/tsgo), and writes one JavaScript file.
+`build` bundles a JavaScript or TypeScript program into one file. It resolves imports the way a project does, transpiles TypeScript and TSX with [tsgo](https://github.com/startracex/tsgo), and writes either an ECMAScript module or a CommonJS script.
 
-This first version is a working CLI. It does not implement Rollup's plugin API, code splitting, CSS, or treeshaking. `bundler.Options.Resolve` is the hook for aliases and, later, package entry points.
+The library lives in `pkg/bundler`. The command is `cmd/build`.
 
 ## Install
 
@@ -17,43 +17,55 @@ GOPROXY=direct go install github.com/startracex/build/cmd/build@latest
 ## Usage
 
 ```bash
-build -o dist/bundle.js src/index.ts
-node dist/bundle.js
+build -o dist/app.mjs src/index.ts
+node dist/app.mjs
 ```
 
-The same bundle can be loaded from Node:
+ESM is the default. Load that file as `.mjs`, or from a package whose `"type"` is `"module"`. A browser can load the same file as a module when it does not import Node built-ins.
 
 ```bash
-node -e 'const app = require("./dist/bundle.js"); console.log(app.default)'
+build --format cjs -o dist/app.cjs src/index.ts
+node -e 'const app = require("./dist/app.cjs"); console.log(app.default)'
 ```
 
-`--entry` and `--outfile` are the long forms:
-
 ```bash
-build --entry src/index.ts --outfile dist/bundle.js --jsx react
+build --entry src/index.ts --outfile dist/app.mjs --format esm --jsx react
 ```
 
 | Flag | Meaning |
 | --- | --- |
 | `-o`, `--outfile` | Bundle path. Parent directories are created when needed. |
 | `--entry` | Entry file. A single positional argument is accepted too. |
-| `--jsx` | `react` (default) emits `React.createElement`. `react-jsx` emits the automatic `react/jsx-runtime` import, which stays external. |
+| `--format` | `esm` (default) or `cjs`. |
+| `--jsx` | `react` (default) emits `React.createElement`. `react-jsx` emits the automatic JSX runtime and bundles `react/jsx-runtime` when it can be resolved. |
 
 ## Modules
 
-Relative specifiers (`./` and `../`) are bundled. A specifier such as `./math.js` resolves to `math.ts`, `math.tsx`, or `math.js`, and a specifier with no extension can resolve to `dir/index.ts`.
+Relative specifiers (`./`, `../`) are bundled. `./math.js` can resolve to `math.ts`, and a specifier with no extension can resolve to `dir/index.ts`.
 
-Default exports are `exports.default`. Named exports stay named properties. Re-exports and `import * as` follow the same CommonJS shape TypeScript emits.
+Bare specifiers are loaded from `node_modules`. Resolution uses tsgo's bundler resolver:
 
-Bare specifiers such as `react` are left as `require("react")` and are loaded by Node when that module runs.
+- `package.json` `"exports"`, including `import` and `require` conditions and subpaths
+- `"main"` when `"exports"` does not apply
+- `"module"` for ESM output when `"exports"` is absent
+
+Node built-ins such as `node:path` stay as external `import` statements in an ESM bundle, and as `require` calls in a CommonJS bundle. JSON files become modules. Default and named exports of the entry are re-exported. `export let` updates stay live between modules inside the bundle; the ESM export list itself reads those values when the bundle is evaluated.
+
+`bundler.Options.Resolve` can replace a specifier with a file. That is the extension point for aliases.
+
+## Not supported
+
+- CSS and other asset imports
+- Code splitting and multiple output chunks
+- Rollup's plugin API
+- Treeshaking
+- Type-checking the whole program (files are parsed, bound, and transpiled per file)
 
 ## Develop
 
 ```bash
 GOPROXY=direct go test ./...
 ```
-
-The fixture under `bundler/testdata/app` covers TypeScript, TSX, plain JavaScript, default and named exports, re-exports, and a directory index.
 
 ## License
 
