@@ -35,39 +35,54 @@ func linkESM(b *bundler, entryID string) (string, error) {
 	if err := markLive(mods, entry); err != nil {
 		return "", err
 	}
-	names := &namer{used: map[string]struct{}{}}
+	names := &namer{used: map[string]int{}, taken: map[string]struct{}{}}
+	helper := ""
+	if anyCJSDynamicMap(mods) {
+		// Reserve before module locals so a user binding named __commonJS
+		// is renamed instead of colliding with the runtime helper.
+		helper = names.take("__commonJS")
+	}
 	if err := assignNames(mods, order, names); err != nil {
 		return "", err
 	}
-	return renderLinked(mods, order, entry, b.format), nil
+	return renderLinked(mods, order, entry, b.format, helper), nil
 }
 
 type esModule struct {
-	id          string
-	src         string
-	file        *ast.SourceFile
-	locals      map[string]*esLocal
-	imports     map[string]*esImport // local name -> import
-	exports     map[string]*esExp
-	stars       []string // module ids re-exported with export *
-	sideImps    []string
-	needed      []string
-	inst        bool
-	liveExp     map[string]bool
-	liveLoc     map[string]bool
-	extFinal    map[extKey]string
-	b           *bundler
-	effectsFree bool
+	id            string
+	src           string
+	file          *ast.SourceFile
+	locals        map[string]*esLocal
+	imports       map[string]*esImport // local name -> import
+	exports       map[string]*esExp
+	stars         []string // module ids re-exported with export *
+	sideImps      []string
+	needed        []string
+	inst          bool
+	liveExp       map[string]bool
+	liveLoc       map[string]bool
+	extFinal      map[extKey]string
+	b             *bundler
+	effectsFree   bool
+	cjsMode       cjsMode
+	cjsSkip       map[*ast.Node]bool
+	cjsWrapAll    bool
+	cjsNamedOrder []string
 }
 
 type extKey struct{ spec, name string }
 
 type esLocal struct {
-	name    string
-	idents  []*ast.Node
-	stmt    *ast.Node
-	final   string
-	defExpr bool // synthetic const for `export default <expr>`
+	name            string
+	idents          []*ast.Node
+	stmt            *ast.Node
+	final           string
+	defExpr         bool // synthetic const for `export default <expr>`
+	cjsInit         *ast.Node
+	cjsFromExports  string // const x = __cjsExports.x
+	cjsObjectBundle bool   // const __cjsExports = { a, b }
+	cjsFactory      bool   // var require_x = __commonJS(...)
+	cjsFromFactory  bool   // const __cjsExports = require_x()
 }
 
 type esImport struct {
@@ -91,23 +106,28 @@ type esExp struct {
 	starNS   bool // export * as ns
 }
 
-type namer struct{ used map[string]struct{} }
+type namer struct {
+	used  map[string]int      // base -> allocation attempts
+	taken map[string]struct{} // final names already issued
+}
 
 func (n *namer) take(preferred string) string {
 	base := preferred
 	if !isIdentifierName(base) {
 		base = "binding"
 	}
-	if _, ok := n.used[base]; !ok {
-		n.used[base] = struct{}{}
-		return base
-	}
-	for i := 2; ; i++ {
-		cand := fmt.Sprintf("%s$%d", base, i)
-		if _, ok := n.used[cand]; !ok {
-			n.used[cand] = struct{}{}
-			return cand
+	for {
+		n.used[base]++
+		name := base
+		if n.used[base] > 1 {
+			name = fmt.Sprintf("%s$%d", base, n.used[base])
 		}
+		if _, ok := n.taken[name]; ok {
+			// e.g. preferred "foo$2" already took that exact name
+			continue
+		}
+		n.taken[name] = struct{}{}
+		return name
 	}
 }
 
@@ -127,14 +147,14 @@ func parseLinkedModule(b *bundler, id, src string) (*esModule, error) {
 		liveLoc: map[string]bool{},
 		b:       b,
 	}
-	if file.Statements == nil {
-		return m, nil
-	}
-	for _, stmt := range file.Statements.Nodes {
-		if err := m.declareStmt(b, stmt); err != nil {
-			return nil, err
+	if file.Statements != nil {
+		for _, stmt := range file.Statements.Nodes {
+			if err := m.declareStmt(b, stmt); err != nil {
+				return nil, err
+			}
 		}
 	}
+	m.attachCJSExports()
 	return m, nil
 }
 
@@ -475,10 +495,30 @@ func markLocal(mods map[string]*esModule, m *esModule, name string) error {
 		return err
 	}
 	loc := m.locals[name]
-	if loc == nil || loc.stmt == nil {
+	if loc == nil {
 		return nil
 	}
-	return m.scanNode(mods, loc.stmt)
+	switch {
+	case loc.cjsFromExports != "":
+		return markLocal(mods, m, cjsExportsLocal)
+	case loc.cjsFromFactory:
+		return markLocal(mods, m, cjsRequireLocal)
+	case loc.cjsObjectBundle:
+		for _, n := range m.cjsNamedOrder {
+			if err := markLocal(mods, m, n); err != nil {
+				return err
+			}
+		}
+		return nil
+	case loc.cjsFactory:
+		return nil
+	case loc.cjsInit != nil:
+		return m.scanNode(mods, loc.cjsInit)
+	case loc.stmt != nil:
+		return m.scanNode(mods, loc.stmt)
+	default:
+		return nil
+	}
 }
 
 func (m *esModule) instantiate(mods map[string]*esModule) error {
@@ -503,6 +543,9 @@ func (m *esModule) scanSideEffects(mods map[string]*esModule) error {
 		return nil
 	}
 	for _, stmt := range m.file.Statements.Nodes {
+		if m.cjsSkip[stmt] {
+			continue
+		}
 		if isSkippableStmt(stmt) || isPureDecl(stmt) {
 			continue
 		}
@@ -604,6 +647,12 @@ func (m *esModule) resolveExport(mods map[string]*esModule, name string, stack m
 			return expTarget{}, false, fmt.Errorf("namespace re-export %s is not a value export", name)
 		}
 		return dep.resolveExport(mods, exp.fromName, stack)
+	}
+	if name != "default" && m.cjsAllowsProp(name) {
+		m.ensureCJSProp(name)
+		if exp, ok := m.exports[name]; ok && exp.local != "" {
+			return expTarget{mod: m, local: exp.local}, true, nil
+		}
 	}
 	if name == "default" {
 		return expTarget{}, false, nil
@@ -1116,11 +1165,17 @@ func assignNames(mods map[string]*esModule, order []string, names *namer) error 
 		}
 		slices.Sort(locals)
 		for _, name := range locals {
+			loc := m.locals[name]
 			pref := name
-			if m.locals[name].defExpr {
+			switch {
+			case loc.defExpr:
 				pref = "_default"
+			case loc.cjsFactory:
+				pref = cjsFactoryPreferredName(m.id)
+			case name == cjsExportsLocal:
+				pref = cjsExportsLocal
 			}
-			m.locals[name].final = names.take(pref)
+			loc.final = names.take(pref)
 		}
 		for _, imp := range m.imports {
 			if !imp.external {
@@ -1220,7 +1275,7 @@ func (m *esModule) markImport(mods map[string]*esModule, imp *esImport, prop str
 	return markExport(mods, dep, imported, map[string]bool{})
 }
 
-func renderLinked(mods map[string]*esModule, order []string, entry *esModule, format Format) string {
+func renderLinked(mods map[string]*esModule, order []string, entry *esModule, format Format, helper string) string {
 	var paths []string
 	for _, id := range order {
 		paths = append(paths, filepath.FromSlash(id))
@@ -1242,8 +1297,12 @@ func renderLinked(mods map[string]*esModule, order []string, entry *esModule, fo
 	if len(lines) > 0 {
 		b.WriteByte('\n')
 	}
+	if helper != "" && anyCJSDynamic(sorted) {
+		b.WriteString(commonJSHelperSource(helper))
+		b.WriteString("\n\n")
+	}
 	for _, m := range sorted {
-		body := strings.TrimSpace(m.renderBody(mods))
+		body := strings.TrimSpace(m.renderBody(mods, helper))
 		if body == "" {
 			continue
 		}
@@ -1516,12 +1575,13 @@ func bindingText(target expTarget, m *esModule) string {
 	return ""
 }
 
-func (m *esModule) renderBody(mods map[string]*esModule) string {
+func (m *esModule) renderBody(mods map[string]*esModule, helper string) string {
 	var chunks []string
 	for _, imp := range m.namespaceObjects(mods) {
 		chunks = append(chunks, imp)
 	}
-	if m.file != nil && m.file.Statements != nil {
+	chunks = append(chunks, m.renderCJSBindings(mods, helper)...)
+	if !m.cjsWrapAll && m.file != nil && m.file.Statements != nil {
 		var edits []edit
 		for _, stmt := range m.file.Statements.Nodes {
 			edits = append(edits, m.statementEdits(mods, stmt)...)
@@ -1655,6 +1715,9 @@ func (m *esModule) statementEdits(mods map[string]*esModule, stmt *ast.Node) []e
 }
 
 func (m *esModule) keepStmt(stmt *ast.Node) bool {
+	if m.cjsWrapAll || m.cjsSkip[stmt] {
+		return false
+	}
 	if isSkippableStmt(stmt) {
 		return false
 	}

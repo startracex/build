@@ -14,7 +14,7 @@ func TestCLIWritesBundle(t *testing.T) {
 	out := filepath.Join(dir, "dist", "bundle.mjs")
 	entry := filepath.Join("..", "..", "pkg", "bundler", "testdata", "app", "index.ts")
 	var stdout, stderr strings.Builder
-	if err := run([]string{"--ignoreConfig", "-o", out, entry}, &stderr, &stdout); err != nil {
+	if err := run([]string{"-o", out, entry}, &stderr, &stdout); err != nil {
 		t.Fatalf("run: %v\n%s", err, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), out) {
@@ -40,7 +40,7 @@ func TestCLILongFlags(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "bundle.mjs")
 	entry := filepath.Join("..", "..", "pkg", "bundler", "testdata", "app", "greet.ts")
-	if err := run([]string{"--ignoreConfig", "--outfile", out, "--format", "esm", "--jsx", "react", entry}, nil, nil); err != nil {
+	if err := run([]string{"--outfile", out, "--format", "esm", "--jsx", "react", entry}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	body, err := os.ReadFile(out)
@@ -66,7 +66,7 @@ func TestCLILibraryMode(t *testing.T) {
 	}
 	out := filepath.Join(dir, "dist")
 	var stdout strings.Builder
-	if err := run([]string{"--ignoreConfig", "--sourcemap", "--dts", "--declarationMap", "--outdir", out, filepath.Join(src, "index.ts")}, nil, &stdout); err != nil {
+	if err := run([]string{"--sourcemap", "--dts", "--declarationMap", "--outdir", out, filepath.Join(src, "index.ts")}, nil, &stdout); err != nil {
 		t.Fatal(err)
 	}
 	indexPath := findOutput(t, out, "index.js")
@@ -135,8 +135,8 @@ func TestCLIUsageErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(withConfig)
-	if err := run([]string{"--outdir", "dist", "a.ts"}, nil, nil); err == nil || !strings.Contains(err.Error(), "will not be loaded") {
-		t.Fatalf("error = %v", err)
+	if err := run([]string{"--outdir", "dist", "a.ts"}, nil, nil); err != nil {
+		t.Fatalf("files on CLI should ignore tsconfig: %v", err)
 	}
 	if err := run([]string{"--project", withConfig, "a.ts"}, nil, nil); err == nil || !strings.Contains(err.Error(), "cannot be mixed") {
 		t.Fatalf("error = %v", err)
@@ -225,7 +225,7 @@ func TestCLIGlobAndTSConfig(t *testing.T) {
 	}
 
 	globOut := filepath.Join(dir, "glob")
-	if err := run([]string{"--ignoreConfig", "--sourcemap", "--dts", "--outdir", globOut, "src/**/*.ts"}, nil, nil); err != nil {
+	if err := run([]string{"--sourcemap", "--dts", "--outdir", globOut, "src/**/*.ts"}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(globOut, "src", "math.js")); err != nil && !fileExists(filepath.Join(globOut, "math.js")) {

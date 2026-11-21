@@ -347,6 +347,93 @@ console.log(JSON.stringify({
 	if cjsGot.FromModule != "from-main" || cjsGot.FromExports != "exports-require" || cjsGot.FromMain != "main"+cjsGot.Sep {
 		t.Fatalf("cjs resolution = %+v", cjsGot)
 	}
+	if strings.Contains(cjs, "__commonJS") {
+		t.Fatalf("static CJS exports used runtime helper:\n%s", cjs)
+	}
+}
+
+func TestCJSDynamicInterop(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "dyn.js"), `
+const key = "fromDyn";
+exports[key] = "dynamic-value";
+`)
+	writeFile(t, filepath.Join(dir, "index.ts"), `
+import { fromDyn } from "./dyn.js";
+export { fromDyn };
+`)
+	code, err := Bundle(context.Background(), Options{Entry: filepath.Join(dir, "index.ts")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(code, "__commonJS") {
+		t.Fatalf("dynamic CJS should use __commonJS:\n%s", code)
+	}
+	raw := runNode(t, code, `
+import { pathToFileURL } from "node:url";
+const m = await import(pathToFileURL(process.argv[2]).href);
+console.log(JSON.stringify({ fromDyn: m.fromDyn }));
+`)
+	var got struct {
+		FromDyn string `json:"fromDyn"`
+	}
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("decode %q: %v", raw, err)
+	}
+	if got.FromDyn != "dynamic-value" {
+		t.Fatalf("fromDyn = %q", got.FromDyn)
+	}
+}
+
+func TestNamerDollarSuffixCollision(t *testing.T) {
+	n := &namer{used: map[string]int{}, taken: map[string]struct{}{}}
+	if got := n.take("foo$2"); got != "foo$2" {
+		t.Fatalf("first = %q", got)
+	}
+	if got := n.take("foo"); got != "foo" {
+		t.Fatalf("second = %q", got)
+	}
+	if got := n.take("foo"); got != "foo$3" {
+		t.Fatalf("third = %q (want foo$3 to skip taken foo$2)", got)
+	}
+}
+
+func TestCJSHelperNameCollision(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "dyn.js"), `
+const key = "fromDyn";
+exports[key] = "dynamic-value";
+`)
+	writeFile(t, filepath.Join(dir, "index.ts"), `
+import { fromDyn } from "./dyn.js";
+export const __commonJS = "user";
+export { fromDyn };
+`)
+	code, err := Bundle(context.Background(), Options{Entry: filepath.Join(dir, "index.ts")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(code, "var __commonJS = (cb)") {
+		t.Fatalf("helper should keep preferred name:\n%s", code)
+	}
+	if !strings.Contains(code, `__commonJS$2`) && !strings.Contains(code, `"user"`) {
+		t.Fatalf("user __commonJS binding should be renamed:\n%s", code)
+	}
+	raw := runNode(t, code, `
+import { pathToFileURL } from "node:url";
+const m = await import(pathToFileURL(process.argv[2]).href);
+console.log(JSON.stringify({ fromDyn: m.fromDyn, helper: m.__commonJS }));
+`)
+	var got struct {
+		FromDyn string `json:"fromDyn"`
+		Helper  string `json:"helper"`
+	}
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("decode %q: %v", raw, err)
+	}
+	if got.FromDyn != "dynamic-value" || got.Helper != "user" {
+		t.Fatalf("got = %+v", got)
+	}
 }
 
 func TestCSSUnsupported(t *testing.T) {

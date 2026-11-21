@@ -20,27 +20,16 @@ import (
 )
 
 func rejectConfigWithFiles(c *cli.Context, entries []string) error {
-	if c.String("project") != "" {
-		if len(entries) > 0 {
-			return errors.New("option 'project' cannot be mixed with source files on a command line")
-		}
-		return nil
-	}
-	if c.Bool("ignoreConfig") && len(entries) > 0 {
-		return nil
-	}
-	found, err := findTSConfig()
-	if err != nil {
-		return err
-	}
-	if found != "" && len(entries) > 0 {
-		return errors.New("tsconfig.json is present but will not be loaded if files are specified on the command line; use --ignoreConfig to skip this error")
+	if c.String("project") != "" && len(entries) > 0 {
+		return errors.New("option 'project' cannot be mixed with source files on a command line")
 	}
 	return nil
 }
 
 func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration, declarationMap *bool) error {
-	if c.Bool("ignoreConfig") && (len(opts.Entries) > 0 || opts.Entry != "") {
+	// Files on the command line (without -p) ignore tsconfig.json, matching
+	// classic tsc / bundler CLI behavior.
+	if c.String("project") == "" && (len(opts.Entries) > 0 || opts.Entry != "") {
 		return nil
 	}
 	path, err := tsconfigPath(c)

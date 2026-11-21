@@ -38,7 +38,6 @@ func run(args []string, stderr, stdout io.Writer) error {
 			&cli.StringFlag{Name: "outfile", Aliases: []string{"o"}, Usage: "write one bundle for a single entry"},
 			&cli.StringFlag{Name: "outdir", Usage: "directory for per-module output"},
 			&cli.StringFlag{Name: "project", Aliases: []string{"p"}, Usage: "tsconfig.json file or directory"},
-			&cli.BoolFlag{Name: "ignoreConfig", Usage: "skip tsconfig.json when files are given on the command line"},
 			&cli.StringFlag{Name: "format", Usage: "output format: esm or cjs"},
 			&cli.StringFlag{Name: "jsx", Usage: "JSX transform: react or react-jsx"},
 			&cli.StringSliceFlag{Name: "conditions", Usage: "extra package.json exports conditions (repeatable)"},
