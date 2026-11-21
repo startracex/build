@@ -69,8 +69,26 @@ func (b *bundler) resolve(importer, spec string) (resolved string, external bool
 }
 
 func (b *bundler) resolveSpec(importer, spec string, allowModuleField bool) (string, bool, error) {
+	iq := parseImportQuery(spec)
+	specPath := iq.path
+	if aliased, ok := applyAlias(b.opts.Alias, specPath); ok {
+		specPath = aliased
+		if strings.HasPrefix(specPath, ".") || filepath.IsAbs(specPath) {
+			joined := specPath
+			if !filepath.IsAbs(joined) {
+				joined = filepath.Join(filepath.Dir(importer), filepath.FromSlash(specPath))
+			}
+			abs, err := absFile(joined)
+			if err == nil {
+				if err := b.maybeLoadAsset(abs, iq); err != nil {
+					return "", false, err
+				}
+				return abs, false, nil
+			}
+		}
+	}
 	if b.opts.Resolve != nil {
-		path, ok, hookErr := b.opts.Resolve(importer, spec)
+		path, ok, hookErr := b.opts.Resolve(importer, specPath)
 		if hookErr != nil {
 			return "", false, hookErr
 		}
@@ -79,22 +97,94 @@ func (b *bundler) resolveSpec(importer, spec string, allowModuleField bool) (str
 			if err != nil {
 				return "", false, fmt.Errorf("resolve %q from %s: %w", spec, importer, err)
 			}
+			if err := b.maybeLoadAsset(abs, iq); err != nil {
+				return "", false, err
+			}
 			return abs, false, nil
 		}
 	}
-	if err := unsupportedSpecifier(spec); err != nil {
+	if err := unsupportedSpecifier(specPath); err != nil {
 		return "", false, err
 	}
-	if isExternalSpecifier(spec) || b.isUserExternal(spec) {
-		b.noteExternal(spec)
+	if isExternalSpecifier(specPath) || b.isUserExternal(specPath) {
+		b.noteExternal(specPath)
 		return "", true, nil
 	}
+	// Relative asset with query or asset extension.
+	if strings.HasPrefix(specPath, ".") || strings.HasPrefix(specPath, "/") {
+		candidate := specPath
+		if !filepath.IsAbs(candidate) {
+			candidate = filepath.Join(filepath.Dir(importer), filepath.FromSlash(specPath))
+		}
+		if abs, err := absFile(candidate); err == nil && (iq.raw || iq.url || isAssetExt(filepath.Ext(abs))) {
+			if err := b.maybeLoadAsset(abs, iq); err != nil {
+				return "", false, err
+			}
+			return abs, false, nil
+		}
+	}
 	if allowModuleField && b.format == FormatESM {
-		if chosen, ok, err := b.preferModuleField(importer, spec); err != nil || ok {
+		if chosen, ok, err := b.preferModuleField(importer, specPath); err != nil || ok {
 			return chosen, false, err
 		}
 	}
-	return b.resolveWithCompiler(importer, spec)
+	abs, external, err := b.resolveWithCompiler(importer, specPath)
+	if err != nil || external {
+		return abs, external, err
+	}
+	if err := b.maybeLoadAsset(abs, iq); err != nil {
+		return "", false, err
+	}
+	return abs, false, nil
+}
+
+func (b *bundler) maybeLoadAsset(abs string, iq importQuery) error {
+	ext := strings.ToLower(filepath.Ext(abs))
+	kind := assetNone
+	switch {
+	case iq.raw:
+		kind = assetRaw
+	case iq.url:
+		kind = assetURL
+	case ext == ".css" || ext == ".scss" || ext == ".sass" || ext == ".less":
+		kind = assetCSS
+	case isAssetExt(ext):
+		kind = assetURL
+	default:
+		return nil
+	}
+	return b.loadAsset(abs, kind)
+}
+
+func applyAlias(alias map[string]string, spec string) (string, bool) {
+	if len(alias) == 0 {
+		return "", false
+	}
+	bestKey := ""
+	bestVal := ""
+	for key, val := range alias {
+		if key == "" {
+			continue
+		}
+		if spec == key || strings.HasPrefix(spec, key+"/") {
+			if len(key) > len(bestKey) {
+				bestKey, bestVal = key, val
+			}
+		}
+	}
+	if bestKey == "" {
+		return "", false
+	}
+	rest := strings.TrimPrefix(spec, bestKey)
+	rest = strings.TrimPrefix(rest, "/")
+	val := filepath.ToSlash(bestVal)
+	if rest == "" {
+		return val, true
+	}
+	if strings.HasSuffix(val, "/") {
+		return val + rest, true
+	}
+	return val + "/" + rest, true
 }
 
 func (b *bundler) resolveWithCompiler(importer, spec string) (string, bool, error) {
@@ -246,14 +336,9 @@ func findPackageMeta(importer, name string) (string, packageMeta, bool) {
 }
 
 func unsupportedSpecifier(spec string) error {
-	switch strings.ToLower(path.Ext(spec)) {
-	case ".css", ".scss", ".sass", ".less":
-		return fmt.Errorf("CSS imports are not supported (%s)", spec)
-	case ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".woff", ".woff2", ".ttf", ".eot":
-		return fmt.Errorf("asset imports are not supported (%s)", spec)
-	default:
-		return nil
-	}
+	// Assets are loaded via maybeLoadAsset; bare unknown extensions still error later.
+	_ = path.Ext(spec)
+	return nil
 }
 
 func supportedSource(path string) bool {
@@ -261,7 +346,7 @@ func supportedSource(path string) bool {
 	case ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".json":
 		return true
 	default:
-		return false
+		return isAssetExt(filepath.Ext(path))
 	}
 }
 

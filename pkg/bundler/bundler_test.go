@@ -436,15 +436,159 @@ console.log(JSON.stringify({ fromDyn: m.fromDyn, helper: m.__commonJS }));
 	}
 }
 
-func TestCSSUnsupported(t *testing.T) {
+func TestCSSAndAssetQueries(t *testing.T) {
 	dir := t.TempDir()
-	entry := filepath.Join(dir, "index.ts")
-	if err := os.WriteFile(entry, []byte("import \"./app.css\";\nexport const ok = 1;\n"), 0o644); err != nil {
+	writeFile(t, filepath.Join(dir, "app.css"), `body { color: red; }`)
+	writeFile(t, filepath.Join(dir, "note.txt"), `hello raw`)
+	writeFile(t, filepath.Join(dir, "index.ts"), `
+import "./app.css";
+import text from "./note.txt?raw";
+import url from "./note.txt?url";
+export { text, url };
+`)
+	out := filepath.Join(dir, "dist")
+	result, err := Build(context.Background(), Options{
+		Entry:    filepath.Join(dir, "index.ts"),
+		OutFile:  filepath.Join(out, "bundle.mjs"),
+		Manifest: true,
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	_, err := Bundle(context.Background(), Options{Entry: entry})
-	if err == nil || !strings.Contains(err.Error(), "CSS") {
-		t.Fatalf("error = %v", err)
+	js := result.JavaScript()
+	if !strings.Contains(js, "hello raw") || !strings.Contains(js, "note.txt") {
+		t.Fatalf("bundle missing asset bindings:\n%s", js)
+	}
+	var sawCSS, sawManifest bool
+	for _, f := range result.Files {
+		if strings.HasSuffix(f.Path, "app.css") {
+			sawCSS = true
+			if !strings.Contains(f.Data, "color: red") {
+				t.Fatalf("css = %s", f.Data)
+			}
+		}
+		if strings.HasSuffix(f.Path, "manifest.json") {
+			sawManifest = true
+		}
+	}
+	if !sawCSS || !sawManifest {
+		t.Fatalf("missing css or manifest in %#v", result.Files)
+	}
+}
+
+func TestDefineDropAliasDual(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "src", "util.ts"), `export const tag = "util";`)
+	writeFile(t, filepath.Join(dir, "index.ts"), `
+import { tag } from "@/util";
+console.log("drop-me");
+export const mode = __MODE__;
+export { tag };
+`)
+	result, err := Build(context.Background(), Options{
+		Entry: filepath.Join(dir, "index.ts"),
+		Outputs: []OutputOptions{
+			{Format: FormatESM, OutFile: filepath.Join(dir, "out", "index.mjs")},
+			{Format: FormatCJS, OutFile: filepath.Join(dir, "out", "index.cjs")},
+		},
+		Alias:  map[string]string{"@": filepath.ToSlash(filepath.Join(dir, "src"))},
+		Define: map[string]string{"__MODE__": `"prod"`},
+		Drop:   []string{"console"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Files) < 2 {
+		t.Fatalf("files = %#v", result.Files)
+	}
+	var esm, cjs string
+	for _, f := range result.Files {
+		switch {
+		case strings.HasSuffix(f.Path, ".mjs"):
+			esm = f.Data
+		case strings.HasSuffix(f.Path, ".cjs"):
+			cjs = f.Data
+		}
+	}
+	if esm == "" || cjs == "" {
+		t.Fatalf("missing dual outputs: %#v", result.Files)
+	}
+	if strings.Contains(esm, "drop-me") || strings.Contains(esm, "__MODE__") {
+		t.Fatalf("define/drop failed:\n%s", esm)
+	}
+	if !strings.Contains(esm, `"prod"`) || !strings.Contains(esm, "util") {
+		t.Fatalf("esm:\n%s", esm)
+	}
+}
+
+func TestIIFEFormat(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 42;`)
+	code, err := Bundle(context.Background(), Options{
+		Entry:      filepath.Join(dir, "index.ts"),
+		Format:     FormatIIFE,
+		GlobalName: "App",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(code, "App") || !strings.Contains(code, "function") {
+		t.Fatalf("iife:\n%s", code)
+	}
+}
+
+func TestSplittingDynamicImport(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "lazy.ts"), `export const lazy = "lazy";`)
+	writeFile(t, filepath.Join(dir, "index.ts"), `
+export async function load() {
+  const m = await import("./lazy");
+  return m.lazy;
+}
+`)
+	out := filepath.Join(dir, "dist")
+	result, err := Build(context.Background(), Options{
+		Entry:     filepath.Join(dir, "index.ts"),
+		Mode:      ModeApp,
+		OutDir:    out,
+		Splitting: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := result.JavaScript()
+	if !strings.Contains(js, "import(") || strings.Contains(js, `Promise.resolve`) {
+		t.Fatalf("expected chunk import:\n%s", js)
+	}
+	var sawChunk bool
+	for _, f := range result.Files {
+		if strings.Contains(f.Path, "chunks") {
+			sawChunk = true
+		}
+	}
+	if !sawChunk {
+		t.Fatalf("no chunk files: %#v", result.Files)
+	}
+}
+
+func TestTranspileCache(t *testing.T) {
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "cache")
+	writeFile(t, filepath.Join(dir, "index.ts"), `export const n = 1;`)
+	opts := Options{
+		Entry:    filepath.Join(dir, "index.ts"),
+		OutFile:  filepath.Join(dir, "a.mjs"),
+		CacheDir: cache,
+	}
+	if _, err := Build(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(cache)
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("cache not written: %v", err)
+	}
+	if _, err := Build(context.Background(), opts); err != nil {
+		t.Fatal(err)
 	}
 }
 

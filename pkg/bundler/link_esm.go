@@ -244,6 +244,13 @@ func (m *esModule) declareImport(b *bundler, stmt *ast.Node) error {
 	if err != nil {
 		return err
 	}
+	chunkExt := ""
+	if !external && resolved != "" && b.chunkPaths != nil {
+		if cp := b.chunkPaths[moduleID(resolved)]; cp != "" && cp != b.linkingChunk {
+			external = true
+			chunkExt = "./" + cp
+		}
+	}
 	if decl.ImportClause == nil {
 		if !external {
 			m.sideImps = append(m.sideImps, moduleID(resolved))
@@ -255,9 +262,13 @@ func (m *esModule) declareImport(b *bundler, stmt *ast.Node) error {
 		return nil
 	}
 	add := func(local, imported string, namespace bool) {
+		useSpec := spec
+		if chunkExt != "" {
+			useSpec = chunkExt
+		}
 		m.imports[local] = &esImport{
 			local:     local,
-			spec:      spec,
+			spec:      useSpec,
 			module:    moduleID(resolved),
 			external:  external,
 			imported:  imported,
@@ -593,6 +604,11 @@ func (m *esModule) applyRef(mods map[string]*esModule, r ref) error {
 	case refDynamic:
 		if r.external {
 			return nil
+		}
+		if m.b != nil {
+			if _, ok := m.b.splitDynamicImport(r.module); ok {
+				return nil
+			}
 		}
 		m.need(r.module)
 		dep := mods[r.module]
@@ -1826,6 +1842,14 @@ func objectIdent(n *ast.Node) *ast.Node {
 }
 
 func dynamicNamespace(mods map[string]*esModule, id string) string {
+	for _, m := range mods {
+		if m != nil && m.b != nil {
+			if expr, ok := m.b.splitDynamicImport(id); ok {
+				return expr
+			}
+			break
+		}
+	}
 	dep := mods[id]
 	if dep == nil {
 		return "Promise.resolve({})"

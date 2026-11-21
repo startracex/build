@@ -20,7 +20,9 @@
 // type checker. App mode does not write declarations. Options.Resolve can
 // replace a specifier with a file.
 //
-// CSS, asset imports, and Rollup plugins are out of scope.
+// Multiple Outputs emit the same input in several formats (for example ESM and
+// CJS). Define/Drop, Alias, asset queries (?raw/?url), CSS, code splitting, and
+// a transpile cache are available through Options.
 package bundler
 
 import (
@@ -63,6 +65,10 @@ const (
 	FormatESM Format = "esm"
 	// FormatCJS emits a script. Under Node, the entry exports are module.exports.
 	FormatCJS Format = "cjs"
+	// FormatIIFE wraps the bundle in an immediately-invoked function.
+	FormatIIFE Format = "iife"
+	// FormatUMD wraps the bundle in a Universal Module Definition.
+	FormatUMD Format = "umd"
 )
 
 // JSX selects the JSX transform applied to .tsx and .jsx files.
@@ -114,6 +120,25 @@ type Options struct {
 	Conditions []string
 	// Target is the TypeScript emit target. Empty means ESNext.
 	Target core.ScriptTarget
+	// Outputs lists Rollup-style emit targets. When set, each entry is built
+	// separately (formats may resolve packages differently) and files merged.
+	Outputs []OutputOptions
+	// GlobalName is the IIFE/UMD global variable when Outputs is empty.
+	GlobalName string
+	// Define replaces free identifiers / process.env.* at emit time.
+	Define map[string]string
+	// Drop removes console.* calls and/or debugger statements ("console", "debugger").
+	Drop []string
+	// Alias maps import prefixes to filesystem paths (longest prefix wins).
+	Alias map[string]string
+	// Splitting emits async import() targets as separate chunks (app + OutDir).
+	Splitting bool
+	// CacheDir stores transpile results keyed by content hash.
+	CacheDir string
+	// Manifest writes a JSON map of source assets to emitted paths.
+	Manifest bool
+	// PublicPath prefixes emitted asset URLs for ?url and file imports.
+	PublicPath string
 	// Resolve, when it reports ok, supplies the file that specifier refers to.
 	// Return ok false to keep the built-in resolver. The hook is how aliases
 	// and, later, plugins replace resolution.
@@ -139,8 +164,9 @@ type Output struct {
 // Result is every file a build wrote logically, including JavaScript,
 // TypeScript declarations, and source maps.
 type Result struct {
-	Files []Output
-	entry string
+	Files    []Output
+	Manifest map[string]string
+	entry    string
 }
 
 // JavaScript returns the entry JavaScript source.
@@ -164,6 +190,34 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	outputs, err := opts.normalizedOutputs()
+	if err != nil {
+		return nil, err
+	}
+	if len(outputs) == 1 {
+		return buildOnce(ctx, withOutput(opts, outputs[0]))
+	}
+	merged := &Result{Manifest: map[string]string{}}
+	for _, out := range outputs {
+		sub, err := buildOnce(ctx, withOutput(opts, out))
+		if err != nil {
+			return nil, err
+		}
+		merged.Files = append(merged.Files, sub.Files...)
+		if merged.entry == "" {
+			merged.entry = sub.entry
+		}
+		for k, v := range sub.Manifest {
+			merged.Manifest[k] = v
+		}
+	}
+	if opts.Manifest {
+		merged.Files = append(merged.Files, manifestOutput(opts, merged.Manifest)...)
+	}
+	return merged, nil
+}
+
+func buildOnce(ctx context.Context, opts Options) (*Result, error) {
 	roots, err := opts.absRoots()
 	if err != nil {
 		return nil, err
@@ -176,8 +230,14 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if outMode == ModeApp && len(roots) != 1 {
+	if err := validateOutputPaths(OutputOptions{Format: format, OutFile: opts.OutFile, OutDir: opts.OutDir}, outMode, len(roots)); err != nil {
+		return nil, err
+	}
+	if outMode == ModeApp && !opts.Splitting && len(roots) != 1 {
 		return nil, fmt.Errorf("single-file output requires one entry")
+	}
+	if opts.Splitting && outMode == ModeApp && opts.OutDir == "" {
+		return nil, fmt.Errorf("--splitting requires --outdir")
 	}
 	jsx, err := jsxEmit(opts.JSX)
 	if err != nil {
@@ -203,27 +263,57 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 		externals: map[string]struct{}{},
 		loading:   map[string]bool{},
 		units:     map[string]*unit{},
+		assets:    map[string]*assetUnit{},
 		decl:      opts.declaration() && outMode == ModeLib,
 		declMap:   opts.declarationMap() && outMode == ModeLib,
 		sourceMap: opts.sourceMap(),
 		target:    opts.emitTarget(),
+		cache:     newTranspileCache(opts.CacheDir),
 	}
 	for _, root := range roots {
 		if err := b.load(root); err != nil {
 			return nil, err
 		}
 	}
-	if outMode == ModeLib {
-		return b.emitLibrary(entry)
+	for id, unit := range b.units {
+		if unit.asset {
+			continue
+		}
+		unit.code = applyDefineDrop(unit.code, opts.Define, opts.Drop)
+		b.units[id] = unit
 	}
-	var js string
-	if format == FormatESM || format == FormatCJS {
+	var result *Result
+	if outMode == ModeLib {
+		result, err = b.emitLibrary(entry)
+	} else if opts.Splitting {
+		result, err = b.emitSplit(roots)
+	} else {
+		linkFormat := format
+		if format == FormatIIFE || format == FormatUMD {
+			linkFormat = FormatCJS
+			b.format = FormatCJS
+		}
+		var js string
 		js, err = linkESM(b, moduleID(entry))
 		if err != nil {
 			return nil, err
 		}
+		b.format = format
+		_ = linkFormat
+		js = wrapFormat(js, format, opts.GlobalName)
+		result, err = b.appResult(entry, js)
 	}
-	return b.appResult(entry, js)
+	if err != nil {
+		return nil, err
+	}
+	if result.Manifest == nil {
+		result.Manifest = map[string]string{}
+	}
+	b.emitAssetFiles(result)
+	if opts.Manifest && len(opts.Outputs) == 0 {
+		result.Files = append(result.Files, manifestOutput(opts, result.Manifest)...)
+	}
+	return result, nil
 }
 
 type unit struct {
@@ -234,6 +324,7 @@ type unit struct {
 	dtsMap string
 	file   *ast.SourceFile
 	json   bool
+	asset  bool
 }
 
 type bundler struct {
@@ -247,10 +338,16 @@ type bundler struct {
 	externals map[string]struct{}
 	loading   map[string]bool
 	units     map[string]*unit
+	assets    map[string]*assetUnit
 	decl      bool
 	declMap   bool
 	sourceMap bool
 	target    core.ScriptTarget
+	cache     *transpileCache
+	// chunkPaths maps module id -> relative chunk path for splitting.
+	chunkPaths map[string]string
+	// linkingChunk is the chunk path currently being linked (empty for entry).
+	linkingChunk string
 }
 
 func (b *bundler) load(path string) error {
@@ -268,6 +365,10 @@ func (b *bundler) load(path string) error {
 	b.loading[id] = true
 	if !supportedSource(path) {
 		return fmt.Errorf("unsupported module %s", path)
+	}
+	if b.units[id] != nil && b.units[id].asset {
+		delete(b.loading, id)
+		return nil
 	}
 
 	srcBytes, err := os.ReadFile(path)
@@ -323,24 +424,39 @@ func (b *bundler) load(path string) error {
 	if b.sourceMap {
 		sourceMapFlag = core.TSTrue
 	}
-	out := transpile.TranspileModule(b.ctx, src, transpile.Options{
-		FileName: filepath.Base(path),
-		CompilerOptions: &core.CompilerOptions{
-			Module:    moduleKind,
-			Target:    b.target,
-			Jsx:       b.jsx,
-			SourceMap: sourceMapFlag,
-		},
-		ReportDiagnostics: true,
-	})
-	if out == nil {
-		return fmt.Errorf("%s: transpile canceled", path)
+	cacheKey := ""
+	var js, jsMap string
+	cached := false
+	if b.cache != nil {
+		cacheKey = b.cache.key(path, src, int(moduleKind), int(b.target), int(b.jsx), b.sourceMap)
+		if ent, ok := b.cache.get(cacheKey); ok {
+			js, jsMap = ent.JS, ent.Map
+			cached = true
+		}
 	}
-	if err := errorFromDiagnostics(path, src, out.Diagnostics); err != nil {
-		return err
+	if !cached {
+		out := transpile.TranspileModule(b.ctx, src, transpile.Options{
+			FileName: filepath.Base(path),
+			CompilerOptions: &core.CompilerOptions{
+				Module:    moduleKind,
+				Target:    b.target,
+				Jsx:       b.jsx,
+				SourceMap: sourceMapFlag,
+			},
+			ReportDiagnostics: true,
+		})
+		if out == nil {
+			return fmt.Errorf("%s: transpile canceled", path)
+		}
+		if err := errorFromDiagnostics(path, src, out.Diagnostics); err != nil {
+			return err
+		}
+		js = stripSourceMappingComment(stripShebang(out.OutputText))
+		jsMap = out.SourceMapText
+		if b.cache != nil && cacheKey != "" {
+			b.cache.put(cacheKey, cacheEntry{JS: js, Map: jsMap})
+		}
 	}
-
-	js := stripSourceMappingComment(stripShebang(out.OutputText))
 	if b.outMode == ModeLib {
 		if moduleKind == core.ModuleKindESNext {
 			emitted := parseEmittedJS(js)
@@ -353,8 +469,8 @@ func (b *bundler) load(path string) error {
 			}
 			deps = append(deps, extra...)
 		}
-		b.units[id] = &unit{code: js, source: sourceText, jsMap: out.SourceMapText, file: file}
-	} else if b.format == FormatESM || b.format == FormatCJS {
+		b.units[id] = &unit{code: js, source: sourceText, jsMap: jsMap, file: file}
+	} else if b.format == FormatESM || b.format == FormatCJS || b.format == FormatIIFE || b.format == FormatUMD {
 		emitted := parseEmittedJS(js)
 		if err := errorFromDiagnostics(path, js, emitted.Diagnostics()); err != nil {
 			return fmt.Errorf("parse emitted javascript: %w", err)
@@ -364,7 +480,7 @@ func (b *bundler) load(path string) error {
 			return err
 		}
 		deps = append(deps, extra...)
-		b.units[id] = &unit{code: js, source: sourceText, jsMap: out.SourceMapText, file: file}
+		b.units[id] = &unit{code: js, source: sourceText, jsMap: jsMap, file: file}
 	}
 
 	seen := map[string]bool{}
@@ -440,8 +556,12 @@ func normalizeFormat(format Format) (Format, error) {
 		return FormatESM, nil
 	case FormatCJS:
 		return FormatCJS, nil
+	case FormatIIFE:
+		return FormatIIFE, nil
+	case FormatUMD:
+		return FormatUMD, nil
 	default:
-		return "", fmt.Errorf("unsupported format %q (use %s or %s)", format, FormatESM, FormatCJS)
+		return "", fmt.Errorf("unsupported format %q (use %s, %s, %s, or %s)", format, FormatESM, FormatCJS, FormatIIFE, FormatUMD)
 	}
 }
 
