@@ -49,7 +49,9 @@ Bare specifiers are loaded from `node_modules`. Resolution uses tsgo's bundler r
 - `"main"` when `"exports"` does not apply
 - `"module"` for ESM output when `"exports"` is absent
 
-Node built-ins such as `node:path` stay as external `import` statements in an ESM bundle, and as `require` calls in a CommonJS bundle. JSON files become modules. Default and named exports of the entry are re-exported. `export let` updates stay live between modules inside the bundle; the ESM export list itself reads those values when the bundle is evaluated.
+The default ESM bundle inlines the local graph into one module: real `import` and `export` declarations, no per-file `require` runtime, and no absolute filesystem paths. Node built-ins stay as `import` statements. JSON becomes a `const`. A local `import()` is turned into a promise of that module's exports so the bundle does not expect another file. Side-effect-free exports that nothing reaches are left out. `export let` bindings stay shared inside the bundle, so updates are visible to other inlined modules.
+
+`--format cjs` still emits one script that assigns the entry exports to `module.exports`. Its module ids are paths relative to the working directory, not absolute paths.
 
 `bundler.Options.Resolve` can replace a specifier with a file. That is the extension point for aliases.
 
@@ -58,7 +60,7 @@ Node built-ins such as `node:path` stay as external `import` statements in an ES
 - CSS and other asset imports
 - Code splitting and multiple output chunks
 - Rollup's plugin API
-- Treeshaking
+- A full Rollup treeshake (side-effectful initializers are kept)
 - Type-checking the whole program (files are parsed, bound, and transpiled per file)
 
 ## Develop

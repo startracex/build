@@ -15,14 +15,27 @@ func TestFixtureBundle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bundle: %v", err)
 	}
-	if strings.Contains(code, `require("./`) || strings.Contains(code, `require("../`) {
-		t.Fatalf("relative require was left unlinked:\n%s", code)
+	if strings.Contains(code, "__factories") || strings.Contains(code, "__esModule") || strings.Contains(code, "__importDefault") || strings.Contains(code, "require(") {
+		t.Fatalf("bundle still uses a CommonJS runtime:\n%s", code)
+	}
+	abs, err := filepath.Abs(filepath.Join("testdata", "app", "index.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(code, filepath.ToSlash(abs)) || strings.Contains(code, abs) {
+		t.Fatalf("bundle contains an absolute path:\n%s", code)
+	}
+	if strings.Contains(code, `from "./`) || strings.Contains(code, `import("./`) {
+		t.Fatalf("local modules were not inlined:\n%s", code)
 	}
 	if !strings.Contains(code, "React.createElement") {
 		t.Fatal("tsx file was not transpiled to React.createElement")
 	}
-	if !strings.Contains(code, "export default") || !strings.Contains(code, "export const add") {
-		t.Fatal("bundle is not ESM")
+	if !strings.Contains(code, "export default") || !strings.Contains(code, "function add") || !strings.Contains(code, "export {") {
+		t.Fatalf("bundle is not linked ESM:\n%s", code)
+	}
+	if strings.Contains(code, "drop-math") {
+		t.Fatalf("unused export was not tree-shaken:\n%s", code)
 	}
 
 	out := runBundle(t, code)
@@ -198,6 +211,40 @@ type bundleResult struct {
 	Value   int    `json:"value"`
 }
 
+func TestShadowedImport(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "c.ts"), []byte("export const n = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "index.ts"), []byte(`import { n } from "./c.js";
+export function wrapped(): number {
+  const n = 2;
+  return n;
+}
+export function outer(): number {
+  return n;
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, err := Bundle(context.Background(), Options{Entry: filepath.Join(dir, "index.ts")})
+	if err != nil {
+		t.Fatalf("bundle: %v", err)
+	}
+	out := runNode(t, code, `
+import { pathToFileURL } from "node:url";
+const m = await import(pathToFileURL(process.argv[2]).href);
+if (m.wrapped() !== 2 || m.outer() !== 1) {
+  console.error(m.wrapped(), m.outer());
+  process.exit(1);
+}
+console.log("ok");
+`)
+	if strings.TrimSpace(out) != "ok" {
+		t.Fatalf("output %q", out)
+	}
+}
+
 func TestCJSFormat(t *testing.T) {
 	code, err := Bundle(context.Background(), Options{
 		Entry:  filepath.Join("testdata", "app", "index.ts"),
@@ -208,6 +255,13 @@ func TestCJSFormat(t *testing.T) {
 	}
 	if strings.Contains(code, "export default") {
 		t.Fatal("cjs bundle contains an ESM export")
+	}
+	abs, err := filepath.Abs(filepath.Join("testdata", "app", "index.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(code, filepath.ToSlash(abs)) || strings.Contains(code, abs) {
+		t.Fatalf("cjs bundle contains an absolute path:\n%s", code)
 	}
 	out := runCJS(t, code)
 	if out.Add != 5 || out.Default != "hello world" || out.Read != 2 {
@@ -220,11 +274,21 @@ func TestPackageResolution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bundle: %v", err)
 	}
-	if strings.Contains(code, `require("pkg-module")`) || strings.Contains(code, `require("pkg-exports")`) {
-		t.Fatal("bare specifier was left external")
+	if strings.Contains(code, "__factories") || strings.Contains(code, "__esModule") || strings.Contains(code, "require(") {
+		t.Fatalf("bundle still uses a CommonJS runtime:\n%s", code)
+	}
+	abs, err := filepath.Abs(filepath.Join("testdata", "pkgapp", "src", "index.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(code, filepath.ToSlash(abs)) || strings.Contains(code, "C:/") || strings.Contains(code, "C:\\") {
+		t.Fatalf("bundle contains an absolute path:\n%s", code)
+	}
+	if strings.Contains(code, "drop-me") {
+		t.Fatalf("unused package export was not tree-shaken:\n%s", code)
 	}
 	if !strings.Contains(code, `from "node:path"`) {
-		t.Fatal("node builtin was not kept as an ESM import")
+		t.Fatalf("node builtin was not kept as an ESM import:\n%s", code)
 	}
 	raw := runNode(t, code, `
 import { pathToFileURL } from "node:url";
