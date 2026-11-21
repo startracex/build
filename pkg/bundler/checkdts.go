@@ -72,9 +72,13 @@ func (b *bundler) emitProgramDeclarations() (map[string]declEmit, error) {
 		return map[string]declEmit{}, nil
 	}
 
+	declMap := core.TSFalse
+	if b.declMap {
+		declMap = core.TSTrue
+	}
 	opts := &core.CompilerOptions{
 		Declaration:          core.TSTrue,
-		DeclarationMap:       core.TSTrue,
+		DeclarationMap:       declMap,
 		EmitDeclarationOnly:  core.TSTrue,
 		IsolatedDeclarations: core.TSFalse,
 		NoCheck:              core.TSFalse,
@@ -83,9 +87,9 @@ func (b *bundler) emitProgramDeclarations() (map[string]declEmit, error) {
 		ResolveJsonModule:    core.TSTrue,
 		Module:               core.ModuleKindESNext,
 		ModuleResolution:     core.ModuleResolutionKindBundler,
-		Target:               core.ScriptTargetESNext,
+		Target:               b.target,
 		Jsx:                  b.jsx,
-		CustomConditions:     platformConditions(b.opts.Platform),
+		CustomConditions:     exportConditions(b.opts.Conditions),
 	}
 	host := compiler.NewCompilerHost(fs, bundled.LibPath(), nil, nil, nil)
 	program, err := compiler.NewProgram(b.ctx, compiler.ProgramOptions{

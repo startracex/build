@@ -415,10 +415,45 @@ Promise.resolve(typeof m.load === "function" ? m.load() : 0).then((load) => {
 	return result
 }
 
+func TestEmitDefaultsMatchTSC(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
+	result, err := Build(context.Background(), Options{
+		Entry:  filepath.Join(dir, "index.ts"),
+		Mode:   ModeLib,
+		OutDir: filepath.Join(dir, "dist"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = outputNamed(t, result.Files, "index.js")
+	for _, file := range result.Files {
+		lower := strings.ToLower(file.Path)
+		if strings.HasSuffix(lower, ".map") || strings.HasSuffix(lower, ".d.ts") {
+			t.Fatalf("unexpected emit with unset flags: %s", file.Path)
+		}
+	}
+}
+
+func TestExportConditions(t *testing.T) {
+	got := exportConditions([]string{"development", "module", "import", ""})
+	if len(got) < 2 || got[0] != "module" {
+		t.Fatalf("exportConditions = %v", got)
+	}
+	seen := map[string]int{}
+	for _, c := range got {
+		seen[c]++
+	}
+	if seen["module"] != 1 || seen["development"] != 1 || seen["import"] != 0 || seen["require"] != 0 || seen["default"] != 0 {
+		t.Fatalf("exportConditions = %v", got)
+	}
+}
+
 func TestAppDeclarationsAndSourceMap(t *testing.T) {
 	result, err := Build(context.Background(), Options{
-		Entry:   filepath.Join("testdata", "app", "index.ts"),
-		OutFile: filepath.Join("dist", "app.mjs"),
+		Entry:     filepath.Join("testdata", "app", "index.ts"),
+		OutFile:   filepath.Join("dist", "app.mjs"),
+		SourceMap: new(true),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -476,9 +511,12 @@ export const value = 7;
 `)
 	out := filepath.Join(dir, "dist")
 	result, err := Build(context.Background(), Options{
-		Entry:  filepath.Join(dir, "index.ts"),
-		Mode:   ModeLib,
-		OutDir: out,
+		Entry:          filepath.Join(dir, "index.ts"),
+		Mode:           ModeLib,
+		OutDir:         out,
+		SourceMap:      new(true),
+		Declaration:    new(true),
+		DeclarationMap: new(true),
 	})
 	if err != nil {
 		t.Fatal(err)

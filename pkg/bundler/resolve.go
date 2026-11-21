@@ -42,7 +42,7 @@ func (h resolutionHost) FS() vfs.FS { return h.fs }
 
 func (h resolutionHost) GetCurrentDirectory() tspath.RootedDirectoryPath { return h.dir }
 
-func newResolver(entryDir, platform string) (*tsmodule.DefaultResolver, error) {
+func newResolver(entryDir string, conditions []string) (*tsmodule.DefaultResolver, error) {
 	dir, err := filepath.Abs(entryDir)
 	if err != nil {
 		return nil, err
@@ -59,7 +59,7 @@ func newResolver(entryDir, platform string) (*tsmodule.DefaultResolver, error) {
 			ResolveJsonModule:          core.TSTrue,
 			ResolvePackageJsonExports:  core.TSTrue,
 			ResolvePackageJsonImports:  core.TSTrue,
-			CustomConditions:           platformConditions(platform),
+			CustomConditions:           exportConditions(conditions),
 		},
 	}), nil
 }
@@ -171,15 +171,20 @@ func (b *bundler) isUserExternal(spec string) bool {
 	return false
 }
 
-func platformConditions(platform string) []string {
-	switch platform {
-	case "browser":
-		return []string{"browser"}
-	case "", "node":
-		return []string{"node"}
-	default:
-		return []string{platform}
+// exportConditions builds CustomConditions for tsgo. GetConditions already
+// adds import or require from the resolution mode, and "default" always
+// matches. This list adds module, then any caller-supplied conditions.
+func exportConditions(extra []string) []string {
+	out := []string{"module"}
+	seen := map[string]bool{"module": true, "import": true, "require": true, "default": true}
+	for _, condition := range extra {
+		if condition == "" || seen[condition] {
+			continue
+		}
+		seen[condition] = true
+		out = append(out, condition)
 	}
+	return out
 }
 
 func isExternalSpecifier(spec string) bool {

@@ -39,7 +39,7 @@ func rejectConfigWithFiles(c *cli.Context, entries []string) error {
 	return nil
 }
 
-func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration *bool) error {
+func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration, declarationMap *bool) error {
 	if c.Bool("ignoreConfig") && (len(opts.Entries) > 0 || opts.Entry != "") {
 		return nil
 	}
@@ -64,10 +64,19 @@ func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration *bool) err
 		}
 	}
 	if !c.IsSet("sourcemap") {
-		opts.SourceMap = new(tristateOr(compiler.SourceMap, true))
+		opts.SourceMap = new(compiler.SourceMap == core.TSTrue)
 	}
 	if !c.IsSet("dts") {
-		*declaration = tristateOr(compiler.Declaration, true)
+		*declaration = compiler.Declaration == core.TSTrue || compiler.Composite == core.TSTrue
+	}
+	if !c.IsSet("declarationMap") {
+		*declarationMap = compiler.DeclarationMap == core.TSTrue
+	}
+	if compiler.Target != core.ScriptTargetNone {
+		opts.Target = compiler.Target
+	}
+	if !c.IsSet("conditions") && len(compiler.CustomConditions) > 0 {
+		opts.Conditions = append([]string{}, compiler.CustomConditions...)
 	}
 	if opts.OutDir == "" && compiler.OutDir != "" {
 		opts.OutDir = filepath.FromSlash(compiler.OutDir.AsString())
@@ -195,17 +204,6 @@ func jsxFromCompiler(kind core.JsxEmit) (bundler.JSX, bool) {
 		return bundler.JSXAutomatic, true
 	default:
 		return "", false
-	}
-}
-
-func tristateOr(value core.Tristate, fallback bool) bool {
-	switch value {
-	case core.TSTrue:
-		return true
-	case core.TSFalse:
-		return false
-	default:
-		return fallback
 	}
 }
 

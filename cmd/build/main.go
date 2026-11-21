@@ -41,9 +41,10 @@ func run(args []string, stderr, stdout io.Writer) error {
 			&cli.BoolFlag{Name: "ignoreConfig", Usage: "skip tsconfig.json when files are given on the command line"},
 			&cli.StringFlag{Name: "format", Usage: "output format: esm or cjs"},
 			&cli.StringFlag{Name: "jsx", Usage: "JSX transform: react or react-jsx"},
-			&cli.StringFlag{Name: "platform", Usage: "package export condition: node or browser"},
-			&cli.BoolFlag{Name: "sourcemap", Usage: "write source maps"},
-			&cli.BoolFlag{Name: "dts", Usage: "write .d.ts and .d.ts.map for per-module output"},
+			&cli.StringSliceFlag{Name: "conditions", Usage: "extra package.json exports conditions (repeatable)"},
+			&cli.BoolFlag{Name: "sourcemap", Usage: "write JavaScript source maps"},
+			&cli.BoolFlag{Name: "dts", Usage: "write .d.ts files for per-module output"},
+			&cli.BoolFlag{Name: "declarationMap", Usage: "write .d.ts.map files when declarations are enabled"},
 			&cli.StringSliceFlag{Name: "external", Usage: "package left unbundled (repeatable)"},
 		},
 		Writer:         stdout,
@@ -71,30 +72,33 @@ func action(c *cli.Context) error {
 		if len(entries) != 1 {
 			return fmt.Errorf("--outfile requires a single entry, got %d", len(entries))
 		}
-		return writeBuild(c, bundler.Options{
-			Entry:     entries[0],
-			Format:    bundler.Format(flagOr(c, "format", string(bundler.FormatESM))),
-			JSX:       bundler.JSX(flagOr(c, "jsx", string(bundler.JSXReact))),
-			Mode:      bundler.ModeApp,
-			OutFile:   outfile,
-			SourceMap: new(flagBool(c, "sourcemap", true)),
-			External:  external,
-			Platform:  flagOr(c, "platform", "node"),
-		})
+		opts := bundler.Options{
+			Entry:      entries[0],
+			Format:     bundler.Format(flagOr(c, "format", string(bundler.FormatESM))),
+			JSX:        bundler.JSX(flagOr(c, "jsx", string(bundler.JSXReact))),
+			Mode:       bundler.ModeApp,
+			OutFile:    outfile,
+			External:   external,
+			Conditions: c.StringSlice("conditions"),
+		}
+		if c.IsSet("sourcemap") {
+			opts.SourceMap = new(c.Bool("sourcemap"))
+		}
+		return writeBuild(c, opts)
 	}
 
 	opts := bundler.Options{
-		Entries:   entries,
-		Mode:      bundler.ModeLib,
-		OutDir:    c.String("outdir"),
-		Format:    bundler.FormatESM,
-		JSX:       bundler.JSXReact,
-		SourceMap: new(true),
-		External:  external,
-		Platform:  flagOr(c, "platform", "node"),
+		Entries:    entries,
+		Mode:       bundler.ModeLib,
+		OutDir:     c.String("outdir"),
+		Format:     bundler.FormatESM,
+		JSX:        bundler.JSXReact,
+		External:   external,
+		Conditions: c.StringSlice("conditions"),
 	}
-	decl := true
-	if err := applyTSConfig(c, &opts, &decl); err != nil {
+	decl := false
+	declMap := false
+	if err := applyTSConfig(c, &opts, &decl, &declMap); err != nil {
 		return err
 	}
 	if c.IsSet("format") {
@@ -109,7 +113,11 @@ func action(c *cli.Context) error {
 	if c.IsSet("dts") {
 		decl = c.Bool("dts")
 	}
+	if c.IsSet("declarationMap") {
+		declMap = c.Bool("declarationMap")
+	}
 	opts.Declaration = new(decl)
+	opts.DeclarationMap = new(decl && declMap)
 	if len(opts.Entries) == 0 && opts.Entry == "" {
 		return errors.New("tsconfig.json not found")
 	}
@@ -122,13 +130,6 @@ func flagOr(c *cli.Context, name, fallback string) string {
 	}
 	if value := c.String(name); value != "" {
 		return value
-	}
-	return fallback
-}
-
-func flagBool(c *cli.Context, name string, fallback bool) bool {
-	if c.IsSet(name) {
-		return c.Bool(name)
 	}
 	return fallback
 }

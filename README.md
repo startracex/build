@@ -1,6 +1,6 @@
 # build
 
-`build` bundles a JavaScript or TypeScript program. It resolves imports the way a project does, transpiles TypeScript and TSX with [tsgo](https://github.com/startracex/tsgo), and writes ECMAScript modules or CommonJS. Declarations and source maps are written by default. Declaration files come from tsgo.
+`build` bundles a JavaScript or TypeScript program. It resolves imports the way a project does, transpiles TypeScript and TSX with [tsgo](https://github.com/startracex/tsgo), and writes ECMAScript modules or CommonJS. Source maps and declarations follow TypeScript: they are off unless `tsconfig.json` or a flag turns them on.
 
 The library lives in `pkg/bundler`. The command is `cmd/build`.
 
@@ -16,14 +16,14 @@ GOPROXY=direct go install github.com/startracex/build/cmd/build@latest
 
 ## Usage
 
-With no input files, `build` looks for `tsconfig.json` the way `tsc` does: the working directory first, then each parent directory. `-p` accepts that file, or a directory that contains it. The build emits one JavaScript file per module. `module`, `jsx`, `outDir`, `rootDir`, `declaration`, and `sourceMap` come from that file. Each TypeScript file gets a `.d.ts` and `.d.ts.map` unless `declaration` is false.
+With no input files, `build` looks for `tsconfig.json` the way `tsc` does: the working directory first, then each parent directory. `-p` accepts that file, or a directory that contains it. The build emits one JavaScript file per module. `module`, `jsx`, `target`, `outDir`, `rootDir`, `sourceMap`, `declaration`, `declarationMap`, and `customConditions` come from that file. Commented-out or omitted emit flags stay off, so no `.map`, `.d.ts`, or `.d.ts.map` is written unless those options are true.
 
 ```bash
 build
 build --project tsconfig.json
 ```
 
-`--outfile` with one entry writes a single bundle and a source map. It does not write a `.d.ts`. More than one entry with `--outfile` is an error.
+`--outfile` with one entry writes a single bundle. It does not write a `.d.ts`. More than one entry with `--outfile` is an error. A source map is written only when `--sourcemap` is set.
 
 ```bash
 build -o dist/app.mjs src/index.ts
@@ -58,9 +58,10 @@ build --ignoreConfig -o dist/app.mjs src/index.ts --external react
 | `--format` | `esm` or `cjs`. The default is `tsconfig` `module`, or `esm`. |
 | `--jsx` | `react` emits `React.createElement`. `react-jsx` emits the automatic JSX runtime. The default is `tsconfig` `jsx`, or `react`. |
 | `--external` | Package name left as an import or require. Repeat the flag to list more than one. Per-module output already leaves every bare package external. |
-| `--platform` | `node` (default) or `browser`. Selects the matching `package.json` `"exports"` condition. |
-| `--sourcemap` | Write source maps. The default follows `tsconfig`, or true. Pass `--sourcemap=false` to skip them. |
-| `--dts` | Write `.d.ts` and `.d.ts.map` for per-module output. The default follows `tsconfig` `declaration`, or true. Single-file output does not write declarations. |
+| `--conditions` | Extra `package.json` `"exports"` conditions. Repeat the flag to list more than one. Defaults also come from `tsconfig` `customConditions`. |
+| `--sourcemap` | Write JavaScript source maps. Default is `tsconfig` `sourceMap`, or false. |
+| `--dts` | Write `.d.ts` files for per-module output. Default is `tsconfig` `declaration` / `composite`, or false. Single-file output does not write declarations. |
+| `--declarationMap` | Write `.d.ts.map` files when declarations are enabled. Default is `tsconfig` `declarationMap`, or false. |
 
 ## Modules
 
@@ -72,6 +73,8 @@ Bare specifiers are loaded from `node_modules` when the output is one file. Reso
 - `"main"` when `"exports"` does not apply
 - `"module"` for ESM output when `"exports"` is absent
 
+Export conditions match Rollup's defaults: ESM resolution uses `default`, `module`, and `import`; CommonJS resolution uses `default`, `module`, and `require`. `--conditions` and `tsconfig` `customConditions` are appended. `default` always matches in the exports algorithm.
+
 A single file inlines the local graph into one module: real `import` and `export` declarations, no per-file `require` runtime, and no absolute filesystem paths. Node built-ins stay as `import` statements. JSON becomes a `const`. A local `import()` is turned into a promise of that module's exports so the bundle does not expect another file. Side-effect-free exports that nothing reaches are left out. A package whose `package.json` sets `"sideEffects": false` is skipped when it is imported only for its side effects. `export let` bindings stay shared inside the bundle, so updates are visible to other inlined modules.
 
 `--format cjs` uses that same link and assigns the entry exports to `module.exports`.
@@ -80,7 +83,7 @@ Per-module output keeps each local module in its own file. `import()` stays a dy
 
 `bundler.Options.Resolve` can replace a specifier with a file. That is the extension point for aliases.
 
-Library declarations are emitted by tsgo after it type-checks the local program. A `const` whose type is inferred keeps that type, for example `number`, instead of `any`. The `.d.ts.map` points from each declaration file back at its source.
+Library declarations are emitted by tsgo after it type-checks the local program. A `const` whose type is inferred keeps that type, for example `number`, instead of `any`. The `.d.ts.map` points from each declaration file back at its source when `declarationMap` is on.
 
 Single-file source maps are line-level maps back to the linked source files. Per-module JavaScript source maps are the maps tsgo emits for each file.
 

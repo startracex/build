@@ -66,7 +66,7 @@ func TestCLILibraryMode(t *testing.T) {
 	}
 	out := filepath.Join(dir, "dist")
 	var stdout strings.Builder
-	if err := run([]string{"--ignoreConfig", "--outdir", out, filepath.Join(src, "index.ts")}, nil, &stdout); err != nil {
+	if err := run([]string{"--ignoreConfig", "--sourcemap", "--dts", "--declarationMap", "--outdir", out, filepath.Join(src, "index.ts")}, nil, &stdout); err != nil {
 		t.Fatal(err)
 	}
 	indexPath := findOutput(t, out, "index.js")
@@ -156,6 +156,32 @@ func TestCLIUsageErrors(t *testing.T) {
 	}
 }
 
+func TestCLIUnsetTSConfigEmitFlags(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.ts"), []byte("export const value = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tsconfig.json"), []byte(`{
+  "compilerOptions": { "module": "esnext", "outDir": "dist" },
+  "include": ["index.ts"]
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	if err := run(nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "dist", "index.js")); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"index.js.map", "index.d.ts", "index.d.ts.map"} {
+		if _, err := os.Stat(filepath.Join(dir, "dist", name)); err == nil {
+			t.Fatalf("unexpected %s with unset emit flags", name)
+		}
+	}
+}
+
 func TestCLIGlobAndTSConfig(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")
@@ -169,7 +195,7 @@ func TestCLIGlobAndTSConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "tsconfig.json"), []byte(`{
-  "compilerOptions": { "module": "esnext", "declaration": true, "sourceMap": true, "outDir": "dist", "rootDir": "src" },
+  "compilerOptions": { "module": "esnext", "declaration": true, "declarationMap": true, "sourceMap": true, "outDir": "dist", "rootDir": "src" },
   "include": ["src/**/*.ts"]
 }
 `), 0o644); err != nil {
@@ -199,7 +225,7 @@ func TestCLIGlobAndTSConfig(t *testing.T) {
 	}
 
 	globOut := filepath.Join(dir, "glob")
-	if err := run([]string{"--ignoreConfig", "--outdir", globOut, "src/**/*.ts"}, nil, nil); err != nil {
+	if err := run([]string{"--ignoreConfig", "--sourcemap", "--dts", "--outdir", globOut, "src/**/*.ts"}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(globOut, "src", "math.js")); err != nil && !fileExists(filepath.Join(globOut, "math.js")) {

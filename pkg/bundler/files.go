@@ -23,17 +23,22 @@ func normalizeMode(mode Mode) (Mode, error) {
 }
 
 func (o Options) declaration() bool {
-	if o.Declaration == nil {
-		return true
-	}
-	return *o.Declaration
+	return o.Declaration != nil && *o.Declaration
+}
+
+func (o Options) declarationMap() bool {
+	return o.declaration() && o.DeclarationMap != nil && *o.DeclarationMap
 }
 
 func (o Options) sourceMap() bool {
-	if o.SourceMap == nil {
-		return true
+	return o.SourceMap != nil && *o.SourceMap
+}
+
+func (o Options) emitTarget() core.ScriptTarget {
+	if o.Target != core.ScriptTargetNone {
+		return o.Target
 	}
-	return *o.SourceMap
+	return core.ScriptTargetESNext
 }
 
 func isJavaScriptOutput(path string) bool {
@@ -59,7 +64,7 @@ func (b *bundler) declarationText(path, src string) (string, error) {
 		FileName: filepath.Base(path),
 		CompilerOptions: &core.CompilerOptions{
 			Module: core.ModuleKindESNext,
-			Target: core.ScriptTargetESNext,
+			Target: b.target,
 			Jsx:    b.jsx,
 		},
 		ReportDiagnostics: true,

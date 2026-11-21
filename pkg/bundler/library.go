@@ -56,11 +56,11 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 				dtsPath = filepath.Join(b.opts.OutDir, filepath.FromSlash(dtsRel))
 			}
 			mapName := filepath.Base(dtsRel) + ".map"
-			if strings.TrimSpace(unit.dtsMap) != "" {
+			if b.declMap && strings.TrimSpace(unit.dtsMap) != "" {
 				dts = strings.TrimRight(stripSourceMappingComment(dts), "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
 			}
 			files = append(files, Output{Path: dtsPath, Data: dts})
-			if strings.TrimSpace(unit.dtsMap) != "" {
+			if b.declMap && strings.TrimSpace(unit.dtsMap) != "" {
 				files = append(files, Output{
 					Path: dtsPath + ".map",
 					Data: relativizeDeclarationMap(unit.dtsMap, filepath.Base(dtsRel), root),

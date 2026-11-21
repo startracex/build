@@ -15,9 +15,10 @@
 // Library mode writes one JavaScript file per local module and leaves bare
 // package imports external. Relative specifiers point at the emitted files.
 //
-// Source maps are on by default. Library mode also writes a .d.ts and .d.ts.map
-// for each file, using tsgo's type checker. App mode does not write declarations.
-// Options.Resolve can replace a specifier with a file.
+// Source maps, declarations, and declaration maps follow TypeScript: off unless
+// set. Library mode can write a .d.ts and .d.ts.map for each file, using tsgo's
+// type checker. App mode does not write declarations. Options.Resolve can
+// replace a specifier with a file.
 //
 // CSS, asset imports, and Rollup plugins are out of scope.
 package bundler
@@ -98,16 +99,21 @@ type Options struct {
 	// RootDir is the base for paths written under OutDir. Empty uses the
 	// common directory of the loaded files.
 	RootDir string
-	// Declaration writes .d.ts and .d.ts.map files in library mode. Nil means yes.
+	// Declaration writes .d.ts files in library mode. Nil means no, matching tsc.
 	// App mode does not write declarations.
 	Declaration *bool
-	// SourceMap writes .map files. Nil means yes.
+	// DeclarationMap writes .d.ts.map files when Declaration is on. Nil means no.
+	DeclarationMap *bool
+	// SourceMap writes .map files. Nil means no, matching tsc.
 	SourceMap *bool
 	// External package names or specifiers are left as import/require calls.
 	External []string
-	// Platform is "node" or "browser". It selects package export conditions.
-	// Empty means node.
-	Platform string
+	// Conditions are extra package.json "exports" conditions. The resolver
+	// always adds import or require from the format, always matches default,
+	// and always includes module. These values are appended on top.
+	Conditions []string
+	// Target is the TypeScript emit target. Empty means ESNext.
+	Target core.ScriptTarget
 	// Resolve, when it reports ok, supplies the file that specifier refers to.
 	// Return ok false to keep the built-in resolver. The hook is how aliases
 	// and, later, plugins replace resolution.
@@ -178,7 +184,7 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 	entry := roots[0]
-	resolver, err := newResolver(filepath.Dir(entry), opts.Platform)
+	resolver, err := newResolver(filepath.Dir(entry), opts.Conditions)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +204,9 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 		loading:   map[string]bool{},
 		units:     map[string]*unit{},
 		decl:      opts.declaration() && outMode == ModeLib,
+		declMap:   opts.declarationMap() && outMode == ModeLib,
 		sourceMap: opts.sourceMap(),
+		target:    opts.emitTarget(),
 	}
 	for _, root := range roots {
 		if err := b.load(root); err != nil {
@@ -240,7 +248,9 @@ type bundler struct {
 	loading   map[string]bool
 	units     map[string]*unit
 	decl      bool
+	declMap   bool
 	sourceMap bool
+	target    core.ScriptTarget
 }
 
 func (b *bundler) load(path string) error {
@@ -317,7 +327,7 @@ func (b *bundler) load(path string) error {
 		FileName: filepath.Base(path),
 		CompilerOptions: &core.CompilerOptions{
 			Module:    moduleKind,
-			Target:    core.ScriptTargetESNext,
+			Target:    b.target,
 			Jsx:       b.jsx,
 			SourceMap: sourceMapFlag,
 		},
