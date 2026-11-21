@@ -11,6 +11,9 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 		return nil, err
 	}
 	root := displayRoot(unitPaths(b, entry))
+	if b.opts.RootDir != "" {
+		root = b.opts.RootDir
+	}
 	var files []Output
 	var entryJS string
 	ids := make([]string, 0, len(b.units))

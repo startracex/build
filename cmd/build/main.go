@@ -1,10 +1,9 @@
-// Command build bundles a JavaScript or TypeScript entry file.
+// Command build bundles a JavaScript or TypeScript program.
 package main
 
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -12,25 +11,14 @@ import (
 	"strings"
 
 	"github.com/startracex/build/pkg/bundler"
+	"github.com/urfave/cli/v2"
 )
 
 func main() {
 	if err := run(os.Args[1:], os.Stderr, os.Stdout); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			os.Exit(0)
-		}
 		fmt.Fprintf(os.Stderr, "build: %s\n", err)
 		os.Exit(1)
 	}
-}
-
-type stringList []string
-
-func (s *stringList) String() string { return strings.Join(*s, ",") }
-
-func (s *stringList) Set(value string) error {
-	*s = append(*s, value)
-	return nil
 }
 
 func run(args []string, stderr, stdout io.Writer) error {
@@ -40,75 +28,113 @@ func run(args []string, stderr, stdout io.Writer) error {
 	if stdout == nil {
 		stdout = io.Discard
 	}
-	fs := flag.NewFlagSet("build", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	outfile := fs.String("outfile", "", "app mode: file to write the bundle to")
-	shortOut := fs.String("o", "", "app mode: file to write the bundle to")
-	entryFlag := fs.String("entry", "", "entry module")
-	jsx := fs.String("jsx", string(bundler.JSXReact), "JSX transform: react or react-jsx")
-	format := fs.String("format", string(bundler.FormatESM), "output format: esm or cjs")
-	mode := fs.String("mode", string(bundler.ModeApp), "output layout: app (one file) or lib (one file per module)")
-	outdir := fs.String("outdir", "", "lib mode: directory for JavaScript, declarations, and source maps")
-	platform := fs.String("platform", "node", "package export condition: node or browser")
-	sourcemap := fs.Bool("sourcemap", true, "write source maps (default true)")
-	dts := fs.Bool("dts", true, "library mode: write .d.ts and .d.ts.map with tsgo (default true)")
-	var external stringList
-	fs.Var(&external, "external", "package or specifier to leave unbundled (repeatable)")
-	fs.Usage = func() {
-		fmt.Fprintf(stderr, "Usage:\n  build -o outfile entry\n  build --mode lib --outdir dist entry\n\n")
-		fmt.Fprintf(stderr, "App mode writes one bundle. Library mode writes one file per local module and leaves package imports external.\n")
-		fmt.Fprintf(stderr, "Source maps are written next to the JavaScript. Library mode also writes .d.ts and .d.ts.map. App mode does not write declarations.\n\n")
-		fs.PrintDefaults()
+	app := &cli.App{
+		Name:  "build",
+		Usage: "Bundle JavaScript and TypeScript",
+		Description: "With no outfile, build reads tsconfig.json and emits one file per module.\n" +
+			"   --outfile with one entry writes a single bundle. Several entries with --outfile are an error.\n" +
+			"   --outdir accepts one entry, many entries, or a glob.",
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "outfile", Aliases: []string{"o"}, Usage: "write one bundle for a single entry"},
+			&cli.StringFlag{Name: "outdir", Usage: "directory for per-module output"},
+			&cli.StringFlag{Name: "project", Aliases: []string{"p"}, Usage: "tsconfig.json file or directory"},
+			&cli.BoolFlag{Name: "ignoreConfig", Usage: "skip tsconfig.json when files are given on the command line"},
+			&cli.StringFlag{Name: "format", Usage: "output format: esm or cjs"},
+			&cli.StringFlag{Name: "jsx", Usage: "JSX transform: react or react-jsx"},
+			&cli.StringFlag{Name: "platform", Usage: "package export condition: node or browser"},
+			&cli.BoolFlag{Name: "sourcemap", Usage: "write source maps"},
+			&cli.BoolFlag{Name: "dts", Usage: "write .d.ts and .d.ts.map for per-module output"},
+			&cli.StringSliceFlag{Name: "external", Usage: "package left unbundled (repeatable)"},
+		},
+		Writer:         stdout,
+		ErrWriter:      stderr,
+		ExitErrHandler: func(*cli.Context, error) {},
+		Action:         action,
 	}
-	if err := fs.Parse(args); err != nil {
+	return app.Run(append([]string{"build"}, args...))
+}
+
+func action(c *cli.Context) error {
+	if c.String("outfile") != "" && c.String("outdir") != "" {
+		return errors.New("--outfile and --outdir cannot both be set")
+	}
+	entries, err := expandEntries(c.Args().Slice())
+	if err != nil {
+		return err
+	}
+	external := c.StringSlice("external")
+	if err := rejectConfigWithFiles(c, entries); err != nil {
 		return err
 	}
 
-	entry := *entryFlag
-	rest := fs.Args()
-	switch {
-	case entry != "" && len(rest) > 0:
-		return fmt.Errorf("entry given twice (%s and %s)", entry, rest[0])
-	case entry == "" && len(rest) == 1:
-		entry = rest[0]
-	case entry == "" && len(rest) == 0:
-		return errors.New("missing entry file")
-	case len(rest) > 1:
-		return errors.New("too many arguments")
+	if outfile := c.String("outfile"); outfile != "" {
+		if len(entries) != 1 {
+			return fmt.Errorf("--outfile requires a single entry, got %d", len(entries))
+		}
+		return writeBuild(c, bundler.Options{
+			Entry:     entries[0],
+			Format:    bundler.Format(flagOr(c, "format", string(bundler.FormatESM))),
+			JSX:       bundler.JSX(flagOr(c, "jsx", string(bundler.JSXReact))),
+			Mode:      bundler.ModeApp,
+			OutFile:   outfile,
+			SourceMap: new(flagBool(c, "sourcemap", true)),
+			External:  external,
+			Platform:  flagOr(c, "platform", "node"),
+		})
 	}
 
-	output := *outfile
-	if *shortOut != "" {
-		if output != "" && output != *shortOut {
-			return errors.New("-o and --outfile disagree")
-		}
-		output = *shortOut
+	opts := bundler.Options{
+		Entries:   entries,
+		Mode:      bundler.ModeLib,
+		OutDir:    c.String("outdir"),
+		Format:    bundler.FormatESM,
+		JSX:       bundler.JSXReact,
+		SourceMap: new(true),
+		External:  external,
+		Platform:  flagOr(c, "platform", "node"),
 	}
-	switch bundler.Mode(*mode) {
-	case "", bundler.ModeApp:
-		if output == "" {
-			return errors.New("missing output file (-o or --outfile)")
-		}
-	case bundler.ModeLib:
-		if *outdir == "" {
-			return errors.New("missing output directory (--outdir)")
-		}
-	default:
-		return fmt.Errorf("unsupported mode %q (use app or lib)", *mode)
+	decl := true
+	if err := applyTSConfig(c, &opts, &decl); err != nil {
+		return err
 	}
+	if c.IsSet("format") {
+		opts.Format = bundler.Format(c.String("format"))
+	}
+	if c.IsSet("jsx") {
+		opts.JSX = bundler.JSX(c.String("jsx"))
+	}
+	if c.IsSet("sourcemap") {
+		opts.SourceMap = new(c.Bool("sourcemap"))
+	}
+	if c.IsSet("dts") {
+		decl = c.Bool("dts")
+	}
+	opts.Declaration = new(decl)
+	if len(opts.Entries) == 0 && opts.Entry == "" {
+		return errors.New("tsconfig.json not found")
+	}
+	return writeBuild(c, opts)
+}
 
-	result, err := bundler.Build(context.Background(), bundler.Options{
-		Entry:       entry,
-		Format:      bundler.Format(*format),
-		JSX:         bundler.JSX(*jsx),
-		Mode:        bundler.Mode(*mode),
-		OutFile:     output,
-		OutDir:      *outdir,
-		Declaration: dts,
-		SourceMap:   sourcemap,
-		External:    []string(external),
-		Platform:    *platform,
-	})
+func flagOr(c *cli.Context, name, fallback string) string {
+	if c.IsSet(name) {
+		return c.String(name)
+	}
+	if value := c.String(name); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func flagBool(c *cli.Context, name string, fallback bool) bool {
+	if c.IsSet(name) {
+		return c.Bool(name)
+	}
+	return fallback
+}
+
+func writeBuild(c *cli.Context, opts bundler.Options) error {
+	result, err := bundler.Build(context.Background(), opts)
 	if err != nil {
 		return err
 	}
@@ -121,7 +147,11 @@ func run(args []string, stderr, stdout io.Writer) error {
 		if err := os.WriteFile(file.Path, []byte(file.Data), 0o644); err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "wrote %s\n", file.Path)
+		fmt.Fprintf(c.App.Writer, "wrote %s\n", file.Path)
 	}
 	return nil
+}
+
+func containsGlob(pattern string) bool {
+	return strings.ContainsAny(pattern, "*?[{")
 }

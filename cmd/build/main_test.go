@@ -14,7 +14,7 @@ func TestCLIWritesBundle(t *testing.T) {
 	out := filepath.Join(dir, "dist", "bundle.mjs")
 	entry := filepath.Join("..", "..", "pkg", "bundler", "testdata", "app", "index.ts")
 	var stdout, stderr strings.Builder
-	if err := run([]string{"-o", out, entry}, &stderr, &stdout); err != nil {
+	if err := run([]string{"--ignoreConfig", "-o", out, entry}, &stderr, &stdout); err != nil {
 		t.Fatalf("run: %v\n%s", err, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), out) {
@@ -40,7 +40,7 @@ func TestCLILongFlags(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "bundle.mjs")
 	entry := filepath.Join("..", "..", "pkg", "bundler", "testdata", "app", "greet.ts")
-	if err := run([]string{"--outfile", out, "--entry", entry, "--format", "esm", "--jsx", "react"}, nil, nil); err != nil {
+	if err := run([]string{"--ignoreConfig", "--outfile", out, "--format", "esm", "--jsx", "react", entry}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	body, err := os.ReadFile(out)
@@ -66,7 +66,7 @@ func TestCLILibraryMode(t *testing.T) {
 	}
 	out := filepath.Join(dir, "dist")
 	var stdout strings.Builder
-	if err := run([]string{"--mode", "lib", "--outdir", out, filepath.Join(src, "index.ts")}, nil, &stdout); err != nil {
+	if err := run([]string{"--ignoreConfig", "--outdir", out, filepath.Join(src, "index.ts")}, nil, &stdout); err != nil {
 		t.Fatal(err)
 	}
 	indexPath := findOutput(t, out, "index.js")
@@ -117,13 +117,97 @@ func findOutput(t *testing.T, root, name string) string {
 }
 
 func TestCLIUsageErrors(t *testing.T) {
-	if err := run(nil, nil, nil); err == nil || !strings.Contains(err.Error(), "missing entry") {
+	t.Chdir(t.TempDir())
+	if err := run(nil, nil, nil); err == nil || !strings.Contains(err.Error(), "tsconfig.json not found") {
 		t.Fatalf("error = %v", err)
 	}
-	if err := run([]string{"entry.ts"}, nil, nil); err == nil || !strings.Contains(err.Error(), "missing output") {
+	if err := run([]string{"--outfile", "out.js", "a.ts", "b.ts"}, nil, nil); err == nil || !strings.Contains(err.Error(), "single entry") {
 		t.Fatalf("error = %v", err)
 	}
-	if err := run([]string{"--mode", "lib", "entry.ts"}, nil, nil); err == nil || !strings.Contains(err.Error(), "missing output directory") {
+	if err := run([]string{"--outfile", "out.js", "--outdir", "dist", "a.ts"}, nil, nil); err == nil || !strings.Contains(err.Error(), "cannot both") {
 		t.Fatalf("error = %v", err)
 	}
+	withConfig := t.TempDir()
+	if err := os.WriteFile(filepath.Join(withConfig, "tsconfig.json"), []byte(`{"include":["a.ts"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(withConfig, "a.ts"), []byte("export const a = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(withConfig)
+	if err := run([]string{"--outdir", "dist", "a.ts"}, nil, nil); err == nil || !strings.Contains(err.Error(), "will not be loaded") {
+		t.Fatalf("error = %v", err)
+	}
+	if err := run([]string{"--project", withConfig, "a.ts"}, nil, nil); err == nil || !strings.Contains(err.Error(), "cannot be mixed") {
+		t.Fatalf("error = %v", err)
+	}
+	nested := filepath.Join(withConfig, "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(nested)
+	if err := run([]string{"--project", ".."}, nil, nil); err != nil {
+		t.Fatalf("project directory: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(nested, "a.js")); err != nil {
+		if _, err := os.Stat(filepath.Join(withConfig, "a.js")); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestCLIGlobAndTSConfig(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "index.ts"), []byte("import { add } from \"./math.js\";\nexport const sum = add(2, 3);\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "math.ts"), []byte("export function add(a: number, b: number): number { return a + b; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tsconfig.json"), []byte(`{
+  "compilerOptions": { "module": "esnext", "declaration": true, "sourceMap": true, "outDir": "dist", "rootDir": "src" },
+  "include": ["src/**/*.ts"]
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	var stdout strings.Builder
+	if err := run(nil, nil, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	js, err := os.ReadFile(filepath.Join(dir, "dist", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(js), `from "./math.js"`) {
+		t.Fatalf("index.js:\n%s", js)
+	}
+	dts, err := os.ReadFile(filepath.Join(dir, "dist", "index.d.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(dts), "sum: number") {
+		t.Fatalf("index.d.ts:\n%s", dts)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "dist", "math.d.ts.map")); err != nil {
+		t.Fatal(err)
+	}
+
+	globOut := filepath.Join(dir, "glob")
+	if err := run([]string{"--ignoreConfig", "--outdir", globOut, "src/**/*.ts"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(globOut, "src", "math.js")); err != nil && !fileExists(filepath.Join(globOut, "math.js")) {
+		t.Fatalf("glob output missing math.js: %v", err)
+	}
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }

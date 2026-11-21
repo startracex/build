@@ -78,8 +78,12 @@ const (
 
 // Options configures a bundle.
 type Options struct {
-	// Entry is the file the bundle starts from.
+	// Entry is the file the bundle starts from. Entries lists more roots.
+	// A single-file build allows only one of them.
 	Entry string
+	// Entries are additional root files. Library output emits every root and
+	// the modules each one imports.
+	Entries []string
 	// Format selects ESM or CommonJS output. Empty means FormatESM.
 	Format Format
 	// JSX selects the JSX transform. Empty means JSXReact.
@@ -89,8 +93,11 @@ type Options struct {
 	// OutFile is the JavaScript path used by app mode. The declaration and
 	// source map are written beside it.
 	OutFile string
-	// OutDir is the directory used by lib mode.
+	// OutDir is the directory used by per-module output.
 	OutDir string
+	// RootDir is the base for paths written under OutDir. Empty uses the
+	// common directory of the loaded files.
+	RootDir string
 	// Declaration writes .d.ts and .d.ts.map files in library mode. Nil means yes.
 	// App mode does not write declarations.
 	Declaration *bool
@@ -151,8 +158,9 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if opts.Entry == "" {
-		return nil, fmt.Errorf("missing entry file")
+	roots, err := opts.absRoots()
+	if err != nil {
+		return nil, err
 	}
 	format, err := normalizeFormat(opts.Format)
 	if err != nil {
@@ -162,14 +170,14 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	if outMode == ModeApp && len(roots) != 1 {
+		return nil, fmt.Errorf("single-file output requires one entry")
+	}
 	jsx, err := jsxEmit(opts.JSX)
 	if err != nil {
 		return nil, err
 	}
-	entry, err := filepath.Abs(opts.Entry)
-	if err != nil {
-		return nil, err
-	}
+	entry := roots[0]
 	resolver, err := newResolver(filepath.Dir(entry), opts.Platform)
 	if err != nil {
 		return nil, err
@@ -192,8 +200,10 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 		decl:      opts.declaration() && outMode == ModeLib,
 		sourceMap: opts.sourceMap(),
 	}
-	if err := b.load(entry); err != nil {
-		return nil, err
+	for _, root := range roots {
+		if err := b.load(root); err != nil {
+			return nil, err
+		}
 	}
 	if outMode == ModeLib {
 		return b.emitLibrary(entry)
@@ -307,7 +317,7 @@ func (b *bundler) load(path string) error {
 		FileName: filepath.Base(path),
 		CompilerOptions: &core.CompilerOptions{
 			Module:    moduleKind,
-			Target:    core.ScriptTargetES2022,
+			Target:    core.ScriptTargetESNext,
 			Jsx:       b.jsx,
 			SourceMap: sourceMapFlag,
 		},
@@ -386,6 +396,32 @@ func parseSource(path, src string) (*ast.SourceFile, error) {
 		FileName: rooted,
 		PathKey:  tspath.CaseSensitive.PathKey(tspath.RootedPath(rooted)),
 	}, src, core.EnsureScriptKindFromFileName(rooted)), nil
+}
+
+func (o Options) absRoots() ([]string, error) {
+	var raw []string
+	if o.Entry != "" {
+		raw = append(raw, o.Entry)
+	}
+	raw = append(raw, o.Entries...)
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("missing entry file")
+	}
+	seen := map[string]bool{}
+	var roots []string
+	for _, path := range raw {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return nil, err
+		}
+		id := moduleID(abs)
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		roots = append(roots, abs)
+	}
+	return roots, nil
 }
 
 func normalizeFormat(format Format) (Format, error) {

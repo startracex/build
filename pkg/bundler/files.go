@@ -59,7 +59,7 @@ func (b *bundler) declarationText(path, src string) (string, error) {
 		FileName: filepath.Base(path),
 		CompilerOptions: &core.CompilerOptions{
 			Module: core.ModuleKindESNext,
-			Target: core.ScriptTargetES2022,
+			Target: core.ScriptTargetESNext,
 			Jsx:    b.jsx,
 		},
 		ReportDiagnostics: true,

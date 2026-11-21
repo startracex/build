@@ -83,7 +83,7 @@ func (b *bundler) emitProgramDeclarations() (map[string]declEmit, error) {
 		ResolveJsonModule:    core.TSTrue,
 		Module:               core.ModuleKindESNext,
 		ModuleResolution:     core.ModuleResolutionKindBundler,
-		Target:               core.ScriptTargetES2022,
+		Target:               core.ScriptTargetESNext,
 		Jsx:                  b.jsx,
 		CustomConditions:     platformConditions(b.opts.Platform),
 	}
