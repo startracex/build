@@ -23,7 +23,7 @@ func linkESM(b *bundler, entryID string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		mod.effectsFree = packageEffectsFree(mod.osPath())
+		mod.effectsFree = moduleSideEffectsFree(mod.osPath())
 		mods[id] = mod
 		order = append(order, id)
 	}
@@ -404,8 +404,9 @@ type expTarget struct {
 }
 
 func markLive(mods map[string]*esModule, entry *esModule) error {
-	entry.inst = true
-	if err := entry.scanSideEffects(mods); err != nil {
+	// instantiate walks side-effect imports (import "./x.js") and scans their
+	// impure statements; markLive used to set inst and only scan the entry.
+	if err := entry.instantiate(mods); err != nil {
 		return err
 	}
 	names, err := entry.publicNames(mods, map[string]bool{})
@@ -557,7 +558,7 @@ func (m *esModule) scanSideEffects(mods map[string]*esModule) error {
 		if m.cjsSkip[stmt] {
 			continue
 		}
-		if isSkippableStmt(stmt) || isPureDecl(stmt) {
+		if isSkippableStmt(m.src, stmt) || isPureDecl(m.src, stmt) {
 			continue
 		}
 		if err := m.scanNode(mods, stmt); err != nil {
@@ -1033,7 +1034,7 @@ func eachBindingIdent(n *ast.Node, fn func(*ast.Node)) {
 	}
 }
 
-func isSkippableStmt(stmt *ast.Node) bool {
+func isSkippableStmt(src string, stmt *ast.Node) bool {
 	switch stmt.Kind {
 	case ast.KindImportDeclaration, ast.KindJSImportDeclaration, ast.KindExportDeclaration:
 		return true
@@ -1042,82 +1043,11 @@ func isSkippableStmt(stmt *ast.Node) bool {
 		return exp.Expression != nil && exp.Expression.Kind == ast.KindIdentifier
 	case ast.KindExpressionStatement:
 		expr := stmt.AsExpressionStatement().Expression
-		return expr != nil && expr.Kind == ast.KindStringLiteral && expr.Text() == "use strict"
-	default:
-		return false
-	}
-}
-
-func isPureDecl(stmt *ast.Node) bool {
-	switch stmt.Kind {
-	case ast.KindFunctionDeclaration:
-		return true
-	case ast.KindVariableStatement:
-		listNode := stmt.AsVariableStatement().DeclarationList
-		if listNode == nil {
+		if expr != nil && expr.Kind == ast.KindStringLiteral && expr.Text() == "use strict" {
 			return true
 		}
-		list := listNode.AsVariableDeclarationList()
-		if list.Declarations == nil {
-			return true
-		}
-		for _, declNode := range list.Declarations.Nodes {
-			init := declNode.AsVariableDeclaration().Initializer
-			if init != nil && !isPureExpr(init) {
-				return false
-			}
-		}
-		return true
-	default:
-		return false
-	}
-}
-
-func isPureExpr(n *ast.Node) bool {
-	if n == nil {
-		return true
-	}
-	switch n.Kind {
-	case ast.KindStringLiteral, ast.KindNumericLiteral, ast.KindBigIntLiteral,
-		ast.KindNullKeyword, ast.KindTrueKeyword, ast.KindFalseKeyword,
-		ast.KindNoSubstitutionTemplateLiteral, ast.KindIdentifier, ast.KindThisKeyword:
-		return true
-	case ast.KindParenthesizedExpression:
-		return isPureExpr(n.AsParenthesizedExpression().Expression)
-	case ast.KindArrayLiteralExpression:
-		list := n.AsArrayLiteralExpression().Elements
-		if list == nil {
-			return true
-		}
-		for _, el := range list.Nodes {
-			if el.Kind != ast.KindSpreadElement && el.Kind != ast.KindOmittedExpression && !isPureExpr(el) {
-				return false
-			}
-			if el.Kind == ast.KindSpreadElement && !isPureExpr(el.AsSpreadElement().Expression) {
-				return false
-			}
-		}
-		return true
-	case ast.KindObjectLiteralExpression:
-		list := n.AsObjectLiteralExpression().Properties
-		if list == nil {
-			return true
-		}
-		for _, prop := range list.Nodes {
-			switch prop.Kind {
-			case ast.KindPropertyAssignment:
-				if !isPureExpr(prop.AsPropertyAssignment().Initializer) {
-					return false
-				}
-			case ast.KindShorthandPropertyAssignment:
-				return true
-			default:
-				return false
-			}
-		}
-		return true
-	case ast.KindPropertyAccessExpression:
-		return isPureExpr(n.AsPropertyAccessExpression().Expression)
+		// Pure expression statements (incl. /*#__PURE__*/ calls) have no live binding.
+		return isPureExpr(src, expr)
 	default:
 		return false
 	}
@@ -1734,10 +1664,10 @@ func (m *esModule) keepStmt(stmt *ast.Node) bool {
 	if m.cjsWrapAll || m.cjsSkip[stmt] {
 		return false
 	}
-	if isSkippableStmt(stmt) {
+	if isSkippableStmt(m.src, stmt) {
 		return false
 	}
-	if isPureDecl(stmt) {
+	if isPureDecl(m.src, stmt) {
 		names := declaredLocals(stmt)
 		for _, name := range names {
 			if m.liveLoc[name] {

@@ -1,9 +1,7 @@
 package bundler
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -110,27 +108,6 @@ func stripSourceMappingComment(src string) string {
 	return strings.Join(kept, "\n")
 }
 
-func packageEffectsFree(file string) bool {
-	dir := filepath.Dir(file)
-	for {
-		raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
-		if err == nil {
-			var meta struct {
-				SideEffects any `json:"sideEffects"`
-			}
-			if json.Unmarshal(raw, &meta) == nil {
-				flag, ok := meta.SideEffects.(bool)
-				return ok && !flag
-			}
-			return false
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return false
-		}
-		dir = parent
-	}
-}
 
 func javascriptOutputAbs(abs string) string {
 	ext := strings.ToLower(filepath.Ext(abs))

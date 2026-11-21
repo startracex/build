@@ -847,6 +847,137 @@ console.log("SIDE_EFFECT_MARKER");
 	}
 }
 
+func TestJSONImportTrimsWhitespace(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "data.json"), "\r\n\r\n{\r\n  \"x\": 1\r\n}\r\n\r\n")
+	writeFile(t, filepath.Join(dir, "index.ts"), `
+import data from "./data.json";
+export default data;
+`)
+	result, err := Build(context.Background(), Options{
+		Entry:  filepath.Join(dir, "index.ts"),
+		OutDir: filepath.Join(dir, "out"),
+		Format: FormatCJS,
+		Mode:   ModeLib,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dataJS string
+	var names []string
+	for _, f := range result.Files {
+		names = append(names, f.Path)
+		if filepath.Base(f.Path) == "data.js" {
+			dataJS = f.Data
+		}
+	}
+	if dataJS == "" {
+		t.Fatalf("missing data.js in %v", names)
+	}
+	if strings.Contains(dataJS, "module.exports = \n") || strings.Contains(dataJS, "module.exports = \r") {
+		t.Fatalf("JSON shim kept leading whitespace:\n%s", dataJS)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(dataJS), "module.exports = {") {
+		t.Fatalf("JSON shim = %q", dataJS)
+	}
+}
+
+func TestSideEffectImportKept(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `import "./effect.js";`)
+	writeFile(t, filepath.Join(dir, "effect.ts"), `
+console.log("SIDE_EFFECT_MARKER");
+export const unused = 1;
+`)
+	code, err := Bundle(context.Background(), Options{Entry: filepath.Join(dir, "index.ts")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(code, "SIDE_EFFECT_MARKER") {
+		t.Fatalf("side-effect import dropped console.log:\n%s", code)
+	}
+	if strings.Contains(code, "unused") {
+		t.Fatalf("unused export from side-effect module was kept:\n%s", code)
+	}
+}
+
+func TestPureAnnotationTreeShake(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `
+function mark(tag: string) { return tag; }
+const kept = /*#__PURE__*/ mark("KEEP_PURE");
+const dropped = /*#__PURE__*/ mark("DROP_PURE");
+/*#__PURE__*/ mark("DROP_STMT");
+export { kept };
+`)
+	code, err := Bundle(context.Background(), Options{Entry: filepath.Join(dir, "index.ts")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(code, "KEEP_PURE") {
+		t.Fatalf("used PURE call was dropped:\n%s", code)
+	}
+	if strings.Contains(code, "DROP_PURE") || strings.Contains(code, "DROP_STMT") {
+		t.Fatalf("unused PURE calls were kept:\n%s", code)
+	}
+}
+
+func TestUnusedClassTreeShake(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `
+class Dropped { method() { return "DROP_CLASS"; } }
+class Kept { method() { return "KEEP_CLASS"; } }
+export function value() { return new Kept().method(); }
+`)
+	code, err := Bundle(context.Background(), Options{Entry: filepath.Join(dir, "index.ts")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(code, "KEEP_CLASS") {
+		t.Fatalf("used class was dropped:\n%s", code)
+	}
+	if strings.Contains(code, "DROP_CLASS") || strings.Contains(code, "class Dropped") {
+		t.Fatalf("unused class was kept:\n%s", code)
+	}
+}
+
+func TestSideEffectsGlob(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "package.json"), `{"sideEffects":["*.css"]}`)
+	writeFile(t, filepath.Join(dir, "index.ts"), `
+import "./effect.js";
+import "./style.css";
+export function value(): number { return 1; }
+`)
+	writeFile(t, filepath.Join(dir, "effect.ts"), `
+console.log("JS_SIDE_EFFECT");
+`)
+	writeFile(t, filepath.Join(dir, "style.css"), `.x { color: red; }`)
+	result, err := Build(context.Background(), Options{
+		Entry:  filepath.Join(dir, "index.ts"),
+		OutDir: filepath.Join(dir, "out"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var js string
+	var hasCSS bool
+	for _, f := range result.Files {
+		switch filepath.Ext(f.Path) {
+		case ".js", ".mjs":
+			js += f.Data
+		case ".css":
+			hasCSS = true
+		}
+	}
+	if strings.Contains(js, "JS_SIDE_EFFECT") {
+		t.Fatalf("JS side-effect module should be shaken with sideEffects:[\"*.css\"]:\n%s", js)
+	}
+	if !hasCSS {
+		t.Fatal("CSS side-effect import was not kept")
+	}
+}
+
 func outputNamed(t *testing.T, files []Output, name string) string {
 	t.Helper()
 	var data string

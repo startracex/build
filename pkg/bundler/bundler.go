@@ -383,16 +383,17 @@ func (b *bundler) load(path string) error {
 		if !json.Valid(srcBytes) {
 			return fmt.Errorf("%s: invalid JSON", path)
 		}
+		payload := strings.TrimSpace(src)
 		if b.outMode != ModeLib || b.format == FormatESM {
 			name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 			if !isIdentifierName(name) {
 				name = "data"
 			}
-			text := "const " + name + " = " + strings.TrimSpace(src) + ";\nexport default " + name + ";\n"
+			text := "const " + name + " = " + payload + ";\nexport default " + name + ";\n"
 			b.units[id] = &unit{code: text, source: sourceText, json: true, dts: "declare const " + name + ": any;\nexport default " + name + ";\n"}
 			return nil
 		}
-		b.units[id] = &unit{code: "module.exports = " + src + ";\n", source: sourceText, json: true}
+		b.units[id] = &unit{code: "module.exports = " + payload + ";\n", source: sourceText, json: true}
 		return nil
 	}
 
