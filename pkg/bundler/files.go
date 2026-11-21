@@ -72,7 +72,12 @@ func (b *bundler) appResult(entry, js string) (*Result, error) {
 	}
 	files := []Output{{Path: jsName, Data: js}}
 	if b.sourceMap {
-		files = append(files, Output{Path: jsName + ".map", Data: appSourceMap(js, filepath.Base(jsName))})
+		mapData := b.composeAppSourceMap(js, filepath.Base(jsName))
+		// Account for wrap preamble lines when format wrapped the body.
+		if b.format == FormatIIFE || b.format == FormatUMD {
+			// compose already sees wrapped js; no extra offset needed.
+		}
+		files = append(files, Output{Path: jsName + ".map", Data: mapData})
 	}
 	return &Result{Files: files, entry: js}, nil
 }

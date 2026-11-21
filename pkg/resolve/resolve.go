@@ -41,7 +41,7 @@ type Config struct {
 	External    []string
 	Format      string // "esm", "cjs", ...
 	LibBuild    bool   // library mode: bare package imports are external
-	ResolveHook func(importer, spec string) (path string, ok bool, err error)
+	ResolveHook func(importer, spec string) (path string, external bool, ok bool, err error)
 	OnAsset     func(abs string, q asset.Query) error
 }
 
@@ -116,14 +116,25 @@ func (r *Resolver) resolveSpec(importer, spec string, allowModuleField bool) (st
 		}
 	}
 	if r.cfg.ResolveHook != nil {
-		path, ok, hookErr := r.cfg.ResolveHook(importer, specPath)
+		path, external, ok, hookErr := r.cfg.ResolveHook(importer, specPath)
 		if hookErr != nil {
 			return "", false, hookErr
 		}
 		if ok {
+			if external {
+				name := path
+				if name == "" {
+					name = specPath
+				}
+				r.NoteExternal(name)
+				return "", true, nil
+			}
 			abs, err := modpath.AbsFile(path)
 			if err != nil {
-				return "", false, fmt.Errorf("resolve %q from %s: %w", spec, importer, err)
+				abs, err = filepath.Abs(filepath.Clean(path))
+				if err != nil {
+					return "", false, fmt.Errorf("resolve %q from %s: %w", spec, importer, err)
+				}
 			}
 			if err := r.maybeOnAsset(abs, iq); err != nil {
 				return "", false, err

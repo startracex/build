@@ -30,6 +30,9 @@ type Options struct {
 	LinkingChunk string
 	Chunks       ChunkTable
 	Resolver     Resolver
+	// PreserveExports lists module ids whose public exports stay live even when
+	// they are not the link entry (used for shared chunks).
+	PreserveExports []string
 }
 
 // Link scope-hoists mods into one script or module body.
@@ -53,6 +56,21 @@ func Link(mods map[string]Module, entryID string, opts Options) (string, error) 
 	}
 	if err := markLive(parsed, entry); err != nil {
 		return "", err
+	}
+	for _, id := range opts.PreserveExports {
+		m := parsed[id]
+		if m == nil {
+			continue
+		}
+		names, err := m.publicNames(parsed, map[string]bool{})
+		if err != nil {
+			return "", err
+		}
+		for _, name := range names {
+			if err := markExport(parsed, m, name, map[string]bool{}); err != nil {
+				return "", err
+			}
+		}
 	}
 	names := &namer{used: map[string]int{}, taken: map[string]struct{}{}}
 	helper := ""

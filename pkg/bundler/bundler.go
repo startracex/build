@@ -36,6 +36,7 @@ import (
 
 	"github.com/startracex/build/pkg/asset"
 	"github.com/startracex/build/pkg/cache"
+	"github.com/startracex/build/pkg/plugin"
 	"github.com/startracex/build/pkg/resolve"
 	"github.com/startracex/tsgo/pkg/ast"
 	"github.com/startracex/tsgo/pkg/binder"
@@ -145,6 +146,9 @@ type Options struct {
 	// Return ok false to keep the built-in resolver. The hook is how aliases
 	// and, later, plugins replace resolution.
 	Resolve func(importer, specifier string) (resolved string, ok bool, err error)
+	// Plugins run Resolve/Load/Transform/GenerateBundle hooks (first ok wins
+	// for resolve/load; transform and generate chain).
+	Plugins []plugin.Plugin
 }
 
 // Bundle reads Entry and returns the entry JavaScript.
@@ -235,11 +239,19 @@ func buildOnce(ctx context.Context, opts Options) (*Result, error) {
 	if err := validateOutputPaths(OutputOptions{Format: format, OutFile: opts.OutFile, OutDir: opts.OutDir}, outMode, len(roots)); err != nil {
 		return nil, err
 	}
-	if outMode == ModeApp && !opts.Splitting && len(roots) != 1 {
+	multiApp := outMode == ModeApp && len(roots) > 1
+	needSplit := outMode == ModeApp && (opts.Splitting || multiApp)
+	if needSplit && opts.OutDir == "" {
+		return nil, fmt.Errorf("multi-entry app and --splitting require --outdir")
+	}
+	if outMode == ModeApp && !needSplit && len(roots) != 1 {
 		return nil, fmt.Errorf("single-file output requires one entry")
 	}
-	if opts.Splitting && outMode == ModeApp && opts.OutDir == "" {
-		return nil, fmt.Errorf("--splitting requires --outdir")
+	if outMode == ModeApp && multiApp && (format == FormatIIFE || format == FormatUMD) {
+		return nil, fmt.Errorf("iife/umd output supports a single entry only")
+	}
+	if (format == FormatIIFE || format == FormatUMD) && strings.TrimSpace(opts.GlobalName) == "" {
+		return nil, fmt.Errorf("iife/umd output requires --global-name")
 	}
 	jsx, err := jsxEmit(opts.JSX)
 	if err != nil {
@@ -271,7 +283,7 @@ func buildOnce(ctx context.Context, opts Options) (*Result, error) {
 		External:    opts.External,
 		Format:      string(format),
 		LibBuild:    outMode == ModeLib,
-		ResolveHook: opts.Resolve,
+		ResolveHook: combineResolveHook(ctx, opts.Plugins, opts.Resolve),
 		OnAsset:     b.onAsset,
 	})
 	if err != nil {
@@ -283,31 +295,33 @@ func buildOnce(ctx context.Context, opts Options) (*Result, error) {
 			return nil, err
 		}
 	}
+	hookCtx := plugin.HookCtx{Context: ctx}
 	for id, unit := range b.units {
 		if unit.asset {
 			continue
 		}
-		unit.code = applyDefineDrop(unit.code, opts.Define, opts.Drop)
+		code, _, err := plugin.RunTransform(opts.Plugins, hookCtx, unit.code, id)
+		if err != nil {
+			return nil, err
+		}
+		unit.code = applyDefineDrop(code, opts.Define, opts.Drop)
 		b.units[id] = unit
 	}
 	var result *Result
 	if outMode == ModeLib {
 		result, err = b.emitLibrary(entry)
-	} else if opts.Splitting {
+	} else if needSplit {
 		result, err = b.emitSplit(roots)
 	} else {
-		linkFormat := format
 		if format == FormatIIFE || format == FormatUMD {
-			linkFormat = FormatCJS
 			b.format = FormatCJS
 		}
 		var js string
-		js, err = b.linkModules(moduleID(entry))
+		js, err = b.linkModules(moduleID(entry), nil)
 		if err != nil {
 			return nil, err
 		}
 		b.format = format
-		_ = linkFormat
 		js = wrapFormat(js, format, opts.GlobalName)
 		result, err = b.appResult(entry, js)
 	}
@@ -320,6 +334,9 @@ func buildOnce(ctx context.Context, opts Options) (*Result, error) {
 	b.emitAssetFiles(result)
 	if opts.Manifest && len(opts.Outputs) == 0 {
 		result.Files = append(result.Files, manifestOutput(opts, result.Manifest)...)
+	}
+	if err := applyGenerateBundle(opts.Plugins, hookCtx, result); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
@@ -370,24 +387,40 @@ func (b *bundler) load(path string) error {
 		return nil
 	}
 	b.loading[id] = true
-	if !asset.SupportedSource(path) {
-		return fmt.Errorf("unsupported module %s", path)
-	}
 	if b.units[id] != nil && b.units[id].asset {
 		delete(b.loading, id)
 		return nil
 	}
 
-	srcBytes, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", path, err)
+	hookCtx := plugin.HookCtx{Context: b.ctx}
+	var src string
+	var sourceText string
+	loadedFromPlugin := false
+	if code, ok, err := plugin.RunLoad(b.opts.Plugins, hookCtx, id); err != nil {
+		return err
+	} else if ok {
+		src = code
+		sourceText = code
+		loadedFromPlugin = true
+	} else {
+		if !asset.SupportedSource(path) {
+			return fmt.Errorf("unsupported module %s", path)
+		}
+		srcBytes, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", path, err)
+		}
+		srcBytes = bytes.TrimPrefix(srcBytes, []byte{0xEF, 0xBB, 0xBF})
+		src = string(srcBytes)
+		sourceText = src
 	}
-	srcBytes = bytes.TrimPrefix(srcBytes, []byte{0xEF, 0xBB, 0xBF})
-	src := string(srcBytes)
-	sourceText := src
+	parsePath := path
+	if loadedFromPlugin && filepath.Ext(path) == "" {
+		parsePath = path + ".js"
+	}
 
-	if strings.EqualFold(filepath.Ext(path), ".json") {
-		if !json.Valid(srcBytes) {
+	if strings.EqualFold(filepath.Ext(parsePath), ".json") {
+		if !json.Valid([]byte(src)) {
 			return fmt.Errorf("%s: invalid JSON", path)
 		}
 		payload := strings.TrimSpace(src)
@@ -404,7 +437,7 @@ func (b *bundler) load(path string) error {
 		return nil
 	}
 
-	file, err := parseSource(path, src)
+	file, err := parseSource(parsePath, src)
 	if err != nil {
 		return err
 	}
@@ -673,6 +706,48 @@ func lineCol(src string, pos int) (int, int) {
 		col++
 	}
 	return line, col
+}
+
+func combineResolveHook(ctx context.Context, plugins []plugin.Plugin, user func(importer, specifier string) (resolved string, ok bool, err error)) func(importer, spec string) (string, bool, bool, error) {
+	hookCtx := plugin.HookCtx{Context: ctx}
+	return func(importer, spec string) (string, bool, bool, error) {
+		id, external, ok, err := plugin.RunResolve(plugins, hookCtx, spec, importer)
+		if err != nil || ok {
+			return id, external, ok, err
+		}
+		if user != nil {
+			path, uok, uerr := user(importer, spec)
+			return path, false, uok, uerr
+		}
+		return "", false, false, nil
+	}
+}
+
+func applyGenerateBundle(plugins []plugin.Plugin, ctx plugin.HookCtx, result *Result) error {
+	if len(plugins) == 0 {
+		return nil
+	}
+	files := make([]plugin.File, len(result.Files))
+	for i, f := range result.Files {
+		files[i] = plugin.File{Path: f.Path, Data: f.Data}
+	}
+	out, err := plugin.RunGenerateBundle(plugins, ctx, files)
+	if err != nil {
+		return err
+	}
+	result.Files = result.Files[:0]
+	for _, f := range out {
+		result.Files = append(result.Files, Output{Path: f.Path, Data: f.Data})
+	}
+	if result.entry != "" {
+		for _, f := range result.Files {
+			if isJavaScriptOutput(f.Path) {
+				result.entry = f.Data
+				break
+			}
+		}
+	}
+	return nil
 }
 
 func unitPaths(b *bundler, entry string) []string {

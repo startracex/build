@@ -12,7 +12,8 @@ const (
 	FormatUMD  = "umd"
 )
 
-// WrapFormat converts linked ESM/CJS body into IIFE or UMD when requested.
+// WrapFormat converts a CJS-style linked body (module.exports) into IIFE or UMD.
+// ESM and CJS pass through unchanged.
 func WrapFormat(js string, format string, globalName string) string {
 	switch format {
 	case FormatIIFE:
@@ -29,12 +30,12 @@ func wrapIIFE(js string, globalName string) string {
 	if name == "" {
 		name = "exports"
 	}
-	body := strings.TrimSpace(js)
-	if strings.Contains(body, "module.exports") {
-		return fmt.Sprintf("var %s = (function () {\n%s\n  return typeof module !== \"undefined\" && module.exports ? module.exports : {};\n})();\n", name, indentBlock(body, "  "))
-	}
-	return fmt.Sprintf("(function (global) {\n  var exports = {};\n%s\n  global[%q] = exports;\n})(typeof globalThis !== \"undefined\" ? globalThis : typeof window !== \"undefined\" ? window : this);\n",
-		indentBlock(stripESMExportsToAssignments(body), "  "), name)
+	body := ensureCJSBody(strings.TrimSpace(js))
+	return fmt.Sprintf(
+		"var %s = (function () {\n  var exports = {};\n  var module = { exports: exports };\n%s\n  return module.exports;\n})();\n",
+		name,
+		indentBlock(body, "  "),
+	)
 }
 
 func wrapUMD(js string, globalName string) string {
@@ -42,10 +43,7 @@ func wrapUMD(js string, globalName string) string {
 	if name == "" {
 		name = "bundle"
 	}
-	body := strings.TrimSpace(js)
-	if !strings.Contains(body, "module.exports") {
-		body = stripESMExportsToAssignments(body)
-	}
+	body := ensureCJSBody(strings.TrimSpace(js))
 	return fmt.Sprintf(`(function (root, factory) {
   if (typeof define === "function" && define.amd) {
     define([], factory);
@@ -61,6 +59,13 @@ func wrapUMD(js string, globalName string) string {
   return module.exports;
 });
 `, name, indentBlock(body, "  "))
+}
+
+func ensureCJSBody(src string) string {
+	if strings.Contains(src, "module.exports") {
+		return src
+	}
+	return stripESMExportsToAssignments(src)
 }
 
 func indentBlock(src, pad string) string {

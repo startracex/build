@@ -11,17 +11,45 @@ import (
 	"github.com/startracex/tsgo/pkg/ast"
 )
 
-// emitSplit builds entry bundles plus one chunk per dynamic import() target.
-// Modules used by multiple async entries are placed in chunks/shared-*.js.
+// emitSplit builds entry bundles plus shared/dynamic chunks for a multi-entry
+// or --splitting app graph.
 func (b *bundler) emitSplit(entries []string) (*Result, error) {
 	b.chunkPaths = map[string]string{}
 	graph := b.staticDeps()
 	asyncEdges := b.dynamicImportEdges()
 
+	entryIDs := make([]string, 0, len(entries))
 	entrySync := map[string]map[string]bool{}
 	for _, e := range entries {
-		entrySync[moduleID(e)] = reach(graph, moduleID(e))
+		id := moduleID(e)
+		entryIDs = append(entryIDs, id)
+		entrySync[id] = reach(graph, id)
 	}
+
+	// Modules reachable from ≥2 entry roots (static) are shared across entries.
+	entryOwner := map[string]int{}
+	for _, set := range entrySync {
+		for id := range set {
+			entryOwner[id]++
+		}
+	}
+	sharedMods := map[string]bool{}
+	for id, n := range entryOwner {
+		if n > 1 {
+			// Entry roots themselves stay in their entry files.
+			isEntry := false
+			for _, eid := range entryIDs {
+				if eid == id {
+					isEntry = true
+					break
+				}
+			}
+			if !isEntry {
+				sharedMods[id] = true
+			}
+		}
+	}
+
 	syncAll := map[string]bool{}
 	for _, set := range entrySync {
 		for id := range set {
@@ -54,7 +82,6 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 			ownerCount[id]++
 		}
 	}
-	sharedMods := map[string]bool{}
 	for id, n := range ownerCount {
 		if n > 1 {
 			sharedMods[id] = true
@@ -69,10 +96,8 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 		for id := range sharedMods {
 			b.chunkPaths[id] = sharedRel
 		}
-		// Build a tiny entry that re-exports every shared module's exports by
-		// linking from an arbitrary shared root; dependents import the chunk.
 		root := keysOf(sharedMods)[0]
-		js, err := b.linkChunk(root, sharedRel)
+		js, err := b.linkChunk(root, sharedRel, keysOf(sharedMods))
 		if err != nil {
 			return nil, err
 		}
@@ -98,7 +123,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 				b.chunkPaths[id] = chunkRel
 			}
 		}
-		js, err := b.linkChunk(root, chunkRel)
+		js, err := b.linkChunk(root, chunkRel, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -115,14 +140,19 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 	for i, e := range entries {
 		rel := filepath.Base(javascriptOutputAbs(e))
 		if r, err := filepath.Rel(rootDir, javascriptOutputAbs(e)); err == nil {
-			rel = r
+			rel = filepath.ToSlash(r)
 		}
-		js, err := b.linkModules(moduleID(e))
+		js, err := b.linkModules(moduleID(e), nil)
 		if err != nil {
 			return nil, err
 		}
 		js = wrapFormat(js, b.format, b.opts.GlobalName)
-		out := filepath.Join(b.opts.OutDir, rel)
+		out := filepath.Join(b.opts.OutDir, filepath.FromSlash(rel))
+		if b.sourceMap {
+			mapName := filepath.Base(out) + ".map"
+			js = strings.TrimRight(js, "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
+			files = append(files, Output{Path: out + ".map", Data: b.composeAppSourceMap(js, filepath.Base(out))})
+		}
 		files = append(files, Output{Path: out, Data: js})
 		if i == 0 {
 			entryJS = js
@@ -133,10 +163,10 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 	return &Result{Files: files, Manifest: manifest, entry: entryJS}, nil
 }
 
-func (b *bundler) linkChunk(entryID, chunkRel string) (string, error) {
+func (b *bundler) linkChunk(entryID, chunkRel string, preserve []string) (string, error) {
 	prev := b.linkingChunk
 	b.linkingChunk = chunkRel
-	js, err := b.linkModules(entryID)
+	js, err := b.linkModules(entryID, preserve)
 	b.linkingChunk = prev
 	if err != nil {
 		return "", err
@@ -234,4 +264,3 @@ func chunkName(moduleID string) string {
 	}, base)
 	return base + "-" + shortHash([]string{moduleID})
 }
-

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/startracex/build/pkg/plugin"
 )
 
 func TestFixtureBundle(t *testing.T) {
@@ -194,6 +196,85 @@ export const value = thing;
 	out := runBundle(t, code)
 	if out.Value != 11 {
 		t.Fatalf("value = %d", out.Value)
+	}
+}
+
+func TestPluginHooks(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real.ts")
+	virtualID := filepath.Join(dir, "plugin-virtual")
+	entry := filepath.Join(dir, "index.ts")
+	outFile := filepath.Join(dir, "out.js")
+	markerTransform := "/* plugin-transform */"
+	markerBundle := "/* plugin-bundle */"
+
+	if err := os.WriteFile(real, []byte("export const fromFile = 3;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(entry, []byte(`import { fromFile } from "bare:pkg";
+import { virtualVal } from "virtual:mod";
+export const sum = fromFile + virtualVal;
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plugs := []plugin.Plugin{{
+		Resolve: func(_ plugin.HookCtx, source, _ string) (string, bool, bool, error) {
+			switch source {
+			case "bare:pkg":
+				return real, false, true, nil
+			case "virtual:mod":
+				return virtualID, false, true, nil
+			}
+			return "", false, false, nil
+		},
+		Load: func(_ plugin.HookCtx, id string) (string, bool, error) {
+			if filepath.ToSlash(id) == filepath.ToSlash(moduleID(virtualID)) {
+				return "export const virtualVal = 7;\n", true, nil
+			}
+			return "", false, nil
+		},
+		Transform: func(_ plugin.HookCtx, code, _ string) (string, string, error) {
+			return code + "\n" + markerTransform + "\n", "", nil
+		},
+		GenerateBundle: func(_ plugin.HookCtx, files []plugin.File) ([]plugin.File, error) {
+			for i := range files {
+				if strings.HasSuffix(files[i].Path, ".js") {
+					files[i].Data += "\n" + markerBundle + "\n"
+				}
+			}
+			return append(files, plugin.File{Path: filepath.Join(dir, "extra.txt"), Data: "extra\n"}), nil
+		},
+	}}
+
+	result, err := Build(context.Background(), Options{
+		Entry:   entry,
+		OutFile: outFile,
+		Plugins: plugs,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	code := result.JavaScript()
+	if !strings.Contains(code, markerTransform) {
+		t.Fatalf("transform marker missing:\n%s", code)
+	}
+	if !strings.Contains(code, markerBundle) {
+		t.Fatalf("generateBundle marker missing:\n%s", code)
+	}
+	runNode(t, code, `
+import { pathToFileURL } from "node:url";
+const m = await import(pathToFileURL(process.argv[2]).href);
+if (m.sum !== 10) { console.error("sum", m.sum); process.exit(1); }
+`)
+	var extra bool
+	for _, f := range result.Files {
+		if strings.HasSuffix(f.Path, "extra.txt") && f.Data == "extra\n" {
+			extra = true
+		}
+	}
+	if !extra {
+		t.Fatalf("generateBundle did not append extra.txt; files=%v", result.Files)
 	}
 }
 
@@ -519,8 +600,148 @@ func TestIIFEFormat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(code, "App") || !strings.Contains(code, "function") {
+	if !strings.Contains(code, "var App = (function") || !strings.Contains(code, "module.exports") {
 		t.Fatalf("iife:\n%s", code)
+	}
+	check := runNodeExt(t, code, "js", `
+const fs = require("fs");
+const vm = require("vm");
+const code = fs.readFileSync(process.argv[2], "utf8");
+const sandbox = {};
+vm.runInNewContext(code, sandbox);
+console.log(JSON.stringify({ value: sandbox.App && sandbox.App.value }));
+`)
+	var got struct {
+		Value int `json:"value"`
+	}
+	if err := json.Unmarshal([]byte(check), &got); err != nil || got.Value != 42 {
+		t.Fatalf("iife runtime = %q err=%v", check, err)
+	}
+}
+
+func TestUMDFormat(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 7;`)
+	code, err := Bundle(context.Background(), Options{
+		Entry:      filepath.Join(dir, "index.ts"),
+		Format:     FormatUMD,
+		GlobalName: "Lib",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(code, `root["Lib"]`) || !strings.Contains(code, "module.exports = factory()") {
+		t.Fatalf("umd:\n%s", code)
+	}
+	raw := runNodeExt(t, code, "cjs", `
+const m = require(process.argv[2]);
+console.log(JSON.stringify({ value: m.value }));
+`)
+	var got struct {
+		Value int `json:"value"`
+	}
+	if err := json.Unmarshal([]byte(raw), &got); err != nil || got.Value != 7 {
+		t.Fatalf("umd require = %q", raw)
+	}
+}
+
+func TestAppSourceMapCompose(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `
+export function hello(name: string): string {
+  return "hi " + name;
+}
+`)
+	sm := true
+	result, err := Build(context.Background(), Options{
+		Entry:     filepath.Join(dir, "index.ts"),
+		OutFile:   filepath.Join(dir, "out", "bundle.mjs"),
+		SourceMap: &sm,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mapData string
+	for _, f := range result.Files {
+		if strings.HasSuffix(f.Path, ".map") {
+			mapData = f.Data
+		}
+	}
+	if mapData == "" {
+		t.Fatal("missing source map")
+	}
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(mapData), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["version"] != float64(3) {
+		t.Fatalf("map = %s", mapData)
+	}
+	mappings, _ := raw["mappings"].(string)
+	if mappings == "" {
+		t.Fatalf("empty mappings: %s", mapData)
+	}
+	sources, _ := raw["sources"].([]any)
+	if len(sources) == 0 {
+		t.Fatalf("no sources: %s", mapData)
+	}
+}
+
+func TestIIFERequiresGlobalName(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
+	_, err := Bundle(context.Background(), Options{
+		Entry:  filepath.Join(dir, "index.ts"),
+		Format: FormatIIFE,
+	})
+	if err == nil {
+		t.Fatal("expected error for missing global name")
+	}
+}
+
+func TestMultiEntrySharedChunk(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "util.ts"), `export const shared = "SHARED_MARK";`)
+	writeFile(t, filepath.Join(dir, "a.ts"), `
+import { shared } from "./util";
+export const fromA = shared;
+`)
+	writeFile(t, filepath.Join(dir, "b.ts"), `
+import { shared } from "./util";
+export const fromB = shared;
+`)
+	out := filepath.Join(dir, "dist")
+	result, err := Build(context.Background(), Options{
+		Entries: []string{filepath.Join(dir, "a.ts"), filepath.Join(dir, "b.ts")},
+		Mode:    ModeApp,
+		OutDir:  out,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sharedFiles, entryFiles int
+	sharedHits := 0
+	for _, f := range result.Files {
+		if !strings.HasSuffix(f.Path, ".js") && !strings.HasSuffix(f.Path, ".mjs") {
+			continue
+		}
+		if strings.Contains(f.Path, "shared") || strings.Contains(f.Path, "chunks") {
+			sharedFiles++
+			if strings.Contains(f.Data, "SHARED_MARK") {
+				sharedHits++
+			}
+		} else {
+			entryFiles++
+			if strings.Contains(f.Data, "SHARED_MARK") {
+				t.Fatalf("shared mark inlined into entry %s:\n%s", f.Path, f.Data)
+			}
+		}
+	}
+	if sharedFiles == 0 || sharedHits == 0 {
+		t.Fatalf("expected shared chunk with mark; files=%v", result.Files)
+	}
+	if entryFiles < 2 {
+		t.Fatalf("expected two entry files, got %d in %#v", entryFiles, result.Files)
 	}
 }
 
@@ -1005,8 +1226,12 @@ func runNodeExt(t *testing.T, code, kind, script string) string {
 	dir := t.TempDir()
 	ext := ".mjs"
 	scriptExt := ".mjs"
-	if kind == "cjs" {
+	switch kind {
+	case "cjs":
 		ext = ".cjs"
+		scriptExt = ".cjs"
+	case "js":
+		ext = ".js"
 		scriptExt = ".cjs"
 	}
 	bundlePath := filepath.Join(dir, "bundle"+ext)

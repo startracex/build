@@ -130,10 +130,40 @@ func IsPureExpr(src string, n *ast.Node) bool {
 	case ast.KindPropertyAccessExpression:
 		return IsPureExpr(src, n.AsPropertyAccessExpression().Expression)
 	case ast.KindCallExpression, ast.KindNewExpression:
-		if !hasPureAnnotation(src, n.Pos()) {
-			return false
+		if hasPureAnnotation(src, n.Pos()) {
+			return pureCallArgs(src, n)
 		}
-		return pureCallArgs(src, n)
+		if n.Kind == ast.KindCallExpression && isKnownPureCallee(n.AsCallExpression().Expression) {
+			return pureCallArgs(src, n)
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+// isKnownPureCallee reports callees that are safe to treat as pure when args are pure.
+func isKnownPureCallee(n *ast.Node) bool {
+	if n == nil {
+		return false
+	}
+	for n.Kind == ast.KindParenthesizedExpression {
+		n = n.AsParenthesizedExpression().Expression
+	}
+	if n.Kind != ast.KindPropertyAccessExpression {
+		return false
+	}
+	access := n.AsPropertyAccessExpression()
+	if access.Expression == nil || access.Expression.Kind != ast.KindIdentifier || access.Expression.Text() != "Object" {
+		return false
+	}
+	name := access.Name()
+	if name == nil {
+		return false
+	}
+	switch name.Text() {
+	case "assign", "create", "freeze", "keys", "values", "entries", "fromEntries", "is":
+		return true
 	default:
 		return false
 	}

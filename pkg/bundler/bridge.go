@@ -1,12 +1,14 @@
 package bundler
 
 import (
+	"path/filepath"
+
 	"github.com/startracex/build/pkg/cache"
 	"github.com/startracex/build/pkg/define"
-	"github.com/startracex/build/pkg/resolve"
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/output"
+	"github.com/startracex/build/pkg/resolve"
 	"github.com/startracex/build/pkg/sourcemap"
 	"github.com/startracex/build/pkg/wrap"
 	"github.com/startracex/tsgo/pkg/ast"
@@ -45,6 +47,31 @@ func wrapFormat(js string, format Format, globalName string) string {
 }
 
 func appSourceMap(js, file string) string { return sourcemap.AppSourceMap(js, file) }
+
+func (b *bundler) composeAppSourceMap(js, file string) string {
+	var paths []string
+	for id := range b.units {
+		paths = append(paths, filepath.FromSlash(id))
+	}
+	root := displayRoot(paths)
+	if b.opts.RootDir != "" {
+		root = b.opts.RootDir
+	}
+	var mods []sourcemap.ModuleMap
+	for id, unit := range b.units {
+		if unit.asset {
+			continue
+		}
+		abs := filepath.FromSlash(id)
+		display := displayRel(root, abs)
+		mods = append(mods, sourcemap.ModuleMap{
+			Display:  display,
+			Original: unit.source,
+			JSMap:    unit.jsMap,
+		})
+	}
+	return sourcemap.ComposeLinked(js, file, mods)
+}
 
 func retargetSourceMap(mapText, fileName, sourceName, sourceContent string) string {
 	return sourcemap.RetargetSourceMap(mapText, fileName, sourceName, sourceContent)

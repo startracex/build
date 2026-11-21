@@ -18,15 +18,16 @@ func (c linkChunks) ChunkPath(moduleID string) (rel string, ok bool) {
 	return rel, ok && rel != ""
 }
 
-func (b *bundler) linkModules(entryID string) (string, error) {
+func (b *bundler) linkModules(entryID string, preserve []string) (string, error) {
 	mods := make(map[string]link.Module, len(b.units))
 	for id, unit := range b.units {
 		mods[id] = link.Module{ID: id, Code: unit.code}
 	}
 	return link.Link(mods, entryID, link.Options{
-		Format:       string(b.format),
-		LinkingChunk: b.linkingChunk,
-		Chunks:       linkChunks{b},
-		Resolver:     linkResolver{b},
+		Format:          string(b.format),
+		LinkingChunk:    b.linkingChunk,
+		Chunks:          linkChunks{b},
+		Resolver:        linkResolver{b},
+		PreserveExports: preserve,
 	})
 }

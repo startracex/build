@@ -1,6 +1,6 @@
 # build
 
-`build` bundles a JavaScript or TypeScript program. It resolves imports the way a project does, transpiles TypeScript and TSX with [tsgo](https://github.com/startracex/tsgo), and writes ECMAScript modules or CommonJS. Source maps and declarations follow TypeScript: they are off unless `tsconfig.json` or a flag turns them on.
+`build` bundles a JavaScript or TypeScript program. It resolves imports the way a project does, transpiles TypeScript and TSX with [tsgo](https://github.com/startracex/tsgo), and writes ECMAScript modules, CommonJS, IIFE, or UMD. Source maps and declarations follow TypeScript: they are off unless `tsconfig.json` or a flag turns them on.
 
 The library lives in `pkg/bundler`. The command is `cmd/build`.
 
@@ -16,85 +16,140 @@ GOPROXY=direct go install github.com/startracex/build/cmd/build@latest
 
 ## Usage
 
-With no input files, `build` looks for `tsconfig.json` the way `tsc` does: the working directory first, then each parent directory. `-p` accepts that file, or a directory that contains it. The build emits one JavaScript file per module. `module`, `jsx`, `target`, `outDir`, `rootDir`, `sourceMap`, `declaration`, `declarationMap`, and `customConditions` come from that file. Commented-out or omitted emit flags stay off, so no `.map`, `.d.ts`, or `.d.ts.map` is written unless those options are true.
+With no input files, `build` looks for `tsconfig.json` the way `tsc` does. `-p` accepts that file, or a directory that contains it. The build emits one JavaScript file per module unless `--outfile` is set.
 
 ```bash
 build
 build --project tsconfig.json
 ```
 
-`--outfile` with one entry writes a single bundle. It does not write a `.d.ts`. More than one entry with `--outfile` is an error. A source map is written only when `--sourcemap` is set.
+### Single bundle
 
 ```bash
 build -o dist/app.mjs src/index.ts
-node dist/app.mjs
+```
+
+Repeat `--format` for Rollup-style multiple outputs from one input (ESM + CJS dual package):
+
+```bash
+build -o dist/index.js --format esm --format cjs src/index.ts
+# writes dist/index.mjs and dist/index.cjs
 ```
 
 ```bash
-build --format cjs -o dist/app.cjs src/index.ts
-node -e 'const app = require("./dist/app.cjs"); console.log(app.default)'
+build --format iife --global-name App -o dist/app.js src/index.ts
 ```
 
-`--outdir` accepts one entry, several entries, or a glob. Package imports stay external. Relative imports point at the emitted files.
+### Library / split output
 
 ```bash
 build --outdir dist src/index.ts
-build --outdir dist "src/**/*.ts"
+build --outdir dist --format esm --format cjs "src/**/*.ts"
+# writes under dist/esm and dist/cjs
 ```
-
-Passing files on the command line does not load `tsconfig.json`. If one is found, the command stops, matching `tsc`. `--ignoreConfig` skips that check and uses the files you passed.
 
 ```bash
-build --ignoreConfig -o dist/app.mjs src/index.ts --external react
+build --outdir dist --splitting src/index.ts
+# dynamic import() targets become files under dist/chunks/
 ```
+
+Passing files on the command line ignores `tsconfig.json`. `-p` cannot be combined with input files.
 
 | Flag | Meaning |
 | --- | --- |
-| `-o`, `--outfile` | Single-file bundle path. Requires exactly one entry. |
-| `--outdir` | Directory for per-module output. Accepts one or more entries. |
-| arguments | Entry files or globs. `**` matches across directories. A leading `!` excludes. |
-| `-p`, `--project` | `tsconfig.json` file, or a directory containing one. Cannot be combined with input files. |
-| `--ignoreConfig` | Use command-line files even when a `tsconfig.json` is found above the working directory. |
-| `--format` | `esm` or `cjs`. The default is `tsconfig` `module`, or `esm`. |
-| `--jsx` | `react` emits `React.createElement`. `react-jsx` emits the automatic JSX runtime. The default is `tsconfig` `jsx`, or `react`. |
-| `--external` | Package name left as an import or require. Repeat the flag to list more than one. Per-module output already leaves every bare package external. |
-| `--conditions` | Extra `package.json` `"exports"` conditions. Repeat the flag to list more than one. Defaults also come from `tsconfig` `customConditions`. |
-| `--sourcemap` | Write JavaScript source maps. Default is `tsconfig` `sourceMap`, or false. |
-| `--dts` | Write `.d.ts` files for per-module output. Default is `tsconfig` `declaration` / `composite`, or false. Single-file output does not write declarations. |
-| `--declarationMap` | Write `.d.ts.map` files when declarations are enabled. Default is `tsconfig` `declarationMap`, or false. |
+| `-o`, `--outfile` | Single-file bundle path. With several `--format` values, the extension is derived per format. |
+| `--outdir` | Directory for per-module or split output. |
+| arguments | Entry files or globs. |
+| `-p`, `--project` | `tsconfig.json` file or directory. |
+| `--format` | `esm`, `cjs`, `iife`, or `umd`. Repeatable. |
+| `--global-name` | Global variable for `iife` / `umd`. |
+| `--jsx` | `react` or `react-jsx`. |
+| `--external` | Leave a package unbundled (repeatable). |
+| `--conditions` | Extra `package.json` `"exports"` conditions (repeatable). |
+| `--alias` | Specifier prefix mapping `from=to` (repeatable), e.g. `@=./src`. |
+| `--define` | Replace a free identifier `KEY=VAL` (repeatable). |
+| `--drop` | `console` and/or `debugger` (repeatable). |
+| `--sourcemap` | Write JavaScript source maps. |
+| `--dts` | Write `.d.ts` for per-module output. |
+| `--declarationMap` | Write `.d.ts.map` when declarations are on. |
+| `--splitting` | Emit `import()` targets as chunks (requires `--outdir`). |
+| `--cache-dir` | Cache transpile results on disk. |
+| `--manifest` | Write `manifest.json` for emitted assets. |
+| `--public-path` | URL prefix for `?url` / file assets. |
 
-## Modules
+## Modules and assets
 
-Relative specifiers (`./`, `../`) are bundled. `./math.js` can resolve to `math.ts`, and a specifier with no extension can resolve to `dir/index.ts`.
+Relative and package imports resolve as before (`exports`, `main`, `module`). Conditions: ESM uses `default`/`module`/`import`; CJS uses `default`/`module`/`require`.
 
-Bare specifiers are loaded from `node_modules` when the output is one file. Resolution uses tsgo's bundler resolver:
+| Import | Behavior |
+| --- | --- |
+| `./x.txt?raw` | Default export is the file text. |
+| `./x.png?url` | File is copied; default export is a URL string. |
+| `./x.css` | CSS is emitted beside the JS; the JS module is a side-effect import. |
+| Other static assets | Treated like `?url`. |
 
-- `package.json` `"exports"`, including `import` and `require` conditions and subpaths
-- `"main"` when `"exports"` does not apply
-- `"module"` for ESM output when `"exports"` is absent
+`define` / `drop` run on transpiled JS before linking. Alias longest-prefix match runs before the package resolver.
 
-Export conditions match Rollup's defaults: ESM resolution uses `default`, `module`, and `import`; CommonJS resolution uses `default`, `module`, and `require`. `--conditions` and `tsconfig` `customConditions` are appended. `default` always matches in the exports algorithm.
+### App multi-entry and splitting
 
-A single file inlines the local graph into one module: real `import` and `export` declarations, no per-file `require` runtime, and no absolute filesystem paths. Node built-ins stay as `import` statements. JSON becomes a `const`. A local `import()` is turned into a promise of that module's exports so the bundle does not expect another file. Side-effect-free exports that nothing reaches are left out. A package whose `package.json` sets `"sideEffects": false` is skipped when it is imported only for its side effects. `export let` bindings stay shared inside the bundle, so updates are visible to other inlined modules.
+- Single entry + `--outfile`: one linked file (optional IIFE/UMD with `--global-name`).
+- Multiple entries or `--splitting` require `--outdir`. The graph is shared: each entry is one file; modules used by ≥2 entries (or multiple async roots) go to `chunks/shared-*.js`; `import()` targets become `chunks/*.js`.
+- IIFE/UMD: **single entry only**; `--global-name` is required.
 
-`--format cjs` uses that same link and assigns the entry exports to `module.exports`.
+### Tree shaking (app bundle)
 
-Per-module output keeps each local module in its own file. `import()` stays a dynamic import of the emitted file. Bare package imports are not inlined.
+Linking marks live bindings from entry (and shared-chunk) exports and drops unused pure declarations. Supported:
 
-`bundler.Options.Resolve` can replace a specifier with a file. That is the extension point for aliases.
+- Unused functions, vars with pure inits, and classes without impure `extends` / static initializers
+- `/*#__PURE__*/` / `/*@__PURE__*/` annotated calls and `new` (including unused statement forms)
+- A small set of known-pure `Object.*` callees when arguments are pure
+- `package.json` `"sideEffects": false` or a string array / glob (`["*.css"]`)
 
-Library declarations are emitted by tsgo after it type-checks the local program. A `const` whose type is inferred keeps that type, for example `number`, instead of `any`. The `.d.ts.map` points from each declaration file back at its source when `declarationMap` is on.
+Library `--outdir` still emits per file and does not cross-file-shake unused exports. Dynamic CJS (`__commonJS`) keeps the whole factory.
 
-Single-file source maps are line-level maps back to the linked source files. Per-module JavaScript source maps are the maps tsgo emits for each file.
+### Plugins
+
+`Options.Plugins` (`pkg/plugin`) exposes four hooks, between esbuild and Rollup:
+
+| Hook | When |
+| --- | --- |
+| `Resolve` | Before the package resolver (first match wins) |
+| `Load` | Before reading a file (virtual modules) |
+| `Transform` | After transpile, before `define`/`drop` (chained) |
+| `GenerateBundle` | After emit, before `Build` returns (chained) |
+
+Pipeline: **transpile → Transform → define/drop → link/wrap → source maps → GenerateBundle**.
+
+### Source maps
+
+With `--sourcemap`, app bundles compose transpile maps with linker `// file` sections (column mappings when transpile maps exist).
+
+## Library API
+
+```go
+result, err := bundler.Build(ctx, bundler.Options{
+  Entry: "src/index.ts",
+  Outputs: []bundler.OutputOptions{
+    {Format: bundler.FormatESM, OutFile: "dist/index.mjs"},
+    {Format: bundler.FormatCJS, OutFile: "dist/index.cjs"},
+  },
+  Alias:  map[string]string{"@": "./src"},
+  Define: map[string]string{"__DEV__": "false"},
+  Drop:   []string{"console"},
+})
+```
+
+Public entry: `github.com/startracex/build/pkg/bundler`. Sibling packages: `plugin`, `resolve`, `asset`, `link`, `treeshake`, `define`, `cache`, `wrap`, `sourcemap`, `dts`, `modpath`, `jsedit`, `output`.
 
 ## Not supported
 
-- CSS and other asset imports
-- Splitting one bundle into multiple chunks
-- Rollup's plugin API
-- Minify, define, and `import.meta.url` rewriting
-- A full Rollup treeshake (`/*#__PURE__*/` is not special-cased; other side-effectful initializers are kept)
-- Type-checking a single-file bundle (those files are parsed, bound, and transpiled per file; per-module declarations use the checker)
+- Minify
+- Full Rollup plugin surface (`renderChunk`, watch hooks, …)
+- `import.meta.url` rewriting
+- Property-level tree shaking / `if (false)` DCE
+- Cross-file unused export removal in library mode
+- Type-checking a single-file app bundle (library declarations use the checker)
+- Module Federation
 
 ## Develop
 
