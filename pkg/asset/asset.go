@@ -1,13 +1,14 @@
 package asset
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
-
 )
 
 // Kind classifies how an import is treated at emit time.
@@ -54,6 +55,20 @@ func ParseQuery(spec string) Query {
 		}
 	}
 	return iq
+}
+
+// ModuleKey is the graph id for an asset, including ?raw / ?url when needed so
+// the same file can be imported under different query kinds.
+func ModuleKey(abs string, kind Kind) string {
+	id := filepath.ToSlash(abs)
+	switch kind {
+	case Raw:
+		return id + "?raw"
+	case URL:
+		return id + "?url"
+	default:
+		return id
+	}
 }
 
 // KindForPath picks an asset kind from query flags and file extension.
@@ -111,6 +126,9 @@ func Load(abs string, kind Kind, rootDir, publicPath string) (*Unit, string, err
 		}
 	}
 	rel = filepath.ToSlash(rel)
+	if kind == URL || (kind != Raw && kind != CSS) {
+		rel = hashedRel(rel, data)
+	}
 	au := &Unit{Kind: kind, Source: abs, Data: data, OutRel: rel}
 	var js string
 	switch kind {
@@ -164,6 +182,17 @@ func ManifestPath(outDir, outFile string) string {
 		return filepath.Join(filepath.Dir(outFile), "manifest.json")
 	}
 	return "manifest.json"
+}
+
+func hashedRel(rel string, data []byte) string {
+	sum := sha256.Sum256(data)
+	hash := hex.EncodeToString(sum[:])[:8]
+	ext := path.Ext(rel)
+	stem := strings.TrimSuffix(rel, ext)
+	if stem == "" {
+		stem = "asset"
+	}
+	return stem + "-" + hash + ext
 }
 
 // SupportedSource reports whether path can be loaded as source or asset.

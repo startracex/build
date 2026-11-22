@@ -108,10 +108,11 @@ func (r *Resolver) resolveSpec(importer, spec string, allowModuleField bool) (st
 			}
 			abs, err := modpath.AbsFile(joined)
 			if err == nil {
-				if err := r.maybeOnAsset(abs, iq); err != nil {
+				id, err := r.assetResolved(abs, iq)
+				if err != nil {
 					return "", false, err
 				}
-				return abs, false, nil
+				return id, false, nil
 			}
 		}
 	}
@@ -136,10 +137,11 @@ func (r *Resolver) resolveSpec(importer, spec string, allowModuleField bool) (st
 					return "", false, fmt.Errorf("resolve %q from %s: %w", spec, importer, err)
 				}
 			}
-			if err := r.maybeOnAsset(abs, iq); err != nil {
+			id, err := r.assetResolved(abs, iq)
+			if err != nil {
 				return "", false, err
 			}
-			return abs, false, nil
+			return id, false, nil
 		}
 	}
 	if err := unsupportedSpecifier(specPath); err != nil {
@@ -155,10 +157,11 @@ func (r *Resolver) resolveSpec(importer, spec string, allowModuleField bool) (st
 			candidate = filepath.Join(filepath.Dir(importer), filepath.FromSlash(specPath))
 		}
 		if abs, err := modpath.AbsFile(candidate); err == nil && (iq.Raw || iq.URL || asset.IsExt(filepath.Ext(abs))) {
-			if err := r.maybeOnAsset(abs, iq); err != nil {
+			id, err := r.assetResolved(abs, iq)
+			if err != nil {
 				return "", false, err
 			}
-			return abs, false, nil
+			return id, false, nil
 		}
 	}
 	if allowModuleField && r.cfg.Format == "esm" {
@@ -170,20 +173,24 @@ func (r *Resolver) resolveSpec(importer, spec string, allowModuleField bool) (st
 	if err != nil || external {
 		return abs, external, err
 	}
-	if err := r.maybeOnAsset(abs, iq); err != nil {
+	id, err := r.assetResolved(abs, iq)
+	if err != nil {
 		return "", false, err
 	}
-	return abs, false, nil
+	return id, false, nil
 }
 
-func (r *Resolver) maybeOnAsset(abs string, iq asset.Query) error {
-	if r.cfg.OnAsset == nil {
-		return nil
+func (r *Resolver) assetResolved(abs string, iq asset.Query) (string, error) {
+	kind, ok := asset.KindForPath(abs, iq)
+	if !ok {
+		return abs, nil
 	}
-	if _, ok := asset.KindForPath(abs, iq); !ok {
-		return nil
+	if r.cfg.OnAsset != nil {
+		if err := r.cfg.OnAsset(abs, iq); err != nil {
+			return "", err
+		}
 	}
-	return r.cfg.OnAsset(abs, iq)
+	return asset.ModuleKey(abs, kind), nil
 }
 
 func (r *Resolver) resolveWithCompiler(importer, spec string) (string, bool, error) {

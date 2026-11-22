@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 )
 
@@ -29,8 +31,8 @@ func NewTranspileCache(dir string) *TranspileCache {
 	return &TranspileCache{dir: dir}
 }
 
-// Key hashes path, source, and emit options.
-func (c *TranspileCache) Key(path, src string, moduleKind, target, jsx int, sourceMap bool) string {
+// Key hashes path, source, emit options, and an optional plugin/options suffix.
+func (c *TranspileCache) Key(path, src string, moduleKind, target, jsx int, sourceMap bool, transformKey string) string {
 	h := sha256.New()
 	h.Write([]byte(path))
 	h.Write([]byte{0})
@@ -44,7 +46,38 @@ func (c *TranspileCache) Key(path, src string, moduleKind, target, jsx int, sour
 		meta[3] = 1
 	}
 	h.Write(meta[:])
+	if transformKey != "" {
+		h.Write([]byte{0})
+		h.Write([]byte(transformKey))
+	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// TransformCacheKey hashes plugin names plus define/drop that affect transforms.
+func TransformCacheKey(pluginNames []string, define map[string]string, drop []string) string {
+	h := sha256.New()
+	sort.Strings(pluginNames)
+	for _, name := range pluginNames {
+		h.Write([]byte(name))
+		h.Write([]byte{0})
+	}
+	keys := make([]string, 0, len(define))
+	for k := range define {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		h.Write([]byte("d"))
+		h.Write([]byte(k))
+		h.Write([]byte(define[k]))
+	}
+	sort.Strings(drop)
+	for _, d := range drop {
+		h.Write([]byte("p"))
+		h.Write([]byte(strings.ToLower(strings.TrimSpace(d))))
+	}
+	sum := h.Sum(nil)
+	return hex.EncodeToString(sum[:16])
 }
 
 // Get loads a cache entry when present.

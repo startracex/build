@@ -285,3 +285,30 @@ func OffsetLines(mapJSON string, n int) string {
 	}
 	return string(buf)
 }
+
+// DropLeadingLines removes the first n generated lines from a source map.
+func DropLeadingLines(mapJSON string, n int) string {
+	if n <= 0 || strings.TrimSpace(mapJSON) == "" {
+		return mapJSON
+	}
+	var raw map[string]any
+	if json.Unmarshal([]byte(mapJSON), &raw) != nil {
+		return mapJSON
+	}
+	mappings, _ := raw["mappings"].(string)
+	points := decodeAllPoints(mappings)
+	var kept []mapPointCol
+	for _, p := range points {
+		if p.genLine < n {
+			continue
+		}
+		p.genLine -= n
+		kept = append(kept, p)
+	}
+	raw["mappings"] = encodeMappingsCol(kept)
+	buf, err := json.Marshal(raw)
+	if err != nil {
+		return mapJSON
+	}
+	return string(buf)
+}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/build/pkg/sourcemap"
 	"github.com/startracex/build/pkg/treeshake"
 	"github.com/startracex/tsgo/pkg/ast"
 )
@@ -17,6 +18,8 @@ import (
 type esModule struct {
 	id            string
 	src           string
+	jsMap         string
+	linkedMap     string
 	file          *ast.SourceFile
 	locals        map[string]*esLocal
 	imports       map[string]*esImport // local name -> import
@@ -50,6 +53,10 @@ type esLocal struct {
 	cjsObjectBundle bool   // const __cjsExports = { a, b }
 	cjsFactory      bool   // var require_x = __commonJS(...)
 	cjsFromFactory  bool   // const __cjsExports = require_x()
+	// Property-level tree shaking: when escapes is false, only props keys are live
+	// on an object-literal initializer.
+	props   map[string]bool
+	escapes bool
 }
 
 type esImport struct {
@@ -438,14 +445,20 @@ func (m *esModule) publicNames(mods map[string]*esModule, stack map[string]bool)
 }
 
 func markExport(mods map[string]*esModule, m *esModule, name string, stack map[string]bool) error {
+	return markExportProps(mods, m, name, nil, true, stack)
+}
+
+func markExportProps(mods map[string]*esModule, m *esModule, name string, props map[string]bool, escapes bool, stack map[string]bool) error {
 	key := m.id + "\x00" + name
 	if stack[key] {
-		return nil
+		// Still merge newly discovered property uses onto the local.
+		target, ok, err := m.resolveExport(mods, name, map[string]bool{})
+		if err != nil || !ok || target.mod == nil || target.local == "" {
+			return err
+		}
+		return markLocalProps(mods, target.mod, target.local, props, escapes)
 	}
 	stack[key] = true
-	if m.liveExp[name] {
-		return nil
-	}
 	target, ok, err := m.resolveExport(mods, name, map[string]bool{})
 	if err != nil || !ok {
 		return err
@@ -456,7 +469,7 @@ func markExport(mods map[string]*esModule, m *esModule, name string, stack map[s
 	}
 	if target.mod != nil && target.local != "" {
 		m.need(target.mod.id)
-		return markLocal(mods, target.mod, target.local)
+		return markLocalProps(mods, target.mod, target.local, props, escapes)
 	}
 	return nil
 }
@@ -474,14 +487,35 @@ func (m *esModule) need(id string) {
 }
 
 func markLocal(mods map[string]*esModule, m *esModule, name string) error {
-	if m.liveLoc[name] {
-		return nil
-	}
-	m.liveLoc[name] = true
-	if err := m.instantiate(mods); err != nil {
-		return err
-	}
+	return markLocalProps(mods, m, name, nil, true)
+}
+
+func markLocalProps(mods map[string]*esModule, m *esModule, name string, props map[string]bool, escapes bool) error {
 	loc := m.locals[name]
+	if loc != nil {
+		if loc.props == nil {
+			loc.props = map[string]bool{}
+		}
+		if escapes {
+			loc.escapes = true
+		}
+		for p := range props {
+			loc.props[p] = true
+		}
+	}
+	already := m.liveLoc[name]
+	if already && (escapes || len(props) == 0) {
+		// Fully escaping use; ensure we scanned the whole initializer once.
+		if loc != nil && loc.escapes && loc.stmt != nil && !loc.defExpr {
+			return nil
+		}
+	}
+	if !already {
+		m.liveLoc[name] = true
+		if err := m.instantiate(mods); err != nil {
+			return err
+		}
+	}
 	if loc == nil {
 		return nil
 	}
@@ -491,6 +525,14 @@ func markLocal(mods map[string]*esModule, m *esModule, name string) error {
 	case loc.cjsFromFactory:
 		return markLocal(mods, m, cjsRequireLocal)
 	case loc.cjsObjectBundle:
+		if !loc.escapes && len(loc.props) > 0 {
+			for n := range loc.props {
+				if err := markLocal(mods, m, n); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
 		for _, n := range m.cjsNamedOrder {
 			if err := markLocal(mods, m, n); err != nil {
 				return err
@@ -502,6 +544,9 @@ func markLocal(mods map[string]*esModule, m *esModule, name string) error {
 	case loc.cjsInit != nil:
 		return m.scanNode(mods, loc.cjsInit)
 	case loc.stmt != nil:
+		if !loc.escapes && len(loc.props) > 0 {
+			return m.scanObjectProps(mods, loc)
+		}
 		return m.scanNode(mods, loc.stmt)
 	default:
 		return nil
@@ -558,11 +603,24 @@ func (m *esModule) applyRef(mods map[string]*esModule, r ref) error {
 	switch r.kind {
 	case refName:
 		if imp, ok := m.imports[r.name]; ok {
+			imp.escapes = true
 			return m.markImport(mods, imp, "")
 		}
 		if _, ok := m.locals[r.name]; ok {
 			return markLocal(mods, m, r.name)
 		}
+	case refLocalProp:
+		return markLocalProps(mods, m, r.name, map[string]bool{r.prop: true}, false)
+	case refImportProp:
+		imp := m.imports[r.name]
+		if imp == nil {
+			return nil
+		}
+		if imp.props == nil {
+			imp.props = map[string]bool{}
+		}
+		imp.props[r.prop] = true
+		return m.markImport(mods, imp, "")
 	case refNSProp:
 		imp := m.imports[r.name]
 		if imp == nil {
@@ -666,6 +724,8 @@ type refKind int
 
 const (
 	refName refKind = iota
+	refLocalProp
+	refImportProp
 	refNSProp
 	refNSValue
 	refDynamic
@@ -833,9 +893,18 @@ func (m *esModule) walkAccess(n *ast.Node, sc *scope, fn func(ref)) {
 	access := n.AsPropertyAccessExpression()
 	if access.Expression != nil && access.Expression.Kind == ast.KindIdentifier && access.Name() != nil {
 		obj := access.Expression.Text()
+		prop := access.Name().Text()
 		if !sc.shadows(obj) {
-			if imp, ok := m.imports[obj]; ok && imp.namespace {
-				fn(ref{kind: refNSProp, name: obj, prop: access.Name().Text(), node: n})
+			if imp, ok := m.imports[obj]; ok {
+				if imp.namespace {
+					fn(ref{kind: refNSProp, name: obj, prop: prop, node: n})
+					return
+				}
+				fn(ref{kind: refImportProp, name: obj, prop: prop, node: n})
+				return
+			}
+			if _, ok := m.locals[obj]; ok {
+				fn(ref{kind: refLocalProp, name: obj, prop: prop, node: n})
 				return
 			}
 		}
@@ -848,9 +917,18 @@ func (m *esModule) walkElement(n *ast.Node, sc *scope, fn func(ref)) {
 	if el.Expression != nil && el.Expression.Kind == ast.KindIdentifier && el.ArgumentExpression != nil &&
 		el.ArgumentExpression.Kind == ast.KindStringLiteral {
 		obj := el.Expression.Text()
+		prop := el.ArgumentExpression.Text()
 		if !sc.shadows(obj) {
-			if imp, ok := m.imports[obj]; ok && imp.namespace {
-				fn(ref{kind: refNSProp, name: obj, prop: el.ArgumentExpression.Text(), node: n})
+			if imp, ok := m.imports[obj]; ok {
+				if imp.namespace {
+					fn(ref{kind: refNSProp, name: obj, prop: prop, node: n})
+					return
+				}
+				fn(ref{kind: refImportProp, name: obj, prop: prop, node: n})
+				return
+			}
+			if _, ok := m.locals[obj]; ok {
+				fn(ref{kind: refLocalProp, name: obj, prop: prop, node: n})
 				return
 			}
 		}
@@ -1163,6 +1241,9 @@ func importLive(m *esModule, imp *esImport) bool {
 
 func (m *esModule) markImport(mods map[string]*esModule, imp *esImport, prop string) error {
 	imp.used = true
+	if imp.props == nil {
+		imp.props = map[string]bool{}
+	}
 	if prop != "" && prop != "*" {
 		imp.props[prop] = true
 	}
@@ -1186,14 +1267,16 @@ func (m *esModule) markImport(mods map[string]*esModule, imp *esImport, prop str
 		}
 		return nil
 	}
-	imported := imp.imported
-	if prop != "" && prop != "*" {
-		imported = prop
+	if imp.namespace {
+		return markExport(mods, dep, prop, map[string]bool{})
 	}
+	imported := imp.imported
 	if imported == "*" {
 		return nil
 	}
-	return markExport(mods, dep, imported, map[string]bool{})
+	// Named import: pass through property usage onto the exported local.
+	escapes := imp.escapes || len(imp.props) == 0
+	return markExportProps(mods, dep, imported, imp.props, escapes, map[string]bool{})
 }
 
 func renderLinked(mods map[string]*esModule, order []string, entry *esModule, format string, helper string) string {
@@ -1508,10 +1591,31 @@ func (m *esModule) renderBody(mods map[string]*esModule, helper string) string {
 			edits = append(edits, m.statementEdits(mods, stmt)...)
 		}
 		if text, err := applyEdits(m.src, edits); err == nil {
+			if m.jsMap != "" && len(edits) > 0 {
+				jsEdits := make([]jsedit.Edit, len(edits))
+				for i, e := range edits {
+					jsEdits[i] = jsedit.Edit{Start: e.start, End: e.end, Text: e.text}
+				}
+				m.linkedMap = sourcemap.RemapEdits(m.jsMap, m.src, jsEdits)
+			} else if m.jsMap != "" {
+				m.linkedMap = m.jsMap
+			}
 			if trimmed := strings.TrimSpace(text); trimmed != "" {
+				// Account for leading trim when remapping was based on full edited text.
+				if m.linkedMap != "" {
+					if lead := strings.Index(text, trimmed); lead > 0 {
+						leadLines := strings.Count(text[:lead], "\n")
+						if leadLines > 0 {
+							// Negative offset: drop leading generated lines from the map.
+							m.linkedMap = sourcemap.DropLeadingLines(m.linkedMap, leadLines)
+						}
+					}
+				}
 				chunks = append(chunks, trimmed)
 			}
 		}
+	} else if m.jsMap != "" {
+		m.linkedMap = m.jsMap
 	}
 	return strings.Join(chunks, "\n")
 }
@@ -1583,6 +1687,7 @@ func (m *esModule) statementEdits(mods map[string]*esModule, stmt *ast.Node) []e
 	if start, end, ok := stripExportSpan(m.src, stmt); ok {
 		edits = append(edits, edit{start: start, end: end, text: ""})
 	}
+	edits = append(edits, m.objectPropStripEdits(stmt)...)
 	m.walkRefs(stmt, nil, m.moduleScope(), func(r ref) {
 		switch r.kind {
 		case refName:

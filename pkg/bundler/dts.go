@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/startracex/build/pkg/jsedit"
+	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/tsgo/pkg/ast"
 	"github.com/startracex/tsgo/pkg/core"
 	"github.com/startracex/tsgo/pkg/parser"
@@ -31,7 +32,7 @@ func rewriteRelativeSpecifiers(src, fromAbs string, b *bundler, typescript bool)
 	if typescript {
 		file = parseTypeScript(src, fromAbs)
 	} else {
-		file = parseEmittedJS(src)
+		file = jsedit.ParseEmittedJS(src)
 	}
 	if file.Statements == nil {
 		return src, nil
@@ -54,7 +55,7 @@ func rewriteRelativeSpecifiers(src, fromAbs string, b *bundler, typescript bool)
 				text:  quoteJS(next),
 			})
 		}
-		walkImportCalls(stmt, func(arg *ast.Node) {
+		jsedit.WalkImportCalls(stmt, func(arg *ast.Node) {
 			spec := arg.Text()
 			if spec == "" || (!strings.HasPrefix(spec, ".") && !strings.HasPrefix(spec, "/")) {
 				return
@@ -69,7 +70,7 @@ func rewriteRelativeSpecifiers(src, fromAbs string, b *bundler, typescript bool)
 				text:  quoteJS(relativeOutputSpecifier(fromAbs, resolved)),
 			})
 		})
-		walkRequires(stmt, func(arg *ast.Node) {
+		jsedit.WalkRequires(stmt, func(arg *ast.Node) {
 			spec := arg.Text()
 			if spec == "" || (!strings.HasPrefix(spec, ".") && !strings.HasPrefix(spec, "/")) {
 				return
@@ -88,7 +89,11 @@ func rewriteRelativeSpecifiers(src, fromAbs string, b *bundler, typescript bool)
 	if len(edits) == 0 {
 		return src, nil
 	}
-	return applyEdits(src, edits)
+	js := make([]jsedit.Edit, len(edits))
+	for i, e := range edits {
+		js[i] = jsedit.Edit{Start: e.start, End: e.end, Text: e.text}
+	}
+	return jsedit.ApplyEdits(src, js)
 }
 
 func specifierNodes(stmt *ast.Node) []*ast.Node {
@@ -111,8 +116,8 @@ func specifierNodes(stmt *ast.Node) []*ast.Node {
 }
 
 func relativeOutputSpecifier(fromAbs, toAbs string) string {
-	fromOut := javascriptOutputAbs(fromAbs)
-	toOut := javascriptOutputAbs(toAbs)
+	fromOut := modpath.JavascriptOutputAbs(fromAbs)
+	toOut := modpath.JavascriptOutputAbs(toAbs)
 	rel, err := filepath.Rel(filepath.Dir(fromOut), toOut)
 	if err != nil {
 		rel = filepath.Base(toOut)

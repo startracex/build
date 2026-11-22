@@ -92,6 +92,17 @@ func encodeMappings(points []mapPoint) string {
 	return b.String()
 }
 
+// LinesBeforeSourceComment counts generated lines before the first linker // path marker.
+func LinesBeforeSourceComment(js string) int {
+	lines := strings.Split(js, "\n")
+	for i, line := range lines {
+		if _, ok := sourceComment(line); ok {
+			return i
+		}
+	}
+	return 0
+}
+
 func sourceComment(line string) (string, bool) {
 	trim := strings.TrimSpace(line)
 	if !strings.HasPrefix(trim, "// ") {

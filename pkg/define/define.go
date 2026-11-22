@@ -16,7 +16,7 @@ var (
 // ApplyDefineDrop applies define replacements and drop directives to transpiled source.
 func ApplyDefineDrop(src string, define map[string]string, drop []string) string {
 	if len(drop) == 0 && len(define) == 0 {
-		return src
+		return foldConstantBranches(src)
 	}
 	out := src
 	dropConsole, dropDebugger := false, false
@@ -37,7 +37,7 @@ func ApplyDefineDrop(src string, define map[string]string, drop []string) string
 	if len(define) > 0 {
 		out = applyDefines(out, define)
 	}
-	return out
+	return foldConstantBranches(out)
 }
 
 func stripConsoleCalls(src string) string {

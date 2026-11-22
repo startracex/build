@@ -36,6 +36,7 @@ import (
 
 	"github.com/startracex/build/pkg/asset"
 	"github.com/startracex/build/pkg/cache"
+	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/plugin"
 	"github.com/startracex/build/pkg/resolve"
 	"github.com/startracex/tsgo/pkg/ast"
@@ -123,8 +124,8 @@ type Options struct {
 	Conditions []string
 	// Target is the TypeScript emit target. Empty means ESNext.
 	Target core.ScriptTarget
-	// Outputs lists Rollup-style emit targets. When set, each entry is built
-	// separately (formats may resolve packages differently) and files merged.
+	// Outputs lists Rollup-style emit targets. The module graph is loaded once;
+	// each output is linked/emitted from that shared graph.
 	Outputs []OutputOptions
 	// GlobalName is the IIFE/UMD global variable when Outputs is empty.
 	GlobalName string
@@ -136,6 +137,9 @@ type Options struct {
 	Alias map[string]string
 	// Splitting emits async import() targets as separate chunks (app + OutDir).
 	Splitting bool
+	// ManualChunks maps a module path substring to a chunk base name under
+	// chunks/ (e.g. "node_modules/lodash" -> "vendor-lodash"). App split only.
+	ManualChunks map[string]string
 	// CacheDir stores transpile results keyed by content hash.
 	CacheDir string
 	// Manifest writes a JSON map of source assets to emitted paths.
@@ -200,14 +204,48 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	b, roots, err := loadGraph(ctx, opts, outputs)
+	if err != nil {
+		return nil, err
+	}
 	if len(outputs) == 1 {
-		return buildOnce(ctx, withOutput(opts, outputs[0]))
+		result, err := b.emitForFormat(opts, outputs[0], roots)
+		if err != nil {
+			return nil, err
+		}
+		b.emitAssetFiles(result)
+		if b.outMode == ModeApp {
+			for _, root := range roots {
+				jsOut := outputs[0].OutFile
+				if jsOut == "" && outputs[0].OutDir != "" {
+					jsOut = filepath.Join(outputs[0].OutDir, filepath.Base(javascriptOutputAbs(root)))
+				}
+				b.emitEntryCSS(result, jsOut, root)
+			}
+		}
+		if opts.Manifest && len(opts.Outputs) == 0 {
+			result.Files = append(result.Files, manifestOutput(opts, result.Manifest)...)
+		}
+		hookCtx := plugin.HookCtx{Context: ctx}
+		if err := applyGenerateBundle(opts.Plugins, hookCtx, result); err != nil {
+			return nil, err
+		}
+		return result, nil
 	}
 	merged := &Result{Manifest: map[string]string{}}
 	for _, out := range outputs {
-		sub, err := buildOnce(ctx, withOutput(opts, out))
+		sub, err := b.emitForFormat(opts, out, roots)
 		if err != nil {
 			return nil, err
+		}
+		if b.outMode == ModeApp {
+			for _, root := range roots {
+				jsOut := out.OutFile
+				if jsOut == "" && out.OutDir != "" {
+					jsOut = filepath.Join(out.OutDir, filepath.Base(javascriptOutputAbs(root)))
+				}
+				b.emitEntryCSS(sub, jsOut, root)
+			}
 		}
 		merged.Files = append(merged.Files, sub.Files...)
 		if merged.entry == "" {
@@ -217,128 +255,18 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 			merged.Manifest[k] = v
 		}
 	}
+	save := b.opts
+	b.opts = withOutput(opts, outputs[0])
+	b.emitAssetFiles(merged)
+	b.opts = save
 	if opts.Manifest {
 		merged.Files = append(merged.Files, manifestOutput(opts, merged.Manifest)...)
 	}
-	return merged, nil
-}
-
-func buildOnce(ctx context.Context, opts Options) (*Result, error) {
-	roots, err := opts.absRoots()
-	if err != nil {
-		return nil, err
-	}
-	format, err := normalizeFormat(opts.Format)
-	if err != nil {
-		return nil, err
-	}
-	outMode, err := normalizeMode(opts.Mode)
-	if err != nil {
-		return nil, err
-	}
-	if err := validateOutputPaths(OutputOptions{Format: format, OutFile: opts.OutFile, OutDir: opts.OutDir}, outMode, len(roots)); err != nil {
-		return nil, err
-	}
-	multiApp := outMode == ModeApp && len(roots) > 1
-	needSplit := outMode == ModeApp && (opts.Splitting || multiApp)
-	if needSplit && opts.OutDir == "" {
-		return nil, fmt.Errorf("multi-entry app and --splitting require --outdir")
-	}
-	if outMode == ModeApp && !needSplit && len(roots) != 1 {
-		return nil, fmt.Errorf("single-file output requires one entry")
-	}
-	if outMode == ModeApp && multiApp && (format == FormatIIFE || format == FormatUMD) {
-		return nil, fmt.Errorf("iife/umd output supports a single entry only")
-	}
-	if (format == FormatIIFE || format == FormatUMD) && strings.TrimSpace(opts.GlobalName) == "" {
-		return nil, fmt.Errorf("iife/umd output requires --global-name")
-	}
-	jsx, err := jsxEmit(opts.JSX)
-	if err != nil {
-		return nil, err
-	}
-	entry := roots[0]
-	resolution := core.ModuleKindESNext
-	if format == FormatCJS {
-		resolution = core.ModuleKindCommonJS
-	}
-	b := &bundler{
-		ctx:       ctx,
-		opts:      opts,
-		format:    format,
-		outMode:   outMode,
-		jsx:       jsx,
-		mode:      resolution,
-		loading:   map[string]bool{},
-		units:     map[string]*unit{},
-		assets:    map[string]*asset.Unit{},
-		decl:      opts.declaration() && outMode == ModeLib,
-		declMap:   opts.declarationMap() && outMode == ModeLib,
-		sourceMap: opts.sourceMap(),
-		target:    opts.emitTarget(),
-		cache:     newTranspileCache(opts.CacheDir),
-	}
-	res, err := resolve.New(filepath.Dir(entry), opts.Conditions, resolution, resolve.Config{
-		Alias:       opts.Alias,
-		External:    opts.External,
-		Format:      string(format),
-		LibBuild:    outMode == ModeLib,
-		ResolveHook: combineResolveHook(ctx, opts.Plugins, opts.Resolve),
-		OnAsset:     b.onAsset,
-	})
-	if err != nil {
-		return nil, err
-	}
-	b.res = res
-	for _, root := range roots {
-		if err := b.load(root); err != nil {
-			return nil, err
-		}
-	}
 	hookCtx := plugin.HookCtx{Context: ctx}
-	for id, unit := range b.units {
-		if unit.asset {
-			continue
-		}
-		code, _, err := plugin.RunTransform(opts.Plugins, hookCtx, unit.code, id)
-		if err != nil {
-			return nil, err
-		}
-		unit.code = applyDefineDrop(code, opts.Define, opts.Drop)
-		b.units[id] = unit
-	}
-	var result *Result
-	if outMode == ModeLib {
-		result, err = b.emitLibrary(entry)
-	} else if needSplit {
-		result, err = b.emitSplit(roots)
-	} else {
-		if format == FormatIIFE || format == FormatUMD {
-			b.format = FormatCJS
-		}
-		var js string
-		js, err = b.linkModules(moduleID(entry), nil)
-		if err != nil {
-			return nil, err
-		}
-		b.format = format
-		js = wrapFormat(js, format, opts.GlobalName)
-		result, err = b.appResult(entry, js)
-	}
-	if err != nil {
+	if err := applyGenerateBundle(opts.Plugins, hookCtx, merged); err != nil {
 		return nil, err
 	}
-	if result.Manifest == nil {
-		result.Manifest = map[string]string{}
-	}
-	b.emitAssetFiles(result)
-	if opts.Manifest && len(opts.Outputs) == 0 {
-		result.Files = append(result.Files, manifestOutput(opts, result.Manifest)...)
-	}
-	if err := applyGenerateBundle(opts.Plugins, hookCtx, result); err != nil {
-		return nil, err
-	}
-	return result, nil
+	return merged, nil
 }
 
 type unit struct {
@@ -372,14 +300,28 @@ type bundler struct {
 	chunkPaths map[string]string
 	// linkingChunk is the chunk path currently being linked (empty for entry).
 	linkingChunk string
+	// linkedMaps are per-module source maps remapped through the last Link.
+	linkedMaps map[string]string
 }
 
 func (b *bundler) load(path string) error {
-	path, err := filepath.Abs(path)
+	id := moduleID(path)
+	if b.loading[id] {
+		return nil
+	}
+	if _, done := b.units[id]; done {
+		return nil
+	}
+	// Virtual asset ids (path?raw / path?url) are registered in onAsset.
+	if strings.Contains(path, "?") {
+		return fmt.Errorf("missing asset module %s", path)
+	}
+	abs, err := filepath.Abs(path)
 	if err != nil {
 		return err
 	}
-	id := moduleID(path)
+	path = abs
+	id = moduleID(path)
 	if b.loading[id] {
 		return nil
 	}
@@ -426,7 +368,7 @@ func (b *bundler) load(path string) error {
 		payload := strings.TrimSpace(src)
 		if b.outMode != ModeLib || b.format == FormatESM {
 			name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-			if !isIdentifierName(name) {
+			if !jsedit.IsIdentifierName(name) {
 				name = "data"
 			}
 			text := "const " + name + " = " + payload + ";\nexport default " + name + ";\n"
@@ -469,7 +411,7 @@ func (b *bundler) load(path string) error {
 	var js, jsMap string
 	cached := false
 	if b.cache != nil {
-		cacheKey = b.cache.Key(path, src, int(moduleKind), int(b.target), int(b.jsx), b.sourceMap)
+		cacheKey = b.cache.Key(path, src, int(moduleKind), int(b.target), int(b.jsx), b.sourceMap, b.transformKey())
 		if ent, ok := b.cache.Get(cacheKey); ok {
 			js, jsMap = ent.JS, ent.Map
 			cached = true
@@ -492,15 +434,15 @@ func (b *bundler) load(path string) error {
 		if err := errorFromDiagnostics(path, src, out.Diagnostics); err != nil {
 			return err
 		}
-		js = stripSourceMappingComment(stripShebang(out.OutputText))
+		js = jsedit.StripSourceMappingComment(jsedit.StripShebang(out.OutputText))
 		jsMap = out.SourceMapText
 		if b.cache != nil && cacheKey != "" {
-			b.cache.Put(cacheKey, cacheEntry{JS: js, Map: jsMap})
+			b.cache.Put(cacheKey, cache.Entry{JS: js, Map: jsMap})
 		}
 	}
 	if b.outMode == ModeLib {
 		if moduleKind == core.ModuleKindESNext {
-			emitted := parseEmittedJS(js)
+			emitted := jsedit.ParseEmittedJS(js)
 			if err := errorFromDiagnostics(path, js, emitted.Diagnostics()); err != nil {
 				return fmt.Errorf("parse emitted javascript: %w", err)
 			}
@@ -512,7 +454,7 @@ func (b *bundler) load(path string) error {
 		}
 		b.units[id] = &unit{code: js, source: sourceText, jsMap: jsMap, file: file}
 	} else if b.format == FormatESM || b.format == FormatCJS || b.format == FormatIIFE || b.format == FormatUMD {
-		emitted := parseEmittedJS(js)
+		emitted := jsedit.ParseEmittedJS(js)
 		if err := errorFromDiagnostics(path, js, emitted.Diagnostics()); err != nil {
 			return fmt.Errorf("parse emitted javascript: %w", err)
 		}
@@ -550,7 +492,7 @@ func (b *bundler) onAsset(abs string, q asset.Query) error {
 }
 
 func (b *bundler) loadAsset(abs string, kind asset.Kind) error {
-	id := moduleID(abs)
+	id := asset.ModuleKey(abs, kind)
 	if _, ok := b.assets[id]; ok {
 		return nil
 	}
@@ -571,12 +513,17 @@ func (b *bundler) emitAssetFiles(result *Result) {
 	if outRoot == "" && b.opts.OutFile != "" {
 		outRoot = filepath.Dir(b.opts.OutFile)
 	}
-	files, manifest := asset.CollectEmit(b.assets, outRoot)
-	for _, f := range files {
-		result.Files = append(result.Files, Output{Path: f.Path, Data: f.Data})
-	}
-	for k, v := range manifest {
-		result.Manifest[k] = v
+	for _, au := range b.assets {
+		if au.Kind == asset.CSS && b.outMode == ModeApp {
+			continue
+		}
+		if au.Kind == asset.Raw {
+			result.Manifest[au.Source] = "(inline)"
+			continue
+		}
+		dest := filepath.Join(outRoot, filepath.FromSlash(au.OutRel))
+		result.Files = append(result.Files, Output{Path: dest, Data: string(au.Data)})
+		result.Manifest[au.Source] = dest
 	}
 }
 

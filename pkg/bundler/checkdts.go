@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/startracex/build/pkg/dts"
+	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/resolve"
 )
 
@@ -18,7 +19,7 @@ func (b *bundler) attachDeclarations() error {
 	var absPaths []string
 	for id := range b.units {
 		abs := filepath.FromSlash(id)
-		if isTypeScriptPath(abs) {
+		if modpath.IsTypeScriptPath(abs) {
 			absPaths = append(absPaths, abs)
 		}
 	}
@@ -38,7 +39,7 @@ func (b *bundler) attachDeclarations() error {
 			unit.dtsMap = got.SourceMap
 			continue
 		}
-		if !isTypeScriptPath(abs) || strings.TrimSpace(unit.dts) != "" {
+		if !modpath.IsTypeScriptPath(abs) || strings.TrimSpace(unit.dts) != "" {
 			continue
 		}
 		text, err := b.declarationText(abs, unit.source)

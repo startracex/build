@@ -21,13 +21,18 @@ func (c linkChunks) ChunkPath(moduleID string) (rel string, ok bool) {
 func (b *bundler) linkModules(entryID string, preserve []string) (string, error) {
 	mods := make(map[string]link.Module, len(b.units))
 	for id, unit := range b.units {
-		mods[id] = link.Module{ID: id, Code: unit.code}
+		mods[id] = link.Module{ID: id, Code: unit.code, JSMap: unit.jsMap}
 	}
-	return link.Link(mods, entryID, link.Options{
+	res, err := link.Link(mods, entryID, link.Options{
 		Format:          string(b.format),
 		LinkingChunk:    b.linkingChunk,
 		Chunks:          linkChunks{b},
 		Resolver:        linkResolver{b},
 		PreserveExports: preserve,
 	})
+	if err != nil {
+		return "", err
+	}
+	b.linkedMaps = res.Maps
+	return res.Code, nil
 }

@@ -5,6 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/startracex/build/pkg/jsedit"
+	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/build/pkg/sourcemap"
+	"github.com/startracex/build/pkg/wrap"
 	"github.com/startracex/tsgo/pkg/core"
 	"github.com/startracex/tsgo/pkg/transpile"
 )
@@ -52,7 +56,7 @@ func (b *bundler) declarationText(path, src string) (string, error) {
 	if out == nil {
 		return "", fmt.Errorf("%s: declaration emit canceled", path)
 	}
-	text := stripSourceMappingComment(out.OutputText)
+	text := jsedit.StripSourceMappingComment(out.OutputText)
 	if strings.TrimSpace(text) == "" {
 		if err := errorFromDiagnostics(path, src, out.Diagnostics); err != nil {
 			return "", err
@@ -62,7 +66,7 @@ func (b *bundler) declarationText(path, src string) (string, error) {
 	return text, nil
 }
 
-func (b *bundler) appResult(entry, js string) (*Result, error) {
+func (b *bundler) appResult(entry, js, linked string, emitFmt Format) (*Result, error) {
 	jsName := b.opts.OutFile
 	if jsName == "" {
 		jsName = "bundle.js"
@@ -72,12 +76,22 @@ func (b *bundler) appResult(entry, js string) (*Result, error) {
 	}
 	files := []Output{{Path: jsName, Data: js}}
 	if b.sourceMap {
-		mapData := b.composeAppSourceMap(js, filepath.Base(jsName))
-		// Account for wrap preamble lines when format wrapped the body.
-		if b.format == FormatIIFE || b.format == FormatUMD {
-			// compose already sees wrapped js; no extra offset needed.
+		linkSrc := linked
+		if linkSrc == "" {
+			linkSrc = js
+		}
+		mapData := b.composeAppSourceMap(linkSrc, filepath.Base(jsName))
+		if emitFmt == FormatIIFE || emitFmt == FormatUMD {
+			if n := sourcemap.LinesBeforeSourceComment(js); n > 0 {
+				mapData = sourcemap.OffsetLines(mapData, n)
+			}
+			if indent := wrap.BodyIndentCols(string(emitFmt)); indent > 0 {
+				mapData = sourcemap.OffsetColumns(mapData, indent)
+			}
 		}
 		files = append(files, Output{Path: jsName + ".map", Data: mapData})
 	}
 	return &Result{Files: files, entry: js}, nil
 }
+
+func isJavaScriptOutput(path string) bool { return modpath.IsJavaScriptOutput(path) }

@@ -1,5 +1,17 @@
 package bundler
 
+import "github.com/startracex/build/pkg/output"
+
+// DeriveOutFile picks an extension for dual-format outfile emission.
+func DeriveOutFile(base string, format Format) string {
+	return output.DeriveOutFile(base, string(format))
+}
+
+// DeriveOutDir nests format under a shared outdir for multi-format lib builds.
+func DeriveOutDir(base string, format Format) string {
+	return output.DeriveOutDir(base, string(format))
+}
+
 // OutputOptions configures one emit target, like a Rollup output entry.
 type OutputOptions struct {
 	Format  Format

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/startracex/build/pkg/plugin"
+	"github.com/startracex/build/pkg/resolve"
 )
 
 func TestFixtureBundle(t *testing.T) {
@@ -524,12 +525,16 @@ export { text, url };
 		t.Fatal(err)
 	}
 	js := result.JavaScript()
-	if !strings.Contains(js, "hello raw") || !strings.Contains(js, "note.txt") {
-		t.Fatalf("bundle missing asset bindings:\n%s", js)
+	if !strings.Contains(js, "hello raw") {
+		t.Fatalf("bundle missing raw asset:\n%s", js)
+	}
+	// ?url assets get a content-hash in the emitted path.
+	if !strings.Contains(js, "note-") || !strings.Contains(js, ".txt") {
+		t.Fatalf("bundle missing hashed url asset:\n%s", js)
 	}
 	var sawCSS, sawManifest bool
 	for _, f := range result.Files {
-		if strings.HasSuffix(f.Path, "app.css") {
+		if strings.HasSuffix(f.Path, "bundle.css") {
 			sawCSS = true
 			if !strings.Contains(f.Data, "color: red") {
 				t.Fatalf("css = %s", f.Data)
@@ -619,6 +624,36 @@ console.log(JSON.stringify({ value: sandbox.App && sandbox.App.value }));
 	}
 }
 
+func TestUMDNamedDefaultExports(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `
+export const named = 3;
+export default 9;
+`)
+	code, err := Bundle(context.Background(), Options{
+		Entry:      filepath.Join(dir, "index.ts"),
+		Format:     FormatUMD,
+		GlobalName: "Pkg",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(code, "module.exports") {
+		t.Fatalf("expected CJS-linked body:\n%s", code)
+	}
+	raw := runNodeExt(t, code, "cjs", `
+const m = require(process.argv[2]);
+console.log(JSON.stringify({ named: m.named, d: m.default }));
+`)
+	var got struct {
+		Named int `json:"named"`
+		D     int `json:"d"`
+	}
+	if err := json.Unmarshal([]byte(raw), &got); err != nil || got.Named != 3 || got.D != 9 {
+		t.Fatalf("umd exports = %q err=%v", raw, err)
+	}
+}
+
 func TestUMDFormat(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 7;`)
@@ -642,6 +677,30 @@ console.log(JSON.stringify({ value: m.value }));
 	}
 	if err := json.Unmarshal([]byte(raw), &got); err != nil || got.Value != 7 {
 		t.Fatalf("umd require = %q", raw)
+	}
+}
+
+func TestPropertyTreeShake(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "data.ts"), `
+export const bag = {
+  keep: "KEEP_PROP",
+  drop: "DROP_PROP",
+};
+`)
+	writeFile(t, filepath.Join(dir, "index.ts"), `
+import { bag } from "./data";
+export const value = bag.keep;
+`)
+	code, err := Bundle(context.Background(), Options{Entry: filepath.Join(dir, "index.ts")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(code, "KEEP_PROP") {
+		t.Fatalf("kept prop missing:\n%s", code)
+	}
+	if strings.Contains(code, "DROP_PROP") {
+		t.Fatalf("unused object prop was not shaken:\n%s", code)
 	}
 }
 
@@ -875,7 +934,7 @@ func TestEmitDefaultsMatchTSC(t *testing.T) {
 }
 
 func TestExportConditions(t *testing.T) {
-	got := exportConditions([]string{"development", "module", "import", ""})
+	got := resolve.ExportConditions([]string{"development", "module", "import", ""})
 	if len(got) < 2 || got[0] != "module" {
 		t.Fatalf("exportConditions = %v", got)
 	}
@@ -886,6 +945,111 @@ func TestExportConditions(t *testing.T) {
 	if seen["module"] != 1 || seen["development"] != 1 || seen["import"] != 0 || seen["require"] != 0 || seen["default"] != 0 {
 		t.Fatalf("exportConditions = %v", got)
 	}
+}
+
+func TestManualChunks(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "vendor.ts"), `export const vend = "VENDOR";`)
+	writeFile(t, filepath.Join(dir, "a.ts"), `
+import { vend } from "./vendor";
+export const a = vend + "-a";
+`)
+	writeFile(t, filepath.Join(dir, "b.ts"), `
+import { vend } from "./vendor";
+export const b = vend + "-b";
+`)
+	out := filepath.Join(dir, "dist")
+	result, err := Build(context.Background(), Options{
+		Entries: []string{filepath.Join(dir, "a.ts"), filepath.Join(dir, "b.ts")},
+		OutDir:  out,
+		ManualChunks: map[string]string{
+			"vendor": "vendor",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawManual bool
+	for _, f := range result.Files {
+		if strings.Contains(filepath.ToSlash(f.Path), "chunks/vendor.js") {
+			sawManual = true
+			if !strings.Contains(f.Data, "VENDOR") {
+				t.Fatalf("manual chunk missing vendor:\n%s", f.Data)
+			}
+		}
+	}
+	if !sawManual {
+		t.Fatalf("missing chunks/vendor.js in %#v", pathsOf(result.Files))
+	}
+}
+
+func TestDefineConstantFold(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `
+const flag = __DEV__;
+export const live = flag ? "dev" : "prod";
+if (false) {
+  console.log("DEAD_BRANCH");
+}
+`)
+	code, err := Bundle(context.Background(), Options{
+		Entry:  filepath.Join(dir, "index.ts"),
+		Define: map[string]string{"__DEV__": "false"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(code, "DEAD_BRANCH") {
+		t.Fatalf("dead branch not folded:\n%s", code)
+	}
+	if !strings.Contains(code, "prod") {
+		t.Fatalf("expected prod branch:\n%s", code)
+	}
+}
+
+func TestDualOutputsSplitOnce(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "shared.ts"), `export const s = "SHARED";`)
+	writeFile(t, filepath.Join(dir, "a.ts"), `
+import { s } from "./shared";
+export const a = s;
+`)
+	writeFile(t, filepath.Join(dir, "b.ts"), `
+import { s } from "./shared";
+export const b = s;
+`)
+	out := filepath.Join(dir, "dist")
+	result, err := Build(context.Background(), Options{
+		Entries: []string{filepath.Join(dir, "a.ts"), filepath.Join(dir, "b.ts")},
+		Outputs: []OutputOptions{
+			{Format: FormatESM, OutDir: filepath.Join(out, "esm")},
+			{Format: FormatCJS, OutDir: filepath.Join(out, "cjs")},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var esmShared, cjsShared int
+	for _, f := range result.Files {
+		p := filepath.ToSlash(f.Path)
+		if strings.Contains(p, "/esm/") && strings.Contains(p, "shared") && strings.HasSuffix(p, ".js") {
+			esmShared++
+		}
+		if strings.Contains(p, "/cjs/") && strings.Contains(p, "shared") && strings.HasSuffix(p, ".js") {
+			cjsShared++
+		}
+	}
+	if esmShared == 0 || cjsShared == 0 {
+		t.Fatalf("expected shared chunks in both formats: %#v", pathsOf(result.Files))
+	}
+}
+
+func pathsOf(files []Output) []string {
+	out := make([]string, len(files))
+	for i, f := range files {
+		out[i] = f.Path
+	}
+	return out
 }
 
 func TestAppDeclarationsAndSourceMap(t *testing.T) {

@@ -20,6 +20,23 @@ type Edit struct {
 	Text  string
 }
 
+// ApplyEditsWithMap applies edits and returns the new source plus a net line delta.
+func ApplyEditsWithMap(src string, edits []Edit) (string, int, error) {
+	var delta int
+	for _, e := range edits {
+		old := 0
+		if e.End > e.Start && e.End <= len(src) {
+			old = strings.Count(src[e.Start:e.End], "\n")
+		}
+		delta += strings.Count(e.Text, "\n") - old
+	}
+	out, err := ApplyEdits(src, edits)
+	if err != nil {
+		return "", 0, err
+	}
+	return out, delta, nil
+}
+
 // ApplyEdits applies ordered non-overlapping edits to src.
 func ApplyEdits(src string, edits []Edit) (string, error) {
 	sort.Slice(edits, func(i, j int) bool { return edits[i].Start < edits[j].Start })
