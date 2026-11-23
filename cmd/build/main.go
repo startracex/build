@@ -37,6 +37,7 @@ func run(args []string, stderr, stdout io.Writer) error {
 		Flags: []cli.Flag{
 			&cli.StringSliceFlag{Name: "outfile", Aliases: []string{"o"}, Usage: "single-file bundle path (repeatable)"},
 			&cli.StringSliceFlag{Name: "outdir", Usage: "directory for per-module or split output (repeatable)"},
+			&cli.StringFlag{Name: "entry-file-names", Usage: "filename pattern for --outdir outputs ([name], [format], [hash], [hash:N])"},
 			&cli.StringFlag{Name: "project", Aliases: []string{"p"}, Usage: "tsconfig.json file or directory"},
 			&cli.StringSliceFlag{Name: "format", Usage: "output format: esm, cjs, iife, umd (repeatable)"},
 			&cli.StringFlag{Name: "jsx", Usage: "JSX transform: react, react-jsx, react-jsxdev, preserve, or react-native"},
@@ -80,20 +81,22 @@ func action(c *cli.Context) error {
 	alias := parseKV(c.StringSlice("alias"))
 	define := parseKV(c.StringSlice("define"))
 	base := bundler.Options{
-		JSX:        bundler.JSX(flagOr(c, "jsx", string(bundler.JSXReact))),
-		External:   c.StringSlice("external"),
-		Conditions: c.StringSlice("conditions"),
-		Alias:      alias,
-		Define:     define,
-		Drop:       c.StringSlice("drop"),
-		GlobalName: c.String("global-name"),
-		Splitting:  c.Bool("splitting"),
-		CacheDir:   c.String("cache-dir"),
-		Manifest:   c.Bool("manifest"),
-		PublicPath: c.String("public-path"),
+		JSX:            bundler.JSX(flagOr(c, "jsx", string(bundler.JSXReact))),
+		External:       c.StringSlice("external"),
+		Conditions:     c.StringSlice("conditions"),
+		Alias:          alias,
+		Define:         define,
+		Drop:           c.StringSlice("drop"),
+		GlobalName:     c.String("global-name"),
+		Splitting:      c.Bool("splitting"),
+		CacheDir:       c.String("cache-dir"),
+		Manifest:       c.Bool("manifest"),
+		PublicPath:     c.String("public-path"),
+		EntryFileNames: c.String("entry-file-names"),
 	}
 
 	if len(outfiles) > 0 {
+		base.EntryFileNames = ""
 		templated := false
 		for _, outfile := range outfiles {
 			if templateOf(outfile) != "" {
@@ -145,6 +148,9 @@ func action(c *cli.Context) error {
 	declaration, declarationMap := false, false
 	if err := applyTSConfig(c, &base, &declaration, &declarationMap); err != nil {
 		return err
+	}
+	if base.EntryFileNames != "" && len(outdirs) == 0 && base.OutDir == "" {
+		return errors.New("--entry-file-names requires --outdir")
 	}
 	if c.IsSet("jsx") {
 		base.JSX = bundler.JSX(c.String("jsx"))

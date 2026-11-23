@@ -18,9 +18,14 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 	if b.opts.RootDir != "" {
 		root = b.opts.RootDir
 	}
+	pattern := b.opts.NameTemplate
+	fullPathPattern := pattern != ""
+	if !fullPathPattern {
+		pattern = b.opts.EntryFileNames
+	}
 	b.outputPaths = nil
-	if b.opts.NameTemplate != "" && b.opts.OutFile != "" {
-		hasHash := HasHashPlaceholder(b.opts.NameTemplate)
+	if pattern != "" && (b.opts.OutFile != "" || b.opts.OutDir != "") {
+		hasHash := HasHashPlaceholder(pattern)
 		b.outputPaths = make(map[string]string, len(b.units))
 		for id, unit := range b.units {
 			abs := filepath.FromSlash(id)
@@ -30,7 +35,12 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			if hasHash {
 				hash = ContentHash(unit.code)
 			}
-			b.outputPaths[id] = RenderEntryFileName(b.opts.NameTemplate, name, b.format, hash)
+			rendered := RenderEntryFileName(pattern, name, b.format, hash)
+			if fullPathPattern {
+				b.outputPaths[id] = rendered
+			} else {
+				b.outputPaths[id] = filepath.Join(b.opts.OutDir, filepath.FromSlash(rendered))
+			}
 		}
 	}
 	var files []Output

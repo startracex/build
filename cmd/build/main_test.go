@@ -346,6 +346,60 @@ func TestCLITemplatedOutfileHash(t *testing.T) {
 	}
 }
 
+func TestCLIEntryFileNamesWithOutdir(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "index.ts"), []byte("import { add } from \"./math.js\";\nexport const sum = add(2, 3);\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "math.ts"), []byte("export function add(a: number, b: number): number { return a + b; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	dist := filepath.Join(dir, "dist")
+	if err := run([]string{"--outdir", "dist", "--entry-file-names", "[name].[hash:6].cjs", "--format", "cjs", "src"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dist)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pattern := regexp.MustCompile(`^(index|math)\.[0-9a-f]{6}\.cjs$`)
+	var indexName, mathName string
+	for _, entry := range entries {
+		if !pattern.MatchString(entry.Name()) {
+			t.Fatalf("unexpected output %q", entry.Name())
+		}
+		if strings.HasPrefix(entry.Name(), "index.") {
+			indexName = entry.Name()
+		}
+		if strings.HasPrefix(entry.Name(), "math.") {
+			mathName = entry.Name()
+		}
+	}
+	if indexName == "" || mathName == "" {
+		t.Fatalf("missing outputs: %#v", entries)
+	}
+	body, err := os.ReadFile(filepath.Join(dist, indexName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"./`+mathName+`"`) {
+		t.Fatalf("index import not rewritten to %q:\n%s", mathName, body)
+	}
+
+	literalOut := filepath.Join(dir, "app.js")
+	if err := run([]string{"-o", literalOut, "--entry-file-names", "ignored.[name].js", filepath.Join(src, "index.ts")}, nil, nil); err != nil {
+		t.Fatalf("entry-file-names should be ignored with --outfile: %v", err)
+	}
+	if _, err := os.Stat(literalOut); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCLIJSXPreserve(t *testing.T) {
 	dir := t.TempDir()
 	entry := filepath.Join(dir, "ui.tsx")

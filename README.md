@@ -46,6 +46,12 @@ build -o 'dist/[name].cjs' --format cjs src/
 build -o 'dist/[name].[hash:8].js' src/
 ```
 
+For directory outputs, use the independent `--entry-file-names` flag; the pattern is joined with `--outdir`:
+
+```bash
+build --outdir dist --entry-file-names '[name].[hash:8].js' src/
+```
+
 Without a placeholder, `-o` still requires exactly one entry.
 
 ### Output alignment
@@ -86,6 +92,7 @@ Passing files on the command line ignores `tsconfig.json`. `-p` cannot be combin
 | --- | --- |
 | `-o`, `--outfile` | Single-file bundle path (repeatable). Supports `[name]`, `[format]`, `[hash]`, and `[hash:N]` placeholders; with a placeholder, multiple entries emit one file per entry. |
 | `--outdir` | Directory for per-module or split output (repeatable). |
+| `--entry-file-names` | Filename pattern for `--outdir` outputs: `[name]`, `[format]`, `[hash]`, `[hash:N]`. Ignored with `--outfile`. |
 | arguments | Entry files or globs. |
 | `-p`, `--project` | `tsconfig.json` file or directory. |
 | `--format` | `esm`, `cjs`, `iife`, or `umd`. Repeatable; paired with output paths from the right. |

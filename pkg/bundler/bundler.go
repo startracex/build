@@ -111,9 +111,10 @@ type Options struct {
 	// OutFile is the JavaScript path used by app mode. The declaration and
 	// source map are written beside it.
 	OutFile string
-	// NameTemplate marks OutFile as a per-entry filename pattern. [name] and
-	// [format] are replaced when emitting each entry. Empty means a literal path.
+	// NameTemplate marks OutFile as a full per-entry filename pattern.
 	NameTemplate string
+	// EntryFileNames is a per-entry filename pattern joined with OutDir.
+	EntryFileNames string
 	// OutDir is the directory used by per-module output.
 	OutDir string
 	// RootDir is the base for paths written under OutDir. Empty uses the

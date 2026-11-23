@@ -18,8 +18,10 @@ type OutputOptions struct {
 	OutFile string
 	OutDir  string
 	Name    string // global name for IIFE/UMD
-	// NameTemplate marks OutFile as a per-entry filename pattern.
+	// NameTemplate marks OutFile as a full per-entry filename pattern.
 	NameTemplate string
+	// EntryFileNames is a filename pattern joined with OutDir.
+	EntryFileNames string
 }
 
 // RenderEntryFileName expands [name], [format], [hash], and [hash:N].
@@ -56,6 +58,9 @@ func (o Options) normalizedOutputs() ([]OutputOptions, error) {
 			if out.NameTemplate == "" {
 				out.NameTemplate = o.NameTemplate
 			}
+			if out.EntryFileNames == "" {
+				out.EntryFileNames = o.EntryFileNames
+			}
 			outs = append(outs, out)
 		}
 		return outs, nil
@@ -65,11 +70,12 @@ func (o Options) normalizedOutputs() ([]OutputOptions, error) {
 		return nil, err
 	}
 	return []OutputOptions{{
-		Format:       format,
-		OutFile:      o.OutFile,
-		OutDir:       o.OutDir,
-		Name:         o.GlobalName,
-		NameTemplate: o.NameTemplate,
+		Format:         format,
+		OutFile:        o.OutFile,
+		OutDir:         o.OutDir,
+		Name:           o.GlobalName,
+		NameTemplate:   o.NameTemplate,
+		EntryFileNames: o.EntryFileNames,
 	}}, nil
 }
 
@@ -79,6 +85,7 @@ func withOutput(opts Options, out OutputOptions) Options {
 	opts.OutDir = out.OutDir
 	opts.GlobalName = out.Name
 	opts.NameTemplate = out.NameTemplate
+	opts.EntryFileNames = out.EntryFileNames
 	opts.Outputs = nil
 	return opts
 }
