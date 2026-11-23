@@ -1,8 +1,7 @@
 // Builds the npm package: the Go wasm bridge, plus ESM modules and their
 // declarations emitted straight from npm/src by cmd/build.
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { copyFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,7 +30,7 @@ run("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", join(out, "main.wasm
 const goroot = spawnSync("go", ["env", "GOROOT"], { encoding: "utf8" }).stdout.trim();
 copyFileSync(join(goroot, "lib", "wasm", "wasm_exec.js"), join(out, "wasm_exec.js"));
 
-run("go", ["run", "./cmd/build", "--outdir", out,"--format", "esm",  "-n", "[name].js", "--dts", "--map", "--platform", "node", join(npm, "src")], {
+run("go", ["run", "./cmd/build", "-p", join(npm, "tsconfig.json"), "--d", out,"--format", "esm",  "-n", "[name].js", "--dts", "--map", "--platform", "node", join(npm, "src")], {
 	cwd: root,
 });
 

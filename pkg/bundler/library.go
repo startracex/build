@@ -10,6 +10,7 @@ import (
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/sourcemap"
+	"github.com/startracex/tsgo/pkg/core"
 )
 
 func (b *bundler) emitLibrary(entry string) (*Result, error) {
@@ -19,6 +20,13 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 	root := modpath.DisplayRoot(b.cwd, unitPaths(b, entry))
 	if b.rootDir != "" {
 		root = b.rootDir
+	}
+	// tsconfig options that change map contents but not mapping positions.
+	var mapSourceRoot string
+	inlineSources := false
+	if b.compilerOpts != nil {
+		mapSourceRoot = b.compilerOpts.SourceRoot.AsString()
+		inlineSources = b.compilerOpts.InlineSources == core.TSTrue
 	}
 	ids := make([]string, 0, len(b.units))
 	for id := range b.units {
@@ -71,6 +79,13 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			wrapLines = cjsWrapLines
 		}
 		jsPath := b.outputPaths[id]
+		// mapDir is the directory that holds the emitted .map files. tsc writes
+		// sources relative to this location, not to the source root, so a file
+		// in src and output in build becomes "../src/index.ts".
+		mapDir := filepath.Dir(jsPath)
+		if !filepath.IsAbs(mapDir) {
+			mapDir = filepath.Join(b.cwd, mapDir)
+		}
 		mapName := filepath.Base(jsPath) + ".map"
 		hasMap := b.sourceMap && (strings.TrimSpace(unit.jsMap) != "" || unit.verbatim)
 		if hasMap {
@@ -82,13 +97,15 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			entryJS = js
 		}
 		if hasMap {
-			mapData := sourcemap.IdentitySourceMap(filepath.Base(jsPath), modpath.DisplayRel(root, abs), unit.source)
+			fallback := modpath.DisplayRel(root, abs)
+			mapData := sourcemap.IdentitySourceMap(filepath.Base(jsPath), fallback, unit.source, mapDir, abs)
 			if strings.TrimSpace(unit.jsMap) != "" {
-				mapData = sourcemap.RetargetSourceMap(unit.jsMap, filepath.Base(jsPath), modpath.DisplayRel(root, abs), unit.source)
+				mapData = sourcemap.RetargetSourceMap(unit.jsMap, filepath.Base(jsPath), fallback, unit.source, mapDir, abs)
 			}
 			if wrapLines > 0 {
 				mapData = sourcemap.OffsetLines(mapData, wrapLines)
 			}
+			mapData = sourcemap.ApplySourceMapConfig(mapData, mapSourceRoot, inlineSources, unit.source)
 			files = append(files, Output{Path: jsPath + ".map", Data: mapData})
 		}
 		if b.decl && strings.TrimSpace(unit.dts) != "" {
@@ -103,10 +120,9 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			}
 			files = append(files, Output{Path: dtsPath, Data: dts})
 			if b.declMap && strings.TrimSpace(unit.dtsMap) != "" {
-				files = append(files, Output{
-					Path: dtsPath + ".map",
-					Data: sourcemap.RelativizeDeclarationMap(unit.dtsMap, filepath.Base(dtsPath), root),
-				})
+				mapData := sourcemap.RelativizeSourceMap(unit.dtsMap, filepath.Base(dtsPath), mapDir, root)
+				mapData = sourcemap.ApplySourceMapConfig(mapData, mapSourceRoot, inlineSources, unit.source)
+				files = append(files, Output{Path: dtsPath + ".map", Data: mapData})
 			}
 		}
 	}

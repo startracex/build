@@ -710,7 +710,7 @@ func (b *bundler) runTransform(id, sourceText, code, mapData string) (string, st
 		} else {
 			// A verbatim module has no transpile map; the plugin map already
 			// points at the source text, so it only needs the file name.
-			mapData = sourcemap.RetargetSourceMap(outMap, "", id, sourceText)
+			mapData = sourcemap.RetargetSourceMap(outMap, "", id, sourceText, "", "")
 		}
 	}
 	return out, mapData, out != code, nil

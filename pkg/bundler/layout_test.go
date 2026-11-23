@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/tsgo/pkg/core"
 )
 
 const minifiedPackage = `export function mega(a,b){return a+b}export const tiny={x:1,y:2};`
@@ -101,12 +102,15 @@ export const out = tiny.x;
 		"console.log(\"drop-me\");\n"+minifiedPackage+"\n")
 	sourcemapFlag := true
 	out := filepath.Join(dir, "dist")
+	compiler := &core.CompilerOptions{}
+	compiler.InlineSources = core.TSTrue
 	result, err := Build(context.Background(), Options{
 		Entry:             filepath.Join(dir, "src", "index.ts"),
 		Mode:              ModeLib,
 		OutDir:            out,
 		BundleNodeModules: true,
 		SourceMap:         &sourcemapFlag,
+		CompilerOptions:   compiler,
 		Drop:              []string{"console"},
 	})
 	if err != nil {

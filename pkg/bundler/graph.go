@@ -183,7 +183,7 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 			if unit.verbatim && strings.TrimSpace(unit.jsMap) == "" {
 				// A verbatim module maps line to line; the stages then move it
 				// along with the text they rewrite.
-				unit.jsMap = sourcemap.IdentitySourceMap("", "", unit.source)
+				unit.jsMap = sourcemap.IdentitySourceMap("", "", unit.source, "", "")
 			}
 			// The map describes the code before the rewrite, so each stage
 			// shifts it until it describes the emitted module again.
