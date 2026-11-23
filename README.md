@@ -16,7 +16,7 @@ GOPROXY=direct go install github.com/startracex/build/cmd/build@latest
 
 ## Usage
 
-With no input files, `build` looks for `tsconfig.json` the way `tsc` does. `-p` accepts that file, or a directory that contains it. The build emits one JavaScript file per module unless `--outfile` is set.
+With no input files, `build` looks for `tsconfig.json` the way `tsc` does. `-p` accepts that file, or a directory that contains it. The build emits one JavaScript file per module unless an output path is given.
 
 ```bash
 build
@@ -29,100 +29,108 @@ build --project tsconfig.json
 build -o dist/app.mjs src/index.ts
 ```
 
-Repeat `--format` for Rollup-style multiple outputs from one input (ESM + CJS dual package):
+Both `-o`/`--outfile` and `--outdir` are repeatable. With a single explicit path and several `--format` values, that path is used as a base and the extension is derived per format:
 
 ```bash
 build -o dist/index.js --format esm --format cjs src/index.ts
-# writes dist/index.mjs and dist/index.cjs
 ```
 
 ```bash
 build --format iife --global-name App -o dist/app.js src/index.ts
 ```
 
-### Library / split output
+### Output alignment
+
+Output paths and `--format` are paired from the right: the last path takes the last format, and so on. Missing entries are filled in automatically instead of requiring one flag per output:
+
+- Missing formats use `esm`, or the format inferred from tsconfig `module`.
+- Missing paths are derived from the fallback base (tsconfig `outDir`, otherwise the first explicit path) with the per-format extension or subdirectory.
+- Explicit paths are kept as written whenever more than one path is supplied.
+
+```bash
+# dist/a -> esm, dist/b -> cjs
+build --outdir dist/a --outdir dist/b --format esm --format cjs src/index.ts
+
+# dist/b -> cjs, dist/a -> esm (missing format filled on the left)
+build --outdir dist/a --outdir dist/b --format cjs src/index.ts
+
+# dist/a/cjs (derived), dist/a -> esm, dist/b -> cjs
+build --outdir dist/a --outdir dist/b --format cjs --format esm --format cjs src/index.ts
+```
+
+`--outfile` and `--outdir` remain mutually exclusive. Single-file output still requires exactly one entry.
+
+### Library / multi-entry / split
 
 ```bash
 build --outdir dist src/index.ts
 build --outdir dist --format esm --format cjs "src/**/*.ts"
-# writes under dist/esm and dist/cjs
-```
-
-```bash
+build --outdir dist a.ts b.ts
+# multi-entry app: shared modules → chunks/shared-*.js
 build --outdir dist --splitting src/index.ts
-# dynamic import() targets become files under dist/chunks/
+# dynamic import() → chunks/*.js
 ```
 
 Passing files on the command line ignores `tsconfig.json`. `-p` cannot be combined with input files.
 
 | Flag | Meaning |
 | --- | --- |
-| `-o`, `--outfile` | Single-file bundle path. With several `--format` values, the extension is derived per format. |
-| `--outdir` | Directory for per-module or split output. |
+| `-o`, `--outfile` | Single-file bundle path (repeatable). With one path and several `--format` values, the extension is derived per format. |
+| `--outdir` | Directory for per-module or split output (repeatable). |
 | arguments | Entry files or globs. |
 | `-p`, `--project` | `tsconfig.json` file or directory. |
-| `--format` | `esm`, `cjs`, `iife`, or `umd`. Repeatable. |
-| `--global-name` | Global variable for `iife` / `umd`. |
+| `--format` | `esm`, `cjs`, `iife`, or `umd`. Repeatable; paired with output paths from the right. |
+| `--global-name` | Required for `iife` / `umd`. |
 | `--jsx` | `react` or `react-jsx`. |
 | `--external` | Leave a package unbundled (repeatable). |
 | `--conditions` | Extra `package.json` `"exports"` conditions (repeatable). |
-| `--alias` | Specifier prefix mapping `from=to` (repeatable), e.g. `@=./src`. |
-| `--define` | Replace a free identifier `KEY=VAL` (repeatable). |
+| `--alias` | Specifier prefix mapping `from=to` (repeatable). |
+| `--define` | Replace a free identifier `KEY=VAL` (repeatable); folds `if (false)` / `if (true)` after replace. |
 | `--drop` | `console` and/or `debugger` (repeatable). |
-| `--sourcemap` | Write JavaScript source maps. |
+| `--map` | Write source maps (alias `--sourcemap`); with `--dts` also writes `.d.ts.map`. |
 | `--dts` | Write `.d.ts` for per-module output. |
-| `--declarationMap` | Write `.d.ts.map` when declarations are on. |
 | `--splitting` | Emit `import()` targets as chunks (requires `--outdir`). |
-| `--cache-dir` | Cache transpile results on disk. |
+| `--cache-dir` | Cache transpile results (key includes plugins/define/drop). |
 | `--manifest` | Write `manifest.json` for emitted assets. |
 | `--public-path` | URL prefix for `?url` / file assets. |
 
 ## Modules and assets
 
-Relative and package imports resolve as before (`exports`, `main`, `module`). Conditions: ESM uses `default`/`module`/`import`; CJS uses `default`/`module`/`require`.
-
 | Import | Behavior |
 | --- | --- |
 | `./x.txt?raw` | Default export is the file text. |
-| `./x.png?url` | File is copied; default export is a URL string. |
-| `./x.css` | CSS is emitted beside the JS; the JS module is a side-effect import. |
-| Other static assets | Treated like `?url`. |
-
-`define` / `drop` run on transpiled JS before linking. Alias longest-prefix match runs before the package resolver.
+| `./x.png?url` | File copied with content hash in the name; default export is the URL. |
+| `./x.css` | App: CSS modules reachable from an entry are concatenated beside that entry’s JS. Lib: files are copied. |
+| Other static assets | Treated like `?url` (hashed). |
 
 ### App multi-entry and splitting
 
-- Single entry + `--outfile`: one linked file (optional IIFE/UMD with `--global-name`).
-- Multiple entries or `--splitting` require `--outdir`. The graph is shared: each entry is one file; modules used by ≥2 entries (or multiple async roots) go to `chunks/shared-*.js`; `import()` targets become `chunks/*.js`.
-- IIFE/UMD: **single entry only**; `--global-name` is required.
+- Single entry + `--outfile`: one linked file (IIFE/UMD need `--global-name`).
+- Multiple entries or `--splitting` require `--outdir`. Shared modules go to `chunks/shared-*.js`; `import()` targets to `chunks/*.js`.
+- `Options.ManualChunks` can force modules into named chunks by path substring.
+- IIFE/UMD: single entry only.
 
-### Tree shaking (app bundle)
+### Tree shaking
 
-Linking marks live bindings from entry (and shared-chunk) exports and drops unused pure declarations. Supported:
+App linking marks live bindings and drops unused pure declarations, including:
 
-- Unused functions, vars with pure inits, and classes without impure `extends` / static initializers
-- `/*#__PURE__*/` / `/*@__PURE__*/` annotated calls and `new` (including unused statement forms)
-- A small set of known-pure `Object.*` callees when arguments are pure
-- `package.json` `"sideEffects": false` or a string array / glob (`["*.css"]`)
+- Unused functions, pure inits, pure classes
+- `/*#__PURE__*/` / `/*@__PURE__*/` and known-pure `Object.*` callees
+- **Property-level**: unused keys on non-escaping object literals (including across `import { obj }` + `obj.keep`)
+- `package.json` `"sideEffects": false` or string array / glob
+- Shared-chunk exports via `PreserveExports`
 
-Library `--outdir` still emits per file and does not cross-file-shake unused exports. Dynamic CJS (`__commonJS`) keeps the whole factory.
+Dynamic CJS factories (`__commonJS`) keep the factory body; static CJS shape analysis still shakes unused named bindings. Library mode does not cross-file-shake unused exports.
 
 ### Plugins
 
-`Options.Plugins` (`pkg/plugin`) exposes four hooks, between esbuild and Rollup:
+`Options.Plugins` (`pkg/plugin`): `Resolve`, `Load`, `Transform`, `GenerateBundle`.
 
-| Hook | When |
-| --- | --- |
-| `Resolve` | Before the package resolver (first match wins) |
-| `Load` | Before reading a file (virtual modules) |
-| `Transform` | After transpile, before `define`/`drop` (chained) |
-| `GenerateBundle` | After emit, before `Build` returns (chained) |
-
-Pipeline: **transpile → Transform → define/drop → link/wrap → source maps → GenerateBundle**.
+Order: **transpile → Transform → define/drop (with branch fold) → link/wrap → source maps → GenerateBundle**.
 
 ### Source maps
 
-With `--sourcemap`, app bundles compose transpile maps with linker `// file` sections (column mappings when transpile maps exist).
+`--map` (or its alias `--sourcemap`) composes per-module transpile maps with linker sections; IIFE/UMD wrap offsets are applied. Declaration source maps are written when `--dts` and `--map` are both explicitly enabled. When only one of them is passed, or neither is passed, `sourceMap`, `declaration`, and `declarationMap` keep their `tsconfig.json` values.
 
 ## Library API
 
@@ -139,17 +147,19 @@ result, err := bundler.Build(ctx, bundler.Options{
 })
 ```
 
-Public entry: `github.com/startracex/build/pkg/bundler`. Sibling packages: `plugin`, `resolve`, `asset`, `link`, `treeshake`, `define`, `cache`, `wrap`, `sourcemap`, `dts`, `modpath`, `jsedit`, `output`.
+Public entry: `github.com/startracex/build/pkg/bundler`. Sibling packages under `pkg/`: `plugin`, `resolve`, `asset`, `link`, `treeshake`, `define`, `cache`, `wrap`, `sourcemap`, `dts`, `modpath`, `jsedit`, `output`.
 
 ## Not supported
 
 - Minify
 - Full Rollup plugin surface (`renderChunk`, watch hooks, …)
-- `import.meta.url` rewriting
-- Property-level tree shaking / `if (false)` DCE
-- Cross-file unused export removal in library mode
+- `import.meta.url` / `import.meta.env` rewriting
+- CSS Modules / PostCSS / style injection into JS (app CSS is concatenated; `?url` assets are content-hashed)
+- Dynamic CJS factories (`__commonJS`) keep the whole factory body
 - Type-checking a single-file app bundle (library declarations use the checker)
 - Module Federation
+- Cross-file unused export removal in library mode
+- External plugin loading from the CLI (API plugins only)
 
 ## Develop
 

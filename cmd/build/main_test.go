@@ -66,7 +66,7 @@ func TestCLILibraryMode(t *testing.T) {
 	}
 	out := filepath.Join(dir, "dist")
 	var stdout strings.Builder
-	if err := run([]string{"--sourcemap", "--dts", "--declarationMap", "--outdir", out, filepath.Join(src, "index.ts")}, nil, &stdout); err != nil {
+	if err := run([]string{"--map", "--dts", "--outdir", out, filepath.Join(src, "index.ts")}, nil, &stdout); err != nil {
 		t.Fatal(err)
 	}
 	indexPath := findOutput(t, out, "index.js")
@@ -225,7 +225,7 @@ func TestCLIGlobAndTSConfig(t *testing.T) {
 	}
 
 	globOut := filepath.Join(dir, "glob")
-	if err := run([]string{"--sourcemap", "--dts", "--outdir", globOut, "src/**/*.ts"}, nil, nil); err != nil {
+	if err := run([]string{"--map", "--dts", "--outdir", globOut, "src/**/*.ts"}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(globOut, "src", "math.js")); err != nil && !fileExists(filepath.Join(globOut, "math.js")) {
@@ -236,4 +236,57 @@ func TestCLIGlobAndTSConfig(t *testing.T) {
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+func TestCLIExplicitEmitFlagsOverrideTSConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.ts"), []byte("export const n: number = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config := `{"compilerOptions":{"module":"esnext","sourceMap":true,"declaration":true,"declarationMap":true,"outDir":"tsout"},"include":["index.ts"]}`
+	if err := os.WriteFile(filepath.Join(dir, "tsconfig.json"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	out := filepath.Join(dir, "clioff")
+	if err := run([]string{"--map=false", "--dts", "--outdir", out}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	findOutput(t, out, "index.js")
+	findOutput(t, out, "index.d.ts")
+	if fileExists(filepath.Join(out, "index.js.map")) {
+		t.Fatal("unexpected index.js.map with --map=false")
+	}
+	if fileExists(filepath.Join(out, "index.d.ts.map")) {
+		t.Fatal("unexpected index.d.ts.map with --map=false")
+	}
+}
+
+func TestCLIRightAlignedOutputs(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	entry := filepath.Join(src, "index.ts")
+	if err := os.WriteFile(entry, []byte("export const n: number = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first := filepath.Join(dir, "a")
+	second := filepath.Join(dir, "b")
+	third := filepath.Join(dir, "c")
+	args := []string{
+		"--outdir", first,
+		"--outdir", second,
+		"--outdir", third,
+		"--format", "esm",
+		"--format", "cjs",
+		entry,
+	}
+	if err := run(args, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, out := range []string{first, second, third} {
+		findOutput(t, out, "index.js")
+	}
 }

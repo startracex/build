@@ -31,12 +31,12 @@ func run(args []string, stderr, stdout io.Writer) error {
 	app := &cli.App{
 		Name:  "build",
 		Usage: "Bundle JavaScript and TypeScript",
-		Description: "With no outfile, build reads tsconfig.json and emits one file per module.\n" +
-			"   --outfile with one entry writes a single bundle (or several with repeated --format).\n" +
-			"   --outdir accepts one entry, many entries, or a glob.",
+		Description: "With no output path, build reads tsconfig.json and emits one file per module.\n" +
+			"   --outfile writes bundles for a single entry; --outdir writes per-module or split output.\n" +
+			"   Output paths and --format are repeatable and aligned from the right.",
 		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "outfile", Aliases: []string{"o"}, Usage: "write one bundle for a single entry"},
-			&cli.StringFlag{Name: "outdir", Usage: "directory for per-module or split output"},
+			&cli.StringSliceFlag{Name: "outfile", Aliases: []string{"o"}, Usage: "single-file bundle path (repeatable)"},
+			&cli.StringSliceFlag{Name: "outdir", Usage: "directory for per-module or split output (repeatable)"},
 			&cli.StringFlag{Name: "project", Aliases: []string{"p"}, Usage: "tsconfig.json file or directory"},
 			&cli.StringSliceFlag{Name: "format", Usage: "output format: esm, cjs, iife, umd (repeatable)"},
 			&cli.StringFlag{Name: "jsx", Usage: "JSX transform: react or react-jsx"},
@@ -45,9 +45,8 @@ func run(args []string, stderr, stdout io.Writer) error {
 			&cli.StringSliceFlag{Name: "alias", Usage: "import alias from=to (repeatable)"},
 			&cli.StringSliceFlag{Name: "define", Usage: "replace identifier KEY=VAL (repeatable)"},
 			&cli.StringSliceFlag{Name: "drop", Usage: "drop console or debugger (repeatable)"},
-			&cli.BoolFlag{Name: "sourcemap", Usage: "write JavaScript source maps"},
+			&cli.BoolFlag{Name: "map", Aliases: []string{"sourcemap"}, Usage: "write source maps; with --dts also writes .d.ts.map"},
 			&cli.BoolFlag{Name: "dts", Usage: "write .d.ts files for per-module output"},
-			&cli.BoolFlag{Name: "declarationMap", Usage: "write .d.ts.map files when declarations are enabled"},
 			&cli.StringSliceFlag{Name: "external", Usage: "package left unbundled (repeatable)"},
 			&cli.BoolFlag{Name: "splitting", Usage: "emit import() targets as chunks (requires --outdir)"},
 			&cli.StringFlag{Name: "cache-dir", Usage: "directory for transpile cache"},
@@ -63,7 +62,9 @@ func run(args []string, stderr, stdout io.Writer) error {
 }
 
 func action(c *cli.Context) error {
-	if c.String("outfile") != "" && c.String("outdir") != "" {
+	outfiles := c.StringSlice("outfile")
+	outdirs := c.StringSlice("outdir")
+	if len(outfiles) > 0 && len(outdirs) > 0 {
 		return errors.New("--outfile and --outdir cannot both be set")
 	}
 	entries, err := expandEntries(c.Args().Slice())
@@ -74,11 +75,8 @@ func action(c *cli.Context) error {
 		return err
 	}
 
-	formats := c.StringSlice("format")
+	explicitFormats := c.StringSlice("format")
 	formatSet := c.IsSet("format")
-	if len(formats) == 0 {
-		formats = []string{string(bundler.FormatESM)}
-	}
 	alias := parseKV(c.StringSlice("alias"))
 	define := parseKV(c.StringSlice("define"))
 	base := bundler.Options{
@@ -94,33 +92,24 @@ func action(c *cli.Context) error {
 		Manifest:   c.Bool("manifest"),
 		PublicPath: c.String("public-path"),
 	}
-	if c.IsSet("sourcemap") {
-		base.SourceMap = new(c.Bool("sourcemap"))
-	}
 
-	if outfile := c.String("outfile"); outfile != "" {
+	if len(outfiles) > 0 {
 		if len(entries) != 1 {
 			return fmt.Errorf("--outfile requires a single entry, got %d", len(entries))
 		}
 		base.Entry = entries[0]
 		base.Mode = bundler.ModeApp
-		if len(formats) == 1 {
-			if formatSet {
-				base.Format = bundler.Format(formats[0])
-			} else {
-				base.Format = bundler.FormatESM
-			}
-			base.OutFile = outfile
-			return writeBuild(c, base)
+		base.Format = bundler.FormatESM
+		if formatSet && len(explicitFormats) == 1 {
+			base.Format = bundler.Format(explicitFormats[0])
 		}
-		for _, f := range formats {
-			format := bundler.Format(f)
-			base.Outputs = append(base.Outputs, bundler.OutputOptions{
-				Format:  format,
-				OutFile: bundler.DeriveOutFile(outfile, format),
-				Name:    base.GlobalName,
-			})
+		declaration, declarationMap := false, false
+		applyEmitFlags(c, &base, &declaration, &declarationMap)
+		plan, err := planOutputs(outputFile, outfiles, formatList(explicitFormats, formatSet, base.Format), base.Format, "", base.GlobalName)
+		if err != nil {
+			return err
 		}
+		applyOutputPlan(&base, plan)
 		return writeBuild(c, base)
 	}
 
@@ -129,51 +118,55 @@ func action(c *cli.Context) error {
 	if c.Bool("splitting") {
 		base.Mode = bundler.ModeApp
 	}
-	decl := false
-	declMap := false
-	if err := applyTSConfig(c, &base, &decl, &declMap); err != nil {
+	declaration, declarationMap := false, false
+	if err := applyTSConfig(c, &base, &declaration, &declarationMap); err != nil {
 		return err
 	}
 	if c.IsSet("jsx") {
 		base.JSX = bundler.JSX(c.String("jsx"))
 	}
-	if c.IsSet("sourcemap") {
-		base.SourceMap = new(c.Bool("sourcemap"))
+	applyEmitFlags(c, &base, &declaration, &declarationMap)
+	if formatSet && len(explicitFormats) == 1 {
+		base.Format = bundler.Format(explicitFormats[0])
 	}
-	if c.IsSet("dts") {
-		decl = c.Bool("dts")
+	plan, err := planOutputs(outputDir, outdirs, formatList(explicitFormats, formatSet, base.Format), base.Format, base.OutDir, base.GlobalName)
+	if err != nil {
+		return err
 	}
-	if c.IsSet("declarationMap") {
-		declMap = c.Bool("declarationMap")
-	}
-	base.Declaration = new(decl)
-	base.DeclarationMap = new(decl && declMap)
-
-	outdir := c.String("outdir")
-	if outdir == "" {
-		outdir = base.OutDir
-	}
-	if len(formats) == 1 {
-		if formatSet {
-			base.Format = bundler.Format(formats[0])
-		}
-		base.OutDir = outdir
-	} else {
-		base.Outputs = nil
-		for _, f := range formats {
-			format := bundler.Format(f)
-			base.Outputs = append(base.Outputs, bundler.OutputOptions{
-				Format: format,
-				OutDir: bundler.DeriveOutDir(outdir, format),
-				Name:   base.GlobalName,
-			})
-		}
-		base.OutDir = outdir
-	}
+	applyOutputPlan(&base, plan)
 	if len(base.Entries) == 0 && base.Entry == "" {
 		return errors.New("tsconfig.json not found")
 	}
 	return writeBuild(c, base)
+}
+
+func applyEmitFlags(c *cli.Context, opts *bundler.Options, declaration, declarationMap *bool) {
+	mapSet := c.IsSet("map")
+	mapEnabled := c.Bool("map")
+	dtsSet := c.IsSet("dts")
+	dtsEnabled := c.Bool("dts")
+	if mapSet {
+		opts.SourceMap = new(mapEnabled)
+	}
+	if dtsSet {
+		*declaration = dtsEnabled
+	}
+	if mapSet && dtsSet {
+		*declarationMap = mapEnabled && dtsEnabled
+	}
+	opts.Declaration = new(*declaration)
+	opts.DeclarationMap = new(*declaration && *declarationMap)
+}
+
+func formatList(explicit []string, set bool, fallback bundler.Format) []bundler.Format {
+	if set && len(explicit) > 0 {
+		list := make([]bundler.Format, len(explicit))
+		for i, value := range explicit {
+			list[i] = bundler.Format(value)
+		}
+		return list
+	}
+	return []bundler.Format{fallback}
 }
 
 func parseKV(pairs []string) map[string]string {

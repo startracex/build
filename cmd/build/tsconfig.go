@@ -52,15 +52,13 @@ func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration, declarati
 			opts.JSX = jsx
 		}
 	}
-	if !c.IsSet("sourcemap") {
+	if !c.IsSet("map") {
 		opts.SourceMap = new(compiler.SourceMap == core.TSTrue)
 	}
 	if !c.IsSet("dts") {
 		*declaration = compiler.Declaration == core.TSTrue || compiler.Composite == core.TSTrue
 	}
-	if !c.IsSet("declarationMap") {
-		*declarationMap = compiler.DeclarationMap == core.TSTrue
-	}
+	*declarationMap = compiler.DeclarationMap == core.TSTrue
 	if compiler.Target != core.ScriptTargetNone {
 		opts.Target = compiler.Target
 	}
