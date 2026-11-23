@@ -97,7 +97,7 @@ func expandDirectory(path, cwd string, excludes []*regexp.Regexp) ([]string, err
 				return nil
 			}
 			name := d.Name()
-			if name == "node_modules" || strings.HasPrefix(name, ".") {
+			if strings.EqualFold(name, "node_modules") || strings.HasPrefix(name, ".") {
 				return filepath.SkipDir
 			}
 			return nil
@@ -131,7 +131,7 @@ func entryFile(path string) bool {
 	if modpath.IsDeclaration(path) {
 		return false
 	}
-	if strings.Contains(filepath.ToSlash(path), "/node_modules/") {
+	if _, inDeps := modpath.NodeModulesRel(path); inDeps {
 		return false
 	}
 	return asset.IsSource(path) || modpath.LowerExt(path) == ".html"

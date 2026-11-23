@@ -130,8 +130,8 @@ func (b *bundler) rewriteDeclarationSpecifier(resolved string) bool {
 }
 
 func isPackagePath(abs string) bool {
-	slash := filepath.ToSlash(abs)
-	return strings.HasPrefix(slash, "node_modules/") || strings.Contains(slash, "/node_modules/")
+	_, ok := modpath.NodeModulesRel(abs)
+	return ok
 }
 
 func (b *bundler) outputSpecifier(fromAbs, toAbs string) string {

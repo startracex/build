@@ -171,7 +171,7 @@ func RetargetSourceMap(mapText, fileName, sourceName, sourceContent string) stri
 func IdentitySourceMap(file, sourceName, sourceContent string) string {
 	lines := strings.Count(sourceContent, "\n") + 1
 	points := make([]mapPointCol, 0, lines)
-	for i := 0; i < lines; i++ {
+	for i := range lines {
 		points = append(points, mapPointCol{genLine: i, source: 0, srcLine: i})
 	}
 	raw := map[string]any{

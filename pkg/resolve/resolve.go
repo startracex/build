@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/startracex/build/pkg/asset"
@@ -180,10 +181,8 @@ func resolutionCompilerOptions(conditions []string, platform Platform, src *core
 
 // appendCondition adds a condition unless it is already there.
 func appendCondition(conditions []string, condition string) []string {
-	for _, existing := range conditions {
-		if existing == condition {
-			return conditions
-		}
+	if slices.Contains(conditions, condition) {
+		return conditions
 	}
 	return append(conditions, condition)
 }
@@ -550,7 +549,8 @@ func isExternalSpecifier(spec string) bool {
 // isPackageFile reports whether path points into a package folder, so it
 // belongs to a dependency rather than to the project itself.
 func isPackageFile(path string) bool {
-	return strings.Contains(filepath.ToSlash(path), "/node_modules/")
+	_, ok := modpath.NodeModulesRel(path)
+	return ok
 }
 
 func packageSpecifier(spec string) (name, sub string, ok bool) {

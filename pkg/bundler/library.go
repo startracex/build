@@ -151,7 +151,7 @@ func libraryOutputRel(root, abs, depsDir string) string {
 	// A dependency goes through the deps directory even when the project root
 	// contains node_modules itself: the relative path would otherwise keep the
 	// pnpm store layout (node_modules/.pnpm/<pkg>@<version>/node_modules/...).
-	if pkgRel, inDeps := nodeModulesRel(jsAbs); inDeps {
+	if pkgRel, inDeps := modpath.NodeModulesRel(jsAbs); inDeps {
 		if depsDir != "" {
 			return depsDir + "/" + pkgRel
 		}
@@ -162,24 +162,6 @@ func libraryOutputRel(root, abs, depsDir string) string {
 		return rel
 	}
 	return filepath.Base(filepath.ToSlash(jsAbs))
-}
-
-// nodeModulesRel returns the path of abs inside its package, using the
-// innermost node_modules directory. A pnpm install keeps the package at
-// node_modules/.pnpm/<pkg>@<version>/node_modules/<pkg>/..., and the innermost
-// match yields <pkg>/....
-func nodeModulesRel(abs string) (string, bool) {
-	const marker = "/node_modules/"
-	slash := filepath.ToSlash(abs)
-	idx := strings.LastIndex(slash, marker)
-	if idx < 0 {
-		return "", false
-	}
-	rel := slash[idx+len(marker):]
-	if rel == "" {
-		return "", false
-	}
-	return rel, true
 }
 
 func (b *bundler) uniqueOutputPath(path string) string {

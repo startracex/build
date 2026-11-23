@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/startracex/build/pkg/modpath"
 )
 
 const minifiedPackage = `export function mega(a,b){return a+b}export const tiny={x:1,y:2};`
@@ -69,11 +71,20 @@ func TestNodeModulesRel(t *testing.T) {
 		{"/repo/node_modules/pkg/lib/index.js", "pkg/lib/index.js", true},
 		{"/repo/node_modules/.pnpm/pkg@1.0.0/node_modules/pkg/lib/index.js", "pkg/lib/index.js", true},
 		{"/repo/src/index.ts", "", false},
+		{"node_modules/pkg/index.js", "pkg/index.js", true},
+		{"/repo/node_modules/pkg/index.js?v=1", "pkg/index.js", true},
+		{"/repo/node_modules/pkg/index.js#hash", "pkg/index.js", true},
+		{"C:/repo/node_modules/pkg/index.js", "pkg/index.js", true},
+		{"/repo/NODE_MODULES/pkg/index.js", "pkg/index.js", true},
+		{"/repo/node_modules", "", false},
+		{"/repo/node_modules/", "", false},
+		{"/repo/node_modulesX/pkg/index.js", "", false},
+		{"", "", false},
 	}
 	for _, tc := range cases {
-		got, ok := nodeModulesRel(filepath.FromSlash(tc.path))
-		if ok != tc.ok || filepath.ToSlash(got) != tc.want {
-			t.Fatalf("nodeModulesRel(%q) = %q, %v; want %q, %v", tc.path, got, ok, tc.want, tc.ok)
+		got, ok := modpath.NodeModulesRel(tc.path)
+		if ok != tc.ok || got != tc.want {
+			t.Fatalf("NodeModulesRel(%q) = %q, %v; want %q, %v", tc.path, got, ok, tc.want, tc.ok)
 		}
 	}
 }
