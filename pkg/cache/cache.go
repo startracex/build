@@ -3,7 +3,9 @@ package cache
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -48,31 +50,38 @@ func (c *TranspileCache) Key(path, src, optionKey, transformKey string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// TransformCacheKey hashes plugin names plus define/drop that affect transforms.
+// TransformCacheKey hashes the plugin names and the define/drop settings that
+// change the transform step. The order of the inputs never matters, so the same
+// configuration always yields the same key.
 func TransformCacheKey(pluginNames []string, define map[string]string, drop []string) string {
 	h := sha256.New()
-	sort.Strings(pluginNames)
-	for _, name := range pluginNames {
-		h.Write([]byte(name))
-		h.Write([]byte{0})
-	}
-	keys := make([]string, 0, len(define))
-	for k := range define {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		h.Write([]byte("d"))
-		h.Write([]byte(k))
-		h.Write([]byte(define[k]))
-	}
-	sort.Strings(drop)
-	for _, d := range drop {
-		h.Write([]byte("p"))
-		h.Write([]byte(strings.ToLower(strings.TrimSpace(d))))
+	if err := TransformCacheKeyWrite(h, pluginNames, define, drop); err != nil {
+		// The input is string slices and a string map, so this cannot fail;
+		// hashing a printable form keeps the key distinct if it ever does.
+		h = sha256.New()
+		_, _ = fmt.Fprintf(h, "%#v|%#v|%#v", pluginNames, define, drop)
 	}
 	sum := h.Sum(nil)
 	return hex.EncodeToString(sum[:16])
+}
+
+// TransformCacheKeyWrite streams the same fingerprint into w without building
+// the intermediate JSON in memory. Deterministic ordering is requested
+// explicitly: encoding/json/v2 does not sort map keys by default, and an
+// unsorted "define" map would make the key differ from run to run.
+func TransformCacheKeyWrite(w io.Writer, pluginNames []string, define map[string]string, drop []string) error {
+	names := append([]string(nil), pluginNames...)
+	sort.Strings(names)
+	drops := make([]string, 0, len(drop))
+	for _, d := range drop {
+		drops = append(drops, strings.ToLower(strings.TrimSpace(d)))
+	}
+	sort.Strings(drops)
+	return json.MarshalWrite(w, struct {
+		Plugins []string          `json:"plugins"`
+		Define  map[string]string `json:"define"`
+		Drop    []string          `json:"drop"`
+	}{names, define, drops}, json.Deterministic(true))
 }
 
 // Get loads a cache entry when present.

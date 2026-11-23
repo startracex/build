@@ -346,6 +346,9 @@ type bundler struct {
 	// specifiers are resolved.
 	compilerOpts *core.CompilerOptions
 	cache        *cache.TranspileCache
+	// transformKey fingerprints the plugin transform settings. They are fixed
+	// for a build, so the key is computed once and reused by every module.
+	transformKey string
 	// outputPaths maps module id -> rendered output path when using a
 	// filename template. It keeps relative imports aligned with hashed names.
 	outputPaths map[string]string
@@ -476,7 +479,7 @@ func (b *bundler) load(path string) error {
 	var js, jsMap string
 	cached := false
 	if b.cache != nil {
-		cacheKey = b.cache.Key(path, src, emitOpts.Key(), b.transformKey())
+		cacheKey = b.cache.Key(path, src, emitOpts.Key(), b.transformKey)
 		if ent, ok := b.cache.Get(cacheKey); ok {
 			js, jsMap = ent.JS, ent.Map
 			cached = true

@@ -42,14 +42,17 @@ func resolutionPlatform(platform resolve.Platform, mode Mode, format Format) res
 	return resolve.PlatformNeutral
 }
 
-func (b *bundler) transformKey() string {
-	names := make([]string, 0, len(b.opts.Plugins))
-	for _, p := range b.opts.Plugins {
+// transformKeyFor fingerprints the plugin names and define/drop values that
+// change the transform step. Only a plugin with a transform hook can rewrite
+// source text, so the others are left out.
+func transformKeyFor(opts Options) string {
+	names := make([]string, 0, len(opts.Plugins))
+	for _, p := range opts.Plugins {
 		if p.Transform != nil {
 			names = append(names, p.Name)
 		}
 	}
-	return cache.TransformCacheKey(names, b.opts.Define, b.opts.Drop)
+	return cache.TransformCacheKey(names, opts.Define, opts.Drop)
 }
 
 func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bundler, []string, error) {
@@ -93,6 +96,11 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		target:       opts.emitTarget(),
 		compilerOpts: opts.CompilerOptions,
 		cache:        cache.NewTranspileCache(opts.CacheDir),
+	}
+	if b.cache != nil {
+		// The transform settings are fixed for a build, so fingerprint them
+		// once instead of once per module.
+		b.transformKey = transformKeyFor(opts)
 	}
 	res, err := resolve.New(filepath.Dir(entry), opts.Conditions, resolution, resolve.Config{
 		Alias:           opts.Alias,
