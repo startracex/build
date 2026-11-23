@@ -73,6 +73,7 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			js = strings.TrimRight(js, "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
 		}
 		files = append(files, Output{Path: jsPath, Data: js})
+		b.sources[filepath.ToSlash(abs)] = jsPath
 		if moduleID(abs) == moduleID(entry) {
 			entryJS = js
 		}

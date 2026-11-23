@@ -400,6 +400,51 @@ func TestCLIEntryFileNamesWithOutdir(t *testing.T) {
 	}
 }
 
+func TestCLIHTMLEntry(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	page := `<!doctype html><html><body><div id="app"></div><script type="module" src="./main.ts"></script><link rel="stylesheet" href="./style.css"></body></html>`
+	if err := os.WriteFile(filepath.Join(src, "index.html"), []byte(page), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "main.ts"), []byte("import { value } from \"./util.js\";\ndocument.querySelector(\"#app\")!.textContent = value;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "util.ts"), []byte("export const value = \"hello\";\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "style.css"), []byte("body { color: red; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	out := filepath.Join(dir, "dist")
+	if err := run([]string{"--outdir", out, "src/index.html"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(out, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `src="./main.js"`) {
+		t.Fatalf("script src not rewritten:\n%s", body)
+	}
+	if !strings.Contains(string(body), `href="./style.css"`) {
+		t.Fatalf("stylesheet href not rewritten:\n%s", body)
+	}
+	css, err := os.ReadFile(filepath.Join(out, "style.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(css), "color: red") {
+		t.Fatalf("stylesheet not copied:\n%s", css)
+	}
+	findOutput(t, out, "main.js")
+	findOutput(t, out, "util.js")
+}
+
 func TestCLIEntryFileNamesPathAndDuplicates(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")

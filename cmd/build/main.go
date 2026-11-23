@@ -72,6 +72,10 @@ func action(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
+	htmlDocs, entries, err := prepareHTMLEntries(entries)
+	if err != nil {
+		return err
+	}
 
 	explicitFormats := c.StringSlice("format")
 	formatSet := c.IsSet("format")
@@ -96,6 +100,9 @@ func action(c *cli.Context) error {
 		base.Entry = entries[0]
 	} else {
 		base.Entries = entries
+	}
+	if len(htmlDocs) > 0 && base.RootDir == "" {
+		base.RootDir = filepath.Dir(htmlDocs[0].path)
 	}
 	base.Format = bundler.FormatESM
 	declaration, declarationMap := false, false
@@ -148,7 +155,7 @@ func action(c *cli.Context) error {
 			return err
 		}
 		applyOutputPlan(&base, plan)
-		return writeBuild(c, base)
+		return writeBuild(c, base, htmlDocs)
 	}
 
 	base.Mode = bundler.ModeLib
@@ -166,7 +173,7 @@ func action(c *cli.Context) error {
 	if len(base.Entries) == 0 && base.Entry == "" {
 		return errors.New("tsconfig.json not found")
 	}
-	return writeBuild(c, base)
+	return writeBuild(c, base, htmlDocs)
 }
 
 func applyEmitFlags(c *cli.Context, opts *bundler.Options, declaration, declarationMap *bool) {
@@ -223,10 +230,17 @@ func flagOr(c *cli.Context, name, fallback string) string {
 	return fallback
 }
 
-func writeBuild(c *cli.Context, opts bundler.Options) error {
+func writeBuild(c *cli.Context, opts bundler.Options, docs []*htmlDocument) error {
 	result, err := bundler.Build(context.Background(), opts)
 	if err != nil {
 		return err
+	}
+	if len(docs) > 0 {
+		extra, err := renderHTMLDocuments(docs, opts, result)
+		if err != nil {
+			return err
+		}
+		result.Files = append(result.Files, extra...)
 	}
 	for _, file := range result.Files {
 		if dir := filepath.Dir(file.Path); dir != "" && dir != "." {

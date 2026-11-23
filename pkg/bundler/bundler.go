@@ -187,7 +187,9 @@ type Output struct {
 type Result struct {
 	Files    []Output
 	Manifest map[string]string
-	entry    string
+	// Sources maps absolute source paths (slash separated) to emitted files.
+	Sources map[string]string
+	entry   string
 }
 
 // JavaScript returns the entry JavaScript source.
@@ -220,6 +222,7 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 	b.usedOutputPaths = map[string]bool{}
+	b.sources = map[string]string{}
 	if len(outputs) == 1 {
 		result, err := b.emitForFormat(opts, outputs[0], roots)
 		if err != nil {
@@ -242,9 +245,10 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 		if err := applyGenerateBundle(opts.Plugins, hookCtx, result); err != nil {
 			return nil, err
 		}
+		result.Sources = b.sources
 		return result, nil
 	}
-	merged := &Result{Manifest: map[string]string{}}
+	merged := &Result{Manifest: map[string]string{}, Sources: b.sources}
 	for _, out := range outputs {
 		sub, err := b.emitForFormat(opts, out, roots)
 		if err != nil {
@@ -312,6 +316,8 @@ type bundler struct {
 	// usedOutputPaths tracks every rendered path across outputs so duplicate
 	// names are renamed deterministically instead of overwriting files.
 	usedOutputPaths map[string]bool
+	// sources maps source paths to rendered output paths.
+	sources map[string]string
 	// chunkPaths maps module id -> relative chunk path for splitting.
 	chunkPaths map[string]string
 	// linkingChunk is the chunk path currently being linked (empty for entry).

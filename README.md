@@ -55,6 +55,16 @@ build --outdir dist --entry-file-names '[path].js' src/
 
 Without a placeholder, `-o` still requires exactly one entry.
 
+### HTML entry
+
+An `.html` file can be used as an entry. It is parsed with `golang.org/x/net/html`: local `<script src>` targets are bundled as JavaScript entries and local `<link rel="stylesheet" href>` targets are copied. The emitted HTML has those URLs rewritten to the generated files; external/data URLs and inline scripts are left untouched.
+
+```bash
+build --outdir dist index.html
+```
+
+The HTML directory is used as the default root for emitted paths, unless `rootDir` is set in `tsconfig.json`.
+
 ### Output alignment
 
 Output paths and `--format` are paired from the right: the last path takes the last format, and so on. Missing entries are filled in automatically instead of requiring one flag per output:
@@ -94,7 +104,7 @@ Passing files on the command line without `-p` ignores `tsconfig.json`. With `-p
 | `-o`, `--outfile` | Single-file bundle path (repeatable). Supports `[name]`, `[path]`, `[format]`, `[hash]`, and `[hash:N]` placeholders; with a placeholder, multiple entries emit one file per entry. |
 | `--outdir` | Directory for per-module or split output (repeatable). |
 | `--entry-file-names` | Filename pattern for `--outdir` outputs: `[name]`, `[path]`, `[format]`, `[hash]`, `[hash:N]`. Ignored with `--outfile`. |
-| arguments | Entry files or globs. |
+| arguments | Entry files (including `.html`), directories, or globs. Directories are expanded to supported source files (excluding `node_modules` and `.d.ts`). |
 | `-p`, `--project` | `tsconfig.json` file or directory. |
 | `--format` | `esm`, `cjs`, `iife`, or `umd`. Repeatable; paired with output paths from the right. |
 | `--global-name` | Required for `iife` / `umd`. |

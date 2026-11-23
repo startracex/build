@@ -79,6 +79,7 @@ func (b *bundler) appResult(entry, js, linked string, emitFmt Format) (*Result, 
 		}
 		jsName = RenderEntryFileName(b.opts.NameTemplate, name, name, emitFmt, hash)
 	}
+	b.sources[filepath.ToSlash(filepath.FromSlash(entry))] = jsName
 	if b.sourceMap {
 		js = strings.TrimRight(js, "\n") + "\n//# sourceMappingURL=" + filepath.Base(jsName) + ".map\n"
 	}
