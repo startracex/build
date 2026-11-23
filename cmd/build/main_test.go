@@ -749,37 +749,6 @@ func TestCLIJSXPreserve(t *testing.T) {
 	}
 }
 
-func TestCLIExperimentalDecoratorsFromTSConfig(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "src")
-	if err := os.MkdirAll(src, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	source := "function dec(value: any): any { return value; }\n@dec\nexport class Foo {}\n"
-	if err := os.WriteFile(filepath.Join(src, "index.ts"), []byte(source), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	config := `{"compilerOptions":{"experimentalDecorators":true,"module":"esnext","rootDir":"src"},"include":["src/**/*.ts"]}`
-	if err := os.WriteFile(filepath.Join(dir, "tsconfig.json"), []byte(config), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Chdir(dir)
-	out := filepath.Join(dir, "dist")
-	if err := run([]string{"-p", ".", "--outdir", out}, nil, nil); err != nil {
-		t.Fatal(err)
-	}
-	body, err := os.ReadFile(filepath.Join(out, "index.js"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(body), "@dec") {
-		t.Fatalf("decorator was not transformed:\n%s", body)
-	}
-	if !strings.Contains(string(body), "__decorate") {
-		t.Fatalf("legacy decorator helper missing:\n%s", body)
-	}
-}
-
 func TestCLIProjectWithExplicitEntryUsesCompilerOptions(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")
@@ -869,5 +838,394 @@ func TestCLIRightAlignedOutputs(t *testing.T) {
 	}
 	for _, out := range []string{first, second, third} {
 		findOutput(t, out, "index.js")
+	}
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCLITSConfigDecorators(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), "function dec(target: any, key?: string) {}\nclass Service {\n  @dec\n  name: string = \"x\";\n}\nexport { Service };\n")
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": {
+    "module": "esnext",
+    "target": "es2020",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "outDir": "dist"
+  },
+  "include": ["index.ts"]
+}
+`)
+	t.Chdir(dir)
+	if err := run(nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "dist", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "__decorate") {
+		t.Fatalf("decorator was not transformed:\n%s", body)
+	}
+	if !strings.Contains(string(body), `__metadata("design:type", String)`) {
+		t.Fatalf("decorator metadata was not emitted:\n%s", body)
+	}
+}
+
+func TestCLITSConfigImportHelpers(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), "function dec(t: any) {}\nclass S {\n  @dec\n  name = \"x\";\n}\nexport { S };\n")
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": {
+    "module": "esnext",
+    "target": "es2020",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "importHelpers": true,
+    "outDir": "dist"
+  },
+  "include": ["index.ts"]
+}
+`)
+	t.Chdir(dir)
+	if err := run(nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "dist", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `from "tslib"`) {
+		t.Fatalf("importHelpers should import the helper from tslib:\n%s", body)
+	}
+	if strings.Contains(string(body), "var __decorate") {
+		t.Fatalf("importHelpers should not inline the helper:\n%s", body)
+	}
+
+	cjsOut := filepath.Join(dir, "cjs")
+	if err := run([]string{"-p", ".", "--outdir", cjsOut, "--format", "cjs"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err = os.ReadFile(filepath.Join(cjsOut, "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `require("tslib")`) {
+		t.Fatalf("CommonJS output should require tslib:\n%s", body)
+	}
+}
+
+func TestCLITSConfigUseDefineForClassFields(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), "export class Counter { count = 0; }\n")
+	t.Chdir(dir)
+
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": { "module": "esnext", "outDir": "define", "useDefineForClassFields": true },
+  "include": ["index.ts"]
+}
+`)
+	if err := run(nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "define", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "this.count = 0") {
+		t.Fatalf("useDefineForClassFields=true should keep the native field:\n%s", body)
+	}
+	if !strings.Contains(string(body), "count = 0;") {
+		t.Fatalf("native class field missing:\n%s", body)
+	}
+
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": { "module": "esnext", "outDir": "assign", "useDefineForClassFields": false },
+  "include": ["index.ts"]
+}
+`)
+	if err := run(nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err = os.ReadFile(filepath.Join(dir, "assign", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "this.count = 0") {
+		t.Fatalf("useDefineForClassFields=false should assign in the constructor:\n%s", body)
+	}
+}
+
+func TestCLITSConfigJSXOptions(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "ui.tsx"), "export const view = <div>hi</div>;\n")
+	t.Chdir(dir)
+
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": {
+    "module": "esnext",
+    "jsx": "react",
+    "jsxFactory": "h",
+    "jsxFragmentFactory": "Fragment",
+    "outDir": "factory"
+  },
+  "include": ["ui.tsx"]
+}
+`)
+	if err := run(nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "factory", "ui.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `h("div", null, "hi")`) {
+		t.Fatalf("jsxFactory from tsconfig not applied:\n%s", body)
+	}
+	if strings.Contains(string(body), "React.createElement") {
+		t.Fatalf("jsxFactory should replace the default factory:\n%s", body)
+	}
+
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": {
+    "module": "esnext",
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "outDir": "source"
+  },
+  "include": ["ui.tsx"]
+}
+`)
+	if err := run(nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err = os.ReadFile(filepath.Join(dir, "source", "ui.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `from "preact/jsx-runtime"`) {
+		t.Fatalf("jsxImportSource from tsconfig not applied:\n%s", body)
+	}
+}
+
+func TestCLITSConfigPaths(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(src, "index.ts"), "import { value } from \"@app/util.js\";\nexport const n = value;\n")
+	writeFile(t, filepath.Join(src, "util.ts"), "export const value = 1;\n")
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": {
+    "module": "esnext",
+    "baseUrl": ".",
+    "paths": { "@app/*": ["src/*"] },
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"]
+}
+`)
+	t.Chdir(dir)
+	if err := run(nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "dist", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `from "./util.js"`) {
+		t.Fatalf("paths alias was not resolved:\n%s", body)
+	}
+}
+
+func TestCLITSConfigPathsWithoutBaseUrl(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(src, "index.ts"), "import { value } from \"@app/util\";\nexport const n = value;\n")
+	writeFile(t, filepath.Join(src, "util.ts"), "export const value = 1;\n")
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": {
+    "module": "esnext",
+    "paths": { "@app/*": ["./src/*"] },
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"]
+}
+`)
+	t.Chdir(dir)
+	if err := run(nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "dist", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `from "./util.js"`) {
+		t.Fatalf("paths alias was not resolved:\n%s", body)
+	}
+
+	bundle := filepath.Join(dir, "bundle.js")
+	if err := run([]string{"-p", ".", "-o", bundle, "src/index.ts"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err = os.ReadFile(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "@app/util") {
+		t.Fatalf("paths alias was not bundled:\n%s", body)
+	}
+	if !strings.Contains(string(body), "const value = 1") {
+		t.Fatalf("aliased module missing from the bundle:\n%s", body)
+	}
+}
+
+func TestCLITSConfigRemovedOptions(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), "export const n: number = 1;\n")
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": {
+    "module": "esnext",
+    "esModuleInterop": false,
+    "allowSyntheticDefaultImports": false,
+    "moduleResolution": "node",
+    "outDir": "dist"
+  },
+  "include": ["index.ts"]
+}
+`)
+	t.Chdir(dir)
+	if err := run(nil, nil, nil); err != nil {
+		t.Fatalf("removed TypeScript options should not fail the build: %v", err)
+	}
+	findOutput(t, filepath.Join(dir, "dist"), "index.js")
+}
+
+func TestCLITSConfigVerbatimModuleSyntax(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), "import * as ns from \"./dep.js\";\nexport const n = 1;\n")
+	writeFile(t, filepath.Join(dir, "dep.ts"), "export const value = 1;\n")
+	t.Chdir(dir)
+
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": { "module": "esnext", "outDir": "elided" },
+  "include": ["*.ts"]
+}
+`)
+	if err := run(nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "elided", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), `from "./dep.js"`) {
+		t.Fatalf("unused import should be elided without verbatimModuleSyntax:\n%s", body)
+	}
+
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": { "module": "esnext", "verbatimModuleSyntax": true, "outDir": "verbatim" },
+  "include": ["*.ts"]
+}
+`)
+	if err := run(nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err = os.ReadFile(filepath.Join(dir, "verbatim", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `from "./dep.js"`) {
+		t.Fatalf("verbatimModuleSyntax should keep the import:\n%s", body)
+	}
+}
+
+func TestCLITSConfigDeclarationCompilerOptions(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), "export const p = Promise.resolve(1);\n")
+	t.Chdir(dir)
+
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": { "module": "esnext", "lib": ["es2015"], "declaration": true, "outDir": "modern" },
+  "include": ["index.ts"]
+}
+`)
+	if err := run(nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "modern", "index.d.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "Promise<number>") {
+		t.Fatalf("lib from tsconfig not applied to the declaration program:\n%s", body)
+	}
+
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": { "module": "esnext", "lib": ["es5"], "declaration": true, "outDir": "legacy" },
+  "include": ["index.ts"]
+}
+`)
+	if err := run(nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err = os.ReadFile(filepath.Join(dir, "legacy", "index.d.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "Promise<number>") {
+		t.Fatalf("lib es5 should not know Promise:\n%s", body)
+	}
+}
+
+func TestCLITSConfigModuleResolution(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), "import { value } from \"pkg\";\nexport const n = value;\n")
+	pkgDir := filepath.Join(dir, "node_modules", "pkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The "node" export condition only exists for the node resolution kinds.
+	writeFile(t, filepath.Join(pkgDir, "package.json"), `{"name":"pkg","type":"module","exports":{".":{"node":"./node.js"}}}`)
+	writeFile(t, filepath.Join(pkgDir, "node.js"), "export const value = \"NODE_BUILD\";\n")
+	t.Chdir(dir)
+
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": { "module": "esnext", "moduleResolution": "node16", "outDir": "dist" },
+  "include": ["index.ts"]
+}
+`)
+	bundle := filepath.Join(dir, "bundle.js")
+	if err := run([]string{"-o", bundle}, nil, nil); err != nil {
+		t.Fatalf("moduleResolution node16 should match the node condition: %v", err)
+	}
+	body, err := os.ReadFile(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "NODE_BUILD") {
+		t.Fatalf("package was not bundled:\n%s", body)
+	}
+
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": { "module": "esnext", "outDir": "dist" },
+  "include": ["index.ts"]
+}
+`)
+	err = run([]string{"-o", filepath.Join(dir, "bundler.js")}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "pkg") {
+		t.Fatalf("bundler resolution should not match the node condition: %v", err)
 	}
 }

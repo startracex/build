@@ -23,11 +23,17 @@
 // Multiple Outputs emit the same input in several formats (for example ESM and
 // CJS). Define/Drop, Alias, asset queries (?raw/?url), CSS, code splitting, and
 // a transpile cache are available through Options.
+//
+// The compiler options read from tsconfig.json reach the build through the
+// context, see Options.CompilerOptions. They decide the emitted JavaScript,
+// the declaration output, and how module specifiers are resolved.
 package bundler
 
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -111,8 +117,6 @@ type Options struct {
 	// OutFile is the JavaScript path used by app mode. The declaration and
 	// source map are written beside it.
 	OutFile string
-	// ExperimentalDecorators enables the legacy TypeScript decorator transform.
-	ExperimentalDecorators bool
 	// NameTemplate marks OutFile as a full per-entry filename pattern.
 	NameTemplate string
 	// EntryFileNames is a per-entry filename pattern joined with OutDir.
@@ -139,6 +143,11 @@ type Options struct {
 	Conditions []string
 	// Target is the TypeScript emit target. Empty means ESNext.
 	Target core.ScriptTarget
+	// CompilerOptions holds the compiler options read from tsconfig.json. They
+	// decide the emitted JavaScript, the declaration output, and how module
+	// specifiers are resolved. The bundler owns module kind, target, JSX
+	// transform, and source maps; the rest comes from here.
+	CompilerOptions *core.CompilerOptions
 	// Outputs lists Rollup-style emit targets. The module graph is loaded once;
 	// each output is linked/emitted from that shared graph.
 	Outputs []OutputOptions
@@ -313,7 +322,11 @@ type bundler struct {
 	declMap   bool
 	sourceMap bool
 	target    core.ScriptTarget
-	cache     *cache.TranspileCache
+	// compilerOpts holds the compiler options read from tsconfig.json. They
+	// change the emitted JavaScript, the declaration output, and how module
+	// specifiers are resolved.
+	compilerOpts *core.CompilerOptions
+	cache        *cache.TranspileCache
 	// outputPaths maps module id -> rendered output path when using a
 	// filename template. It keeps relative imports aligned with hashed names.
 	outputPaths map[string]string
@@ -443,7 +456,7 @@ func (b *bundler) load(path string) error {
 	var js, jsMap string
 	cached := false
 	if b.cache != nil {
-		cacheKey = b.cache.Key(path, src, int(moduleKind), int(b.target), int(b.jsx), b.sourceMap, b.transformKey())
+		cacheKey = b.cache.Key(path, src, int(moduleKind), int(b.target), int(b.jsx), b.sourceMap, b.transformKey(), b.compilerOptionsKey())
 		if ent, ok := b.cache.Get(cacheKey); ok {
 			js, jsMap = ent.JS, ent.Map
 			cached = true
@@ -451,14 +464,8 @@ func (b *bundler) load(path string) error {
 	}
 	if !cached {
 		out := transpile.TranspileModule(b.ctx, src, transpile.Options{
-			FileName: filepath.Base(path),
-			CompilerOptions: &core.CompilerOptions{
-				Module:                 moduleKind,
-				Target:                 b.target,
-				Jsx:                    b.jsx,
-				SourceMap:              sourceMapFlag,
-				ExperimentalDecorators: b.decoratorFlag(),
-			},
+			FileName:          filepath.Base(path),
+			CompilerOptions:   b.transpileCompilerOptions(moduleKind, sourceMapFlag),
 			ReportDiagnostics: true,
 		})
 		if out == nil {
@@ -671,11 +678,66 @@ func errorFromSyntaxDiagnostics(path, src string, diags []*ast.Diagnostic) error
 	})
 }
 
-func (b *bundler) decoratorFlag() core.Tristate {
-	if b.opts.ExperimentalDecorators {
-		return core.TSTrue
+// transpileCompilerOptions returns the compiler options used to emit the
+// JavaScript of one module. It starts from the tsconfig options that change
+// the emitted code and overrides the ones the bundler controls (module kind,
+// target, JSX transform, and source maps).
+func (b *bundler) transpileCompilerOptions(moduleKind core.ModuleKind, sourceMap core.Tristate) *core.CompilerOptions {
+	opts := &core.CompilerOptions{
+		Module:    moduleKind,
+		Target:    b.target,
+		Jsx:       b.jsx,
+		SourceMap: sourceMap,
 	}
-	return core.TSFalse
+	src := b.compilerOpts
+	if src == nil {
+		return opts
+	}
+	opts.ExperimentalDecorators = src.ExperimentalDecorators
+	opts.EmitDecoratorMetadata = src.EmitDecoratorMetadata
+	opts.UseDefineForClassFields = src.UseDefineForClassFields
+	opts.VerbatimModuleSyntax = src.VerbatimModuleSyntax
+	opts.IsolatedModules = src.IsolatedModules
+	opts.ImportHelpers = src.ImportHelpers
+	opts.NoEmitHelpers = src.NoEmitHelpers
+	opts.JsxFactory = src.JsxFactory
+	opts.JsxFragmentFactory = src.JsxFragmentFactory
+	opts.JsxImportSource = src.JsxImportSource
+	opts.ReactNamespace = src.ReactNamespace
+	opts.PreserveConstEnums = src.PreserveConstEnums
+	opts.RemoveComments = src.RemoveComments
+	if src.NewLine != core.NewLineKindNone {
+		opts.NewLine = src.NewLine
+	}
+	return opts
+}
+
+// compilerOptionsKey hashes the tsconfig options that change the emitted
+// JavaScript. It keeps the transpile cache from reusing output that was
+// emitted with different settings.
+func (b *bundler) compilerOptionsKey() string {
+	src := b.compilerOpts
+	if src == nil {
+		return ""
+	}
+	h := sha256.New()
+	fmt.Fprintf(h, "ed=%d;md=%d;ud=%d;vm=%d;im=%d;ih=%d;neh=%d;jf=%s;jff=%s;fis=%s;rn=%s;pce=%d;rc=%d;nl=%d\n",
+		int(src.ExperimentalDecorators),
+		int(src.EmitDecoratorMetadata),
+		int(src.UseDefineForClassFields),
+		int(src.VerbatimModuleSyntax),
+		int(src.IsolatedModules),
+		int(src.ImportHelpers),
+		int(src.NoEmitHelpers),
+		src.JsxFactory,
+		src.JsxFragmentFactory,
+		src.JsxImportSource,
+		src.ReactNamespace,
+		int(src.PreserveConstEnums),
+		int(src.RemoveComments),
+		int(src.NewLine),
+	)
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func isJavaScriptSource(path string) bool {

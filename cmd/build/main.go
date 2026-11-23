@@ -108,9 +108,12 @@ func action(c *cli.Context) error {
 	}
 	base.Format = bundler.FormatESM
 	declaration, declarationMap := false, false
-	if err := applyTSConfig(c, &base, &declaration, &declarationMap); err != nil {
+	compilerOpts, err := applyTSConfig(c, &base, &declaration, &declarationMap)
+	if err != nil {
 		return err
 	}
+	base.CompilerOptions = compilerOpts
+	ctx := context.Background()
 	if formatSet && len(explicitFormats) == 1 {
 		base.Format = bundler.Format(explicitFormats[0])
 	}
@@ -157,7 +160,7 @@ func action(c *cli.Context) error {
 			return err
 		}
 		applyOutputPlan(&base, plan)
-		return writeBuild(c, base, htmlDocs)
+		return writeBuild(c, ctx, base, htmlDocs)
 	}
 
 	base.Mode = bundler.ModeLib
@@ -175,7 +178,7 @@ func action(c *cli.Context) error {
 	if len(base.Entries) == 0 && base.Entry == "" {
 		return errors.New("tsconfig.json not found")
 	}
-	return writeBuild(c, base, htmlDocs)
+	return writeBuild(c, ctx, base, htmlDocs)
 }
 
 func applyEmitFlags(c *cli.Context, opts *bundler.Options, declaration, declarationMap *bool) {
@@ -232,8 +235,8 @@ func flagOr(c *cli.Context, name, fallback string) string {
 	return fallback
 }
 
-func writeBuild(c *cli.Context, opts bundler.Options, docs []*htmlDocument) error {
-	result, err := bundler.Build(context.Background(), opts)
+func writeBuild(c *cli.Context, ctx context.Context, opts bundler.Options, docs []*htmlDocument) error {
+	result, err := bundler.Build(ctx, opts)
 	if err != nil {
 		return err
 	}

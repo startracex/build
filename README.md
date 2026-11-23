@@ -99,6 +99,24 @@ build --outdir dist --splitting src/index.ts
 
 Passing files on the command line without `-p` ignores `tsconfig.json`. With `-p`, explicit files are used as the entries while compiler options are read from that `tsconfig.json`.
 
+### tsconfig compiler options
+
+The compiler options that change the output are read from `tsconfig.json`. They are never overridden by a flag.
+
+| Option | Effect |
+| --- | --- |
+| `module`, `target`, `jsx` | Output format, emit target, and JSX transform. |
+| `experimentalDecorators`, `emitDecoratorMetadata` | Legacy decorator transform and `__metadata` calls. |
+| `importHelpers`, `noEmitHelpers` | Import the emit helpers from `tslib` instead of inlining them. |
+| `useDefineForClassFields` | Native class fields (`true`) or constructor assignment (`false`). |
+| `verbatimModuleSyntax` | Keeps import and export statements exactly as written. |
+| `jsxFactory`, `jsxFragmentFactory`, `jsxImportSource` | Custom JSX factory, fragment factory, and runtime package. |
+| `baseUrl`, `paths` | Resolve aliased specifiers to local files. |
+| `moduleResolution` | `node16`, `nodenext`, or `bundler` resolution of `package.json` `"exports"`. |
+| `strict` family, `lib`, `types` | Type checking and inference behind the emitted declarations. |
+| `customConditions` | Extra `package.json` `"exports"` conditions. |
+| `removeComments`, `preserveConstEnums`, `newLine` | Output shape of the emitted JavaScript. |
+
 | Flag | Meaning |
 | --- | --- |
 | `-o`, `--outfile` | Single-file bundle path (repeatable). Supports `[name]`, `[path]`, `[format]`, `[hash]`, and `[hash:N]` placeholders; with a placeholder, multiple entries emit one file per entry. |
@@ -177,6 +195,15 @@ result, err := bundler.Build(ctx, bundler.Options{
 ```
 
 Public entry: `github.com/startracex/build/pkg/bundler`. Sibling packages under `pkg/`: `plugin`, `resolve`, `asset`, `link`, `treeshake`, `define`, `cache`, `wrap`, `sourcemap`, `dts`, `modpath`, `jsedit`, `output`.
+
+The tsconfig compiler options are passed through `Options`, so no flag can override them:
+
+```go
+result, err := bundler.Build(context.Background(), bundler.Options{
+  Entry:           "src/index.ts",
+  CompilerOptions: compilerOptions, // parsed from tsconfig.json
+})
+```
 
 ## Not supported
 

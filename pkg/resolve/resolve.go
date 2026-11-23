@@ -37,12 +37,15 @@ var nodeBuiltins = map[string]struct{}{
 
 // Config holds resolver options supplied by the bundler.
 type Config struct {
-	Alias       map[string]string
-	External    []string
-	Format      string // "esm", "cjs", ...
-	LibBuild    bool   // library mode: bare package imports are external
-	ResolveHook func(importer, spec string) (path string, external bool, ok bool, err error)
-	OnAsset     func(abs string, q asset.Query) error
+	Alias    map[string]string
+	External []string
+	Format   string // "esm", "cjs", ...
+	LibBuild bool   // library mode: bare package imports are external
+	// CompilerOptions carries the tsconfig options that change how module
+	// specifiers are resolved: "moduleResolution", "baseUrl", and "paths".
+	CompilerOptions *core.CompilerOptions
+	ResolveHook     func(importer, spec string) (path string, external bool, ok bool, err error)
+	OnAsset         func(abs string, q asset.Query) error
 }
 
 // Resolver resolves import specifiers using tsgo's bundler resolver.
@@ -70,18 +73,8 @@ func New(entryDir string, conditions []string, mode core.ResolutionMode, cfg Con
 	}
 	rooted := tspath.RootedDirectoryPathFromAbsolute(dir)
 	res := tsmodule.NewResolver(tsmodule.ResolverOptions{
-		Host: resolutionHost{fs: osvfs.FS(), dir: rooted},
-		CompilerOptions: &core.CompilerOptions{
-			Module:                     core.ModuleKindESNext,
-			ModuleResolution:           core.ModuleResolutionKindBundler,
-			AllowJs:                    core.TSTrue,
-			AllowImportingTsExtensions: core.TSTrue,
-			NoDtsResolution:            core.TSTrue,
-			ResolveJsonModule:          core.TSTrue,
-			ResolvePackageJsonExports:  core.TSTrue,
-			ResolvePackageJsonImports:  core.TSTrue,
-			CustomConditions:           ExportConditions(conditions),
-		},
+		Host:            resolutionHost{fs: osvfs.FS(), dir: rooted},
+		CompilerOptions: resolutionCompilerOptions(conditions, cfg.CompilerOptions),
 	})
 	return &Resolver{
 		res:       res,
@@ -89,6 +82,47 @@ func New(entryDir string, conditions []string, mode core.ResolutionMode, cfg Con
 		cfg:       cfg,
 		externals: map[string]struct{}{},
 	}, nil
+}
+
+// resolutionCompilerOptions builds the compiler options used to resolve module
+// specifiers. The tsconfig options that steer resolution are honoured;
+// everything else keeps the bundler defaults.
+func resolutionCompilerOptions(conditions []string, src *core.CompilerOptions) *core.CompilerOptions {
+	opts := &core.CompilerOptions{
+		Module:                     core.ModuleKindESNext,
+		ModuleResolution:           core.ModuleResolutionKindBundler,
+		AllowJs:                    core.TSTrue,
+		AllowImportingTsExtensions: core.TSTrue,
+		NoDtsResolution:            core.TSTrue,
+		ResolveJsonModule:          core.TSTrue,
+		ResolvePackageJsonExports:  core.TSTrue,
+		ResolvePackageJsonImports:  core.TSTrue,
+		CustomConditions:           ExportConditions(conditions),
+	}
+	if src == nil {
+		return opts
+	}
+	opts.Paths = src.Paths
+	opts.BaseUrl = src.BaseUrl
+	opts.PathsBasePath = src.PathsBasePath
+	if kind := NormalizeModuleResolution(src.ModuleResolution); kind != core.ModuleResolutionKindUnknown {
+		opts.ModuleResolution = kind
+	}
+	return opts
+}
+
+// NormalizeModuleResolution maps a tsconfig "moduleResolution" value to the
+// kind tsgo understands. The removed "classic" and "node10" kinds fall back to
+// "bundler", which is what tsgo does for them as well.
+func NormalizeModuleResolution(kind core.ModuleResolutionKind) core.ModuleResolutionKind {
+	switch kind {
+	case core.ModuleResolutionKindNode16, core.ModuleResolutionKindNodeNext, core.ModuleResolutionKindBundler:
+		return kind
+	case core.ModuleResolutionKindUnknown, core.ModuleResolutionKindClassic, core.ModuleResolutionKindNode10:
+		return core.ModuleResolutionKindBundler
+	default:
+		return core.ModuleResolutionKindBundler
+	}
 }
 
 // Resolve resolves spec imported from importer to an absolute file path.
@@ -252,11 +286,6 @@ func (r *Resolver) NoteExternal(spec string) {
 
 // IsUserExternal reports whether spec is listed in Config.External or is external in lib mode.
 func (r *Resolver) IsUserExternal(spec string) bool {
-	if r.cfg.LibBuild {
-		if _, _, ok := packageSpecifier(spec); ok {
-			return true
-		}
-	}
 	name, _, ok := packageSpecifier(spec)
 	if !ok {
 		return false
@@ -266,7 +295,47 @@ func (r *Resolver) IsUserExternal(spec string) bool {
 			return true
 		}
 	}
+	if r.cfg.LibBuild {
+		// A tsconfig "paths" alias points at a local file, so it is not a
+		// package import and stays in the bundle.
+		if r.matchesPathsAlias(spec) {
+			return false
+		}
+		return true
+	}
 	return false
+}
+
+// matchesPathsAlias reports whether spec matches one of the tsconfig "paths"
+// patterns. Such a specifier resolves to a local file instead of a package.
+func (r *Resolver) matchesPathsAlias(spec string) bool {
+	if r.cfg.CompilerOptions == nil {
+		return false
+	}
+	paths := r.cfg.CompilerOptions.Paths
+	if paths == nil || paths.Size() == 0 {
+		return false
+	}
+	for pattern := range paths.Keys() {
+		if matchPathPattern(pattern, spec) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchPathPattern reports whether spec matches a tsconfig "paths" pattern.
+// A pattern holds at most one "*" wildcard.
+func matchPathPattern(pattern, spec string) bool {
+	star := strings.IndexByte(pattern, '*')
+	if star < 0 {
+		return pattern == spec
+	}
+	prefix, suffix := pattern[:star], pattern[star+1:]
+	if !strings.HasPrefix(spec, prefix) || !strings.HasSuffix(spec, suffix) {
+		return false
+	}
+	return len(spec) >= len(prefix)+len(suffix)
 }
 
 // Externals returns specifiers marked external during resolution.

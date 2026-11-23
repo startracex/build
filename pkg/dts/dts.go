@@ -10,6 +10,7 @@ import (
 
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/build/pkg/resolve"
 	"github.com/startracex/tsgo/pkg/ast"
 	"github.com/startracex/tsgo/pkg/bundled"
 	"github.com/startracex/tsgo/pkg/compiler"
@@ -33,6 +34,87 @@ type Options struct {
 	Jsx              core.JsxEmit
 	DeclarationMap   bool
 	CustomConditions []string
+	// CompilerOptions carries the tsconfig options that change the declaration
+	// output and the type checking behind it: the strict family, "lib",
+	// "types", "paths", "baseUrl", "moduleResolution", the decorator and JSX
+	// settings. The declaration-only switches are always set by this package.
+	CompilerOptions *core.CompilerOptions
+}
+
+// declarationCompilerOptions builds the compiler options for the declaration
+// program. The tsconfig options that change type checking and inference are
+// honoured; the declaration-only switches are always set here.
+func declarationCompilerOptions(opts Options, declMap core.Tristate) *core.CompilerOptions {
+	compilerOpts := &core.CompilerOptions{
+		Declaration:          core.TSTrue,
+		DeclarationMap:       declMap,
+		EmitDeclarationOnly:  core.TSTrue,
+		IsolatedDeclarations: core.TSFalse,
+		NoCheck:              core.TSFalse,
+		SkipLibCheck:         core.TSTrue,
+		AllowJs:              core.TSTrue,
+		ResolveJsonModule:    core.TSTrue,
+		Module:               core.ModuleKindESNext,
+		ModuleResolution:     core.ModuleResolutionKindBundler,
+		Target:               opts.Target,
+		Jsx:                  opts.Jsx,
+		CustomConditions:     opts.CustomConditions,
+		NoEmit:               core.TSFalse,
+		NoEmitOnError:        core.TSFalse,
+		Composite:            core.TSFalse,
+		Incremental:          core.TSUnknown,
+	}
+	src := opts.CompilerOptions
+	if src == nil {
+		return compilerOpts
+	}
+
+	// Strictness and inference.
+	compilerOpts.Strict = src.Strict
+	compilerOpts.StrictNullChecks = src.StrictNullChecks
+	compilerOpts.StrictFunctionTypes = src.StrictFunctionTypes
+	compilerOpts.StrictBindCallApply = src.StrictBindCallApply
+	compilerOpts.StrictPropertyInitialization = src.StrictPropertyInitialization
+	compilerOpts.NoImplicitAny = src.NoImplicitAny
+	compilerOpts.NoImplicitThis = src.NoImplicitThis
+	compilerOpts.NoImplicitReturns = src.NoImplicitReturns
+	compilerOpts.NoImplicitOverride = src.NoImplicitOverride
+	compilerOpts.NoUncheckedIndexedAccess = src.NoUncheckedIndexedAccess
+	compilerOpts.NoUncheckedSideEffectImports = src.NoUncheckedSideEffectImports
+	compilerOpts.ExactOptionalPropertyTypes = src.ExactOptionalPropertyTypes
+	compilerOpts.UseUnknownInCatchVariables = src.UseUnknownInCatchVariables
+	compilerOpts.NoPropertyAccessFromIndexSignature = src.NoPropertyAccessFromIndexSignature
+	compilerOpts.NoFallthroughCasesInSwitch = src.NoFallthroughCasesInSwitch
+	compilerOpts.AllowUnreachableCode = src.AllowUnreachableCode
+	compilerOpts.AllowUnusedLabels = src.AllowUnusedLabels
+	compilerOpts.NoUnusedLocals = src.NoUnusedLocals
+	compilerOpts.NoUnusedParameters = src.NoUnusedParameters
+	compilerOpts.Lib = src.Lib
+	compilerOpts.Types = src.Types
+	compilerOpts.TypeRoots = src.TypeRoots
+	compilerOpts.SkipDefaultLibCheck = src.SkipDefaultLibCheck
+
+	// Module resolution.
+	compilerOpts.ModuleResolution = resolve.NormalizeModuleResolution(src.ModuleResolution)
+	compilerOpts.Paths = src.Paths
+	compilerOpts.BaseUrl = src.BaseUrl
+	compilerOpts.PathsBasePath = src.PathsBasePath
+	compilerOpts.ResolvePackageJsonExports = src.ResolvePackageJsonExports
+	compilerOpts.ResolvePackageJsonImports = src.ResolvePackageJsonImports
+	compilerOpts.CheckJs = src.CheckJs
+	compilerOpts.ForceConsistentCasingInFileNames = src.ForceConsistentCasingInFileNames
+
+	// Emit shape.
+	compilerOpts.ExperimentalDecorators = src.ExperimentalDecorators
+	compilerOpts.EmitDecoratorMetadata = src.EmitDecoratorMetadata
+	compilerOpts.UseDefineForClassFields = src.UseDefineForClassFields
+	compilerOpts.JsxFactory = src.JsxFactory
+	compilerOpts.JsxFragmentFactory = src.JsxFragmentFactory
+	compilerOpts.JsxImportSource = src.JsxImportSource
+	compilerOpts.ReactNamespace = src.ReactNamespace
+	compilerOpts.PreserveConstEnums = src.PreserveConstEnums
+	compilerOpts.VerbatimModuleSyntax = src.VerbatimModuleSyntax
+	return compilerOpts
 }
 
 // EmitProgram runs a tsgo declaration-only program for the given TypeScript paths.
@@ -56,21 +138,7 @@ func EmitProgram(ctx context.Context, absPaths []string, opts Options) (map[stri
 	if opts.DeclarationMap {
 		declMap = core.TSTrue
 	}
-	compilerOpts := &core.CompilerOptions{
-		Declaration:          core.TSTrue,
-		DeclarationMap:       declMap,
-		EmitDeclarationOnly:  core.TSTrue,
-		IsolatedDeclarations: core.TSFalse,
-		NoCheck:              core.TSFalse,
-		SkipLibCheck:         core.TSTrue,
-		AllowJs:              core.TSTrue,
-		ResolveJsonModule:    core.TSTrue,
-		Module:               core.ModuleKindESNext,
-		ModuleResolution:     core.ModuleResolutionKindBundler,
-		Target:               opts.Target,
-		Jsx:                  opts.Jsx,
-		CustomConditions:     opts.CustomConditions,
-	}
+	compilerOpts := declarationCompilerOptions(opts, declMap)
 	host := compiler.NewCompilerHost(fs, bundled.LibPath(), nil, nil, nil)
 	program, err := compiler.NewProgram(ctx, compiler.ProgramOptions{
 		Config:         tsoptions.NewParsedCommandLine(compilerOpts, roots, nil, tspath.RootedDirectoryPathFromAbsolute(modpath.DisplayRoot(absPaths)), fs.CaseSensitivity()),

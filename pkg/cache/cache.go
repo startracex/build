@@ -32,7 +32,7 @@ func NewTranspileCache(dir string) *TranspileCache {
 }
 
 // Key hashes path, source, emit options, and an optional plugin/options suffix.
-func (c *TranspileCache) Key(path, src string, moduleKind, target, jsx int, sourceMap bool, transformKey string) string {
+func (c *TranspileCache) Key(path, src string, moduleKind, target, jsx int, sourceMap bool, transformKey, compilerKey string) string {
 	h := sha256.New()
 	h.Write([]byte(path))
 	h.Write([]byte{0})
@@ -49,6 +49,10 @@ func (c *TranspileCache) Key(path, src string, moduleKind, target, jsx int, sour
 	if transformKey != "" {
 		h.Write([]byte{0})
 		h.Write([]byte(transformKey))
+	}
+	if compilerKey != "" {
+		h.Write([]byte{0})
+		h.Write([]byte(compilerKey))
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

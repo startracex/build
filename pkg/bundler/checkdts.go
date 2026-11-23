@@ -28,6 +28,7 @@ func (b *bundler) attachDeclarations() error {
 		Jsx:              b.jsx,
 		DeclarationMap:   b.declMap,
 		CustomConditions: resolve.ExportConditions(b.opts.Conditions),
+		CompilerOptions:  b.compilerOpts,
 	})
 	if err != nil {
 		return err

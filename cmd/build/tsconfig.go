@@ -19,22 +19,25 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration, declarationMap *bool) error {
+// applyTSConfig reads tsconfig.json and applies it to the build. It returns
+// the compiler options from the config file so the bundler can use the ones
+// that change the emitted code, the declarations, and module resolution.
+func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration, declarationMap *bool) (*core.CompilerOptions, error) {
 	// Files on the command line (without -p) ignore tsconfig.json, matching
 	// classic tsc / bundler CLI behavior.
 	if c.String("project") == "" && (len(opts.Entries) > 0 || opts.Entry != "") {
-		return nil
+		return nil, nil
 	}
 	path, err := tsconfigPath(c)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if path == "" {
-		return nil
+		return nil, nil
 	}
 	parsed, err := readTSConfig(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	compiler := parsed.CompilerOptions()
 	if !c.IsSet("format") {
@@ -45,7 +48,6 @@ func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration, declarati
 			opts.JSX = jsx
 		}
 	}
-	opts.ExperimentalDecorators = compiler.ExperimentalDecorators == core.TSTrue
 	if !c.IsSet("map") {
 		opts.SourceMap = new(compiler.SourceMap == core.TSTrue)
 	}
@@ -70,11 +72,11 @@ func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration, declarati
 	if len(opts.Entries) == 0 && opts.Entry == "" {
 		files, err := configFiles(parsed)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		opts.Entries = files
 	}
-	return nil
+	return compiler.Clone(), nil
 }
 
 func tsconfigPath(c *cli.Context) (string, error) {

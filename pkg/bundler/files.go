@@ -44,14 +44,13 @@ func (o Options) emitTarget() core.ScriptTarget {
 }
 
 func (b *bundler) declarationText(path, src string) (string, error) {
+	opts := b.transpileCompilerOptions(core.ModuleKindESNext, core.TSFalse)
+	// A declaration file carries no implementation, so it never needs a helper.
+	opts.ImportHelpers = core.TSFalse
+	opts.NoEmitHelpers = core.TSFalse
 	out := transpile.TranspileDeclaration(b.ctx, src, transpile.Options{
-		FileName: filepath.Base(path),
-		CompilerOptions: &core.CompilerOptions{
-			Module:                 core.ModuleKindESNext,
-			Target:                 b.target,
-			Jsx:                    b.jsx,
-			ExperimentalDecorators: b.decoratorFlag(),
-		},
+		FileName:          filepath.Base(path),
+		CompilerOptions:   opts,
 		ReportDiagnostics: true,
 	})
 	if out == nil {
