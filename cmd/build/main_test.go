@@ -1416,6 +1416,45 @@ func TestCLITSConfigModuleResolution(t *testing.T) {
 	}
 }
 
+// TestCLIBundleKeepsPackageSpecifierInDeclarations guards a declaration that
+// references a package: types do not need the bundled copy, and pointing at the
+// emitted file either escapes the output directory (a type-only import never
+// enters the graph) or names a .js file with no declaration beside it.
+func TestCLIBundleKeepsPackageSpecifierInDeclarations(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "src", "index.ts"), `import type { T } from "pkg";
+export type { T } from "pkg";
+export { value } from "pkg";
+export const local: T = { name: "x" };
+`)
+	pkgDir := filepath.Join(dir, "node_modules", "pkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(pkgDir, "package.json"), `{"name":"pkg","type":"module","main":"index.js","types":"index.d.ts"}`)
+	writeFile(t, filepath.Join(pkgDir, "index.js"), "export const value = \"PKG\";\n")
+	writeFile(t, filepath.Join(pkgDir, "index.d.ts"), "export interface T {\n  name: string;\n}\nexport declare const value: string;\n")
+	t.Chdir(dir)
+
+	out := filepath.Join(dir, "out")
+	if err := run([]string{"--bundle", "--dts", "-d", out, "src"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(out, "src", "index.d.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `from "pkg"`) {
+		t.Fatalf("package specifier should stay in the declaration:\n%s", body)
+	}
+	if strings.Contains(string(body), "node_modules") {
+		t.Fatalf("declaration should not point at the bundled copy:\n%s", body)
+	}
+}
+
 func TestCLIPlatformDoesNotAffectDeclarations(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), "import { value } from \"pkg\";\nexport const n = value;\n")

@@ -48,6 +48,9 @@ func rewriteRelativeSpecifiers(src, fromAbs string, b *bundler, typescript bool)
 			if err != nil || external {
 				continue
 			}
+			if typescript && !b.rewriteDeclarationSpecifier(resolved) {
+				continue
+			}
 			next := b.outputSpecifier(fromAbs, resolved)
 			edits = append(edits, edit{
 				start: jsedit.TokenStart(src, specNode),
@@ -61,7 +64,7 @@ func rewriteRelativeSpecifiers(src, fromAbs string, b *bundler, typescript bool)
 				return
 			}
 			resolved, external, err := b.resolve(fromAbs, spec)
-			if err != nil || external {
+			if err != nil || external || (typescript && !b.rewriteDeclarationSpecifier(resolved)) {
 				return
 			}
 			edits = append(edits, edit{
@@ -76,7 +79,7 @@ func rewriteRelativeSpecifiers(src, fromAbs string, b *bundler, typescript bool)
 				return
 			}
 			resolved, external, err := b.resolve(fromAbs, spec)
-			if err != nil || external {
+			if err != nil || external || (typescript && !b.rewriteDeclarationSpecifier(resolved)) {
 				return
 			}
 			edits = append(edits, edit{
@@ -113,6 +116,22 @@ func specifierNodes(stmt *ast.Node) []*ast.Node {
 	default:
 		return nil
 	}
+}
+
+// rewriteDeclarationSpecifier reports whether a declaration reference should be
+// rewritten to the emitted file. A package reference keeps its specifier: types
+// do not need the bundled copy, and the consumer resolves them from its own
+// node_modules. A file that was not emitted has no target to point at either.
+func (b *bundler) rewriteDeclarationSpecifier(resolved string) bool {
+	if isPackagePath(resolved) {
+		return false
+	}
+	return b.outputPaths[modpath.ModuleID(resolved)] != ""
+}
+
+func isPackagePath(abs string) bool {
+	slash := filepath.ToSlash(abs)
+	return strings.HasPrefix(slash, "node_modules/") || strings.Contains(slash, "/node_modules/")
 }
 
 func (b *bundler) outputSpecifier(fromAbs, toAbs string) string {

@@ -148,16 +148,18 @@ func wrapCommonJSForESM(code string) string {
 // other module falls back to its base name.
 func libraryOutputRel(root, abs, depsDir string) string {
 	jsAbs := modpath.JavascriptOutputAbs(abs)
-	pkgRel, inDeps := nodeModulesRel(jsAbs)
-	if inDeps && depsDir != "" {
-		return depsDir + "/" + pkgRel
+	// A dependency goes through the deps directory even when the project root
+	// contains node_modules itself: the relative path would otherwise keep the
+	// pnpm store layout (node_modules/.pnpm/<pkg>@<version>/node_modules/...).
+	if pkgRel, inDeps := nodeModulesRel(jsAbs); inDeps {
+		if depsDir != "" {
+			return depsDir + "/" + pkgRel
+		}
+		return "node_modules/" + pkgRel
 	}
 	rel := modpath.DisplayRel(root, jsAbs)
 	if !strings.HasPrefix(rel, "..") {
 		return rel
-	}
-	if inDeps {
-		return "node_modules/" + pkgRel
 	}
 	return filepath.Base(filepath.ToSlash(jsAbs))
 }
