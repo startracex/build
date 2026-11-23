@@ -212,6 +212,8 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 		if i == 0 {
 			entryJS = js
 		}
+		// An HTML page rewrites its script src from this table.
+		b.sources[filepath.ToSlash(e)] = out
 		manifest[e] = out
 	}
 
@@ -250,12 +252,20 @@ func (b *bundler) staticDeps() map[string][]string {
 			if err != nil || external || resolved == "" {
 				continue
 			}
-			out[id] = append(out[id], modpath.ModuleID(resolved))
+			dep := modpath.ModuleID(resolved)
+			if _, loaded := b.units[dep]; !loaded {
+				// The graph must not point at a module that was never loaded:
+				// a chunk built from such an id has no entry module.
+				continue
+			}
+			out[id] = append(out[id], dep)
 		}
 	}
 	return out
 }
 
+// dynamicImportEdges lists the import() targets of each module. A require call
+// is synchronous and stays in its bundle, so it must not become a chunk root.
 func (b *bundler) dynamicImportEdges() map[string]map[string]bool {
 	edges := map[string]map[string]bool{}
 	for id, unit := range b.units {
@@ -263,8 +273,8 @@ func (b *bundler) dynamicImportEdges() map[string]map[string]bool {
 		if file.Statements == nil {
 			continue
 		}
-		ast.ForEachDynamicImportOrRequireCall(file, true, false, func(_ *ast.Node, argument *ast.Expression) bool {
-			if argument == nil {
+		ast.ForEachDynamicImportOrRequireCall(file, true, false, func(node *ast.Node, argument *ast.Expression) bool {
+			if argument == nil || !isImportCall(node) {
 				return false
 			}
 			spec := argument.Text()
@@ -275,14 +285,27 @@ func (b *bundler) dynamicImportEdges() map[string]map[string]bool {
 			if err != nil || external || resolved == "" {
 				return false
 			}
+			target := modpath.ModuleID(resolved)
+			if _, loaded := b.units[target]; !loaded {
+				return false
+			}
 			if edges[id] == nil {
 				edges[id] = map[string]bool{}
 			}
-			edges[id][modpath.ModuleID(resolved)] = true
+			edges[id][target] = true
 			return false
 		})
 	}
 	return edges
+}
+
+// isImportCall reports whether node is an import() call rather than require().
+func isImportCall(node *ast.Node) bool {
+	if node == nil || node.Kind != ast.KindCallExpression {
+		return false
+	}
+	callee := node.AsCallExpression().Expression
+	return callee != nil && callee.Kind == ast.KindImportKeyword
 }
 
 func reach(graph map[string][]string, start string) map[string]bool {

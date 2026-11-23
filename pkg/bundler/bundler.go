@@ -143,10 +143,19 @@ type Options struct {
 	External []string
 	// BundleNodeModules keeps bare package imports inside library-mode output.
 	BundleNodeModules bool
+	// DepsDir is the directory bundled packages are written under in library
+	// mode, so "vendor" emits vendor/<package>/... instead of
+	// node_modules/<package>/.... Empty keeps node_modules.
+	DepsDir string
 	// Conditions are extra package.json "exports" conditions. The resolver
 	// always adds import or require from the format, always matches default,
 	// and always includes module. These values are appended on top.
 	Conditions []string
+	// Platform is the runtime the JavaScript output targets, which decides
+	// which package.json "exports" conditions are available. Empty infers it:
+	// app mode with ESM output resolves for the browser, any other layout
+	// follows the tsconfig. Declaration output is not affected.
+	Platform resolve.Platform
 	// Target is the TypeScript emit target. Empty means ESNext.
 	Target core.ScriptTarget
 	// CompilerOptions holds the compiler options read from tsconfig.json. They
@@ -313,6 +322,9 @@ type unit struct {
 	file   *ast.SourceFile
 	json   bool
 	asset  bool
+	// verbatim marks a module whose code is its source text: the emitter only
+	// reformatted it, so it keeps the original formatting and an identity map.
+	verbatim bool
 }
 
 type bundler struct {
@@ -492,30 +504,26 @@ func (b *bundler) load(path string) error {
 			b.cache.Put(cacheKey, cache.Entry{JS: js, Map: jsMap})
 		}
 	}
-	if b.outMode == ModeLib {
-		if moduleKind == core.ModuleKindESNext {
-			emitted := jsedit.ParseEmittedJS(js)
-			if err := errorFromDiagnostics(path, js, emitted.Diagnostics()); err != nil {
-				return fmt.Errorf("parse emitted javascript: %w", err)
-			}
-			extra, err := b.depsFromSpecifiers(path, specifiers(emitted))
-			if err != nil {
-				return err
-			}
-			deps = append(deps, extra...)
-		}
+	verbatim := false
+	if b.outMode == ModeLib && moduleKind == core.ModuleKindCommonJS {
+		// The module was converted to CommonJS, so the emitted text stands.
 		b.units[id] = &unit{code: js, source: sourceText, jsMap: jsMap, file: file}
-	} else if b.format == FormatESM || b.format == FormatCJS || b.format == FormatIIFE || b.format == FormatUMD {
+	} else {
 		emitted := jsedit.ParseEmittedJS(js)
 		if err := errorFromDiagnostics(path, js, emitted.Diagnostics()); err != nil {
 			return fmt.Errorf("parse emitted javascript: %w", err)
+		}
+		if body, ok := b.verbatimModule(path, src, file, js, emitted); ok {
+			// The emitter only reprinted the module. Keeping the source text
+			// preserves hand-minified code, comments, and formatting.
+			js, jsMap, verbatim = body, "", true
 		}
 		extra, err := b.depsFromSpecifiers(path, specifiers(emitted))
 		if err != nil {
 			return err
 		}
 		deps = append(deps, extra...)
-		b.units[id] = &unit{code: js, source: sourceText, jsMap: jsMap, file: file}
+		b.units[id] = &unit{code: js, source: sourceText, jsMap: jsMap, file: file, verbatim: verbatim}
 	}
 
 	seen := map[string]bool{}
@@ -529,6 +537,33 @@ func (b *bundler) load(path string) error {
 		}
 	}
 	return nil
+}
+
+// verbatimModule returns the source text of a JavaScript module whose emit is
+// only a reprint. Downleveling, a module format change, or a removed comment
+// all make the emit load-bearing, and then the emitted text is used instead.
+func (b *bundler) verbatimModule(path, src string, file *ast.SourceFile, emittedText string, emitted *ast.SourceFile) (string, bool) {
+	if !isJavaScriptSource(path) {
+		return "", false
+	}
+	if b.compilerOpts != nil && b.compilerOpts.RemoveComments.IsTrue() {
+		return "", false
+	}
+	body := jsedit.StripSourceMappingComment(src)
+	if body == "" || strings.HasPrefix(body, "#!") {
+		return "", false
+	}
+	parsed := file
+	if body != src {
+		parsed = jsedit.ParseEmittedJS(body)
+		if len(parsed.Diagnostics()) > 0 {
+			return "", false
+		}
+	}
+	if !jsedit.SameTokens(body, parsed, emittedText, emitted) {
+		return "", false
+	}
+	return body, true
 }
 
 func (b *bundler) resolve(importer, spec string) (resolved string, external bool, err error) {

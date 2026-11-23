@@ -12,6 +12,11 @@ import (
 )
 
 func IsPureDecl(src string, stmt *ast.Node) bool {
+	// A decorator runs when the declaration is evaluated, both downleveled and
+	// with the native syntax, so the declaration cannot be dropped.
+	if ast.HasDecorators(stmt) {
+		return false
+	}
 	switch stmt.Kind {
 	case ast.KindFunctionDeclaration:
 		return true
@@ -64,6 +69,9 @@ func isPureClass(src string, stmt *ast.Node) bool {
 		return true
 	}
 	for _, mem := range cls.Members.Nodes {
+		if ast.HasDecorators(mem) {
+			return false
+		}
 		switch mem.Kind {
 		case ast.KindClassStaticBlockDeclaration:
 			return false

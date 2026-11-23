@@ -17,9 +17,10 @@ func (m *esModule) scanObjectProps(mods map[string]*esModule, loc *esLocal) erro
 	if list == nil {
 		return nil
 	}
+	used := objectUsedProps(init, loc.props)
 	for _, prop := range list.Nodes {
 		key, val := objectPropParts(prop)
-		if key == "" || !loc.props[key] {
+		if key == "" || !used[key] {
 			continue
 		}
 		if val != nil {
@@ -83,6 +84,60 @@ func propertyKeyText(name *ast.Node) string {
 	}
 }
 
+// objectUsedProps returns the properties of an object literal binding that must
+// stay: the ones callers read, plus the ones its own methods read through
+// `this`. A method reading `this.x` keeps x alive even when no caller names it.
+func objectUsedProps(init *ast.Node, props map[string]bool) map[string]bool {
+	extra := objectThisProps(init)
+	if len(extra) == 0 {
+		return props
+	}
+	merged := make(map[string]bool, len(props)+len(extra))
+	for key := range props {
+		merged[key] = true
+	}
+	for key := range extra {
+		merged[key] = true
+	}
+	return merged
+}
+
+// objectThisProps lists the property names the methods of an object literal
+// read through `this`.
+func objectThisProps(init *ast.Node) map[string]bool {
+	names := map[string]bool{}
+	if init == nil || init.Kind != ast.KindObjectLiteralExpression {
+		return names
+	}
+	list := init.AsObjectLiteralExpression().Properties
+	if list == nil {
+		return names
+	}
+	var walk func(n *ast.Node)
+	walk = func(n *ast.Node) {
+		if n == nil {
+			return
+		}
+		if n.Kind == ast.KindPropertyAccessExpression {
+			access := n.AsPropertyAccessExpression()
+			if access.Expression != nil && access.Expression.Kind == ast.KindThisKeyword && access.Name() != nil {
+				names[access.Name().Text()] = true
+			}
+		}
+		n.ForEachChild(func(child *ast.Node) bool {
+			walk(child)
+			return false
+		})
+	}
+	for _, prop := range list.Nodes {
+		switch prop.Kind {
+		case ast.KindMethodDeclaration, ast.KindGetAccessor, ast.KindSetAccessor:
+			walk(prop)
+		}
+	}
+	return names
+}
+
 // objectPropStripEdits removes unused properties from a non-escaping object binding.
 func (m *esModule) objectPropStripEdits(stmt *ast.Node) []edit {
 	var edits []edit
@@ -98,10 +153,11 @@ func (m *esModule) objectPropStripEdits(stmt *ast.Node) []edit {
 		if list == nil {
 			continue
 		}
+		used := objectUsedProps(init, loc.props)
 		nodes := list.Nodes
 		for i, prop := range nodes {
 			key, _ := objectPropParts(prop)
-			if key == "" || loc.props[key] {
+			if key == "" || used[key] {
 				continue
 			}
 			start := prop.Pos()

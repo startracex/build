@@ -62,7 +62,7 @@ func Link(mods map[string]Module, entryID string, opts Options) (Result, error) 
 	slices.Sort(order)
 	entry := parsed[entryID]
 	if entry == nil {
-		return Result{}, fmt.Errorf("missing entry module")
+		return Result{}, fmt.Errorf("missing entry module %q", entryID)
 	}
 	if err := markLive(parsed, entry); err != nil {
 		return Result{}, err

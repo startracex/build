@@ -166,6 +166,29 @@ func RetargetSourceMap(mapText, fileName, sourceName, sourceContent string) stri
 	return string(buf)
 }
 
+// IdentitySourceMap maps every generated line to the same source line. It
+// describes output whose text is unchanged, such as a module kept verbatim.
+func IdentitySourceMap(file, sourceName, sourceContent string) string {
+	lines := strings.Count(sourceContent, "\n") + 1
+	points := make([]mapPointCol, 0, lines)
+	for i := 0; i < lines; i++ {
+		points = append(points, mapPointCol{genLine: i, source: 0, srcLine: i})
+	}
+	raw := map[string]any{
+		"version":        3,
+		"file":           file,
+		"sources":        []string{sourceName},
+		"names":          []string{},
+		"mappings":       encodeMappingsCol(points),
+		"sourcesContent": []string{sourceContent},
+	}
+	buf, err := json.Marshal(raw)
+	if err != nil {
+		return "{}"
+	}
+	return string(buf)
+}
+
 // RelativizeDeclarationMap makes absolute source paths relative to root.
 func RelativizeDeclarationMap(mapText, fileName, root string) string {
 	if strings.TrimSpace(mapText) == "" {

@@ -36,7 +36,7 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 	for _, id := range ids {
 		unit := b.units[id]
 		abs := filepath.FromSlash(id)
-		jsRel := libraryOutputRel(root, abs)
+		jsRel := libraryOutputRel(root, abs, b.opts.DepsDir)
 		outPath := jsRel
 		if b.opts.OutDir != "" {
 			outPath = filepath.Join(b.opts.OutDir, filepath.FromSlash(jsRel))
@@ -65,12 +65,15 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 		if err != nil {
 			return nil, err
 		}
+		wrapLines := 0
 		if b.format == FormatESM && isCommonJSSource(js) {
 			js = wrapCommonJSForESM(js)
+			wrapLines = cjsWrapLines
 		}
 		jsPath := b.outputPaths[id]
 		mapName := filepath.Base(jsPath) + ".map"
-		if b.sourceMap && strings.TrimSpace(unit.jsMap) != "" {
+		hasMap := b.sourceMap && (strings.TrimSpace(unit.jsMap) != "" || unit.verbatim)
+		if hasMap {
 			js = strings.TrimRight(js, "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
 		}
 		files = append(files, Output{Path: jsPath, Data: js})
@@ -78,9 +81,15 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 		if modpath.ModuleID(abs) == modpath.ModuleID(entry) {
 			entryJS = js
 		}
-		if b.sourceMap && strings.TrimSpace(unit.jsMap) != "" {
-			mapPath := jsPath + ".map"
-			files = append(files, Output{Path: mapPath, Data: sourcemap.RetargetSourceMap(unit.jsMap, filepath.Base(jsPath), modpath.DisplayRel(root, abs), unit.source)})
+		if hasMap {
+			mapData := sourcemap.IdentitySourceMap(filepath.Base(jsPath), modpath.DisplayRel(root, abs), unit.source)
+			if strings.TrimSpace(unit.jsMap) != "" {
+				mapData = sourcemap.RetargetSourceMap(unit.jsMap, filepath.Base(jsPath), modpath.DisplayRel(root, abs), unit.source)
+			}
+			if wrapLines > 0 {
+				mapData = sourcemap.OffsetLines(mapData, wrapLines)
+			}
+			files = append(files, Output{Path: jsPath + ".map", Data: mapData})
 		}
 		if b.decl && strings.TrimSpace(unit.dts) != "" {
 			dts, err := rewriteRelativeSpecifiers(unit.dts, abs, b, true)
@@ -121,6 +130,10 @@ func isCommonJSSource(code string) bool {
 	return strings.Contains(code, "module.exports") || strings.Contains(code, "exports.")
 }
 
+// cjsWrapLines is how many lines wrapCommonJSForESM adds before the module
+// body, so a source map for that body keeps its lines aligned.
+const cjsWrapLines = 2
+
 func wrapCommonJSForESM(code string) string {
 	return "const __cjs_module = { exports: {} };\n" +
 		"(function (module, exports) {\n" + code + "\n})(__cjs_module, __cjs_module.exports);\n" +
@@ -129,19 +142,42 @@ func wrapCommonJSForESM(code string) string {
 }
 
 // libraryOutputRel returns a relative output path that never escapes the
-// output directory. Modules outside rootDir (notably pnpm node_modules) keep
-// their node_modules/... suffix; others fall back to their base name.
-func libraryOutputRel(root, abs string) string {
+// output directory. A module inside rootDir keeps its relative path; a bundled
+// dependency is written under depsDir (node_modules when empty) using its path
+// below the innermost node_modules, so a pnpm store path does not leak. Any
+// other module falls back to its base name.
+func libraryOutputRel(root, abs, depsDir string) string {
 	jsAbs := modpath.JavascriptOutputAbs(abs)
+	pkgRel, inDeps := nodeModulesRel(jsAbs)
+	if inDeps && depsDir != "" {
+		return depsDir + "/" + pkgRel
+	}
 	rel := modpath.DisplayRel(root, jsAbs)
 	if !strings.HasPrefix(rel, "..") {
 		return rel
 	}
-	slash := filepath.ToSlash(jsAbs)
-	if idx := strings.Index(slash, "/node_modules/"); idx >= 0 {
-		return slash[idx+1:]
+	if inDeps {
+		return "node_modules/" + pkgRel
 	}
-	return filepath.Base(slash)
+	return filepath.Base(filepath.ToSlash(jsAbs))
+}
+
+// nodeModulesRel returns the path of abs inside its package, using the
+// innermost node_modules directory. A pnpm install keeps the package at
+// node_modules/.pnpm/<pkg>@<version>/node_modules/<pkg>/..., and the innermost
+// match yields <pkg>/....
+func nodeModulesRel(abs string) (string, bool) {
+	const marker = "/node_modules/"
+	slash := filepath.ToSlash(abs)
+	idx := strings.LastIndex(slash, marker)
+	if idx < 0 {
+		return "", false
+	}
+	rel := slash[idx+len(marker):]
+	if rel == "" {
+		return "", false
+	}
+	return rel, true
 }
 
 func (b *bundler) uniqueOutputPath(path string) string {

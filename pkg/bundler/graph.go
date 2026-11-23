@@ -3,6 +3,7 @@ package bundler
 import (
 	"context"
 	"fmt"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -26,6 +27,19 @@ func preferredLoadFormat(outputs []OutputOptions) Format {
 		}
 	}
 	return FormatCJS
+}
+
+// resolutionPlatform fills in the platform when the caller left it open. A
+// single-file ESM bundle runs in a browser; every other layout keeps the
+// tsconfig semantics so Node consumers and declaration emit stay consistent.
+func resolutionPlatform(platform resolve.Platform, mode Mode, format Format) resolve.Platform {
+	if platform != resolve.PlatformAuto {
+		return platform
+	}
+	if mode == ModeApp && format == FormatESM {
+		return resolve.PlatformBrowser
+	}
+	return resolve.PlatformNeutral
 }
 
 func (b *bundler) transformKey() string {
@@ -85,6 +99,7 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		External:        opts.External,
 		Format:          string(loadFormat),
 		LibBuild:        outMode == ModeLib && !opts.BundleNodeModules,
+		Platform:        resolutionPlatform(opts.Platform, outMode, loadFormat),
 		CompilerOptions: b.compilerOpts,
 		BaseURL:         opts.BaseURL,
 		ResolveHook:     combineResolveHook(ctx, opts.Plugins, opts.Resolve),
@@ -114,6 +129,11 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		}
 		unit.code = rewritten
 		if len(stages) > 0 {
+			if unit.verbatim && strings.TrimSpace(unit.jsMap) == "" {
+				// A verbatim module maps line to line; the stages then move it
+				// along with the text they rewrite.
+				unit.jsMap = sourcemap.IdentitySourceMap("", "", unit.source)
+			}
 			// The map describes the code before the rewrite, so each stage
 			// shifts it until it describes the emitted module again.
 			unit.jsMap = remapStages(unit.jsMap, stages)
@@ -136,6 +156,9 @@ func remapStages(mapData string, stages []define.Stage) string {
 }
 
 func validateBuildOutputs(opts Options, outputs []OutputOptions, outMode Mode, roots []string) error {
+	if err := validateDepsDir(opts.DepsDir); err != nil {
+		return err
+	}
 	for _, out := range outputs {
 		if err := output.ValidateOutputPaths(out.OutFile, out.OutDir); err != nil {
 			return err
@@ -153,6 +176,20 @@ func validateBuildOutputs(opts Options, outputs []OutputOptions, outMode Mode, r
 		if (out.Format == FormatIIFE || out.Format == FormatUMD) && strings.TrimSpace(out.Name) == "" {
 			return fmt.Errorf("iife/umd output requires --global-name")
 		}
+	}
+	return nil
+}
+
+// validateDepsDir keeps the bundled dependency directory inside the output
+// directory, so it cannot escape it or depend on the current drive.
+func validateDepsDir(depsDir string) error {
+	if depsDir == "" {
+		return nil
+	}
+	cleaned := path.Clean(filepath.ToSlash(depsDir))
+	if cleaned == "." || cleaned == ".." || path.IsAbs(cleaned) ||
+		strings.HasPrefix(cleaned, "../") || strings.ContainsAny(cleaned, ":\\") {
+		return fmt.Errorf("deps dir must be a relative directory inside the output: %q", depsDir)
 	}
 	return nil
 }

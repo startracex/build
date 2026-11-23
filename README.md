@@ -65,6 +65,15 @@ build --outdir dist index.html
 
 The HTML directory is used as the default root for emitted paths, unless `rootDir` is set in `tsconfig.json`.
 
+Both layouts accept an HTML entry:
+
+```bash
+# one bundle per script, beside the page: dist/index.html + dist/src/app.js
+build --outdir dist --mode app index.html
+# one file per module
+build --outdir dist --mode lib index.html
+```
+
 ### Output alignment
 
 Output paths and `--format` are paired from the right: the last path takes the last format, and so on. Missing entries are filled in automatically instead of requiring one flag per output:
@@ -105,6 +114,23 @@ Splitting follows the mode. In `app` mode with `--outdir` every `import()` targe
 
 Passing files on the command line without `-p` ignores `tsconfig.json`. With `-p`, explicit files are used as the entries while compiler options are read from that `tsconfig.json`.
 
+Bundled packages (`--bundle`) are written one file per module, like the rest of the library output. By default they keep a `node_modules/<package>/...` layout, using the innermost `node_modules` so a pnpm store path (`node_modules/.pnpm/<pkg>@<version>/node_modules/<pkg>/...`) does not leak. `--deps-dir` groups them under another directory:
+
+```bash
+# dist/vendor/<package>/... instead of dist/node_modules/<package>/...
+build --outdir dist --bundle --deps-dir vendor src/index.ts
+# flatten every file into one directory (duplicate stems get -2, -3, ...)
+build --outdir dist --bundle --entry-file-names '[name].js' src/index.ts
+```
+
+Leaving a package external (`--external pkg`) or using `--mode app`, which inlines packages into the entry bundle, avoids per-module dependency files entirely.
+
+### Verbatim JavaScript
+
+A JavaScript module whose emit would only reprint it keeps its original text. Already-minified packages therefore stay minified, comments stay, and tree shaking still applies: only the live statements are kept, and the text around them is untouched.
+
+The original text is used only when the emit changes nothing. A downleveled syntax for the tsconfig `target`, a CommonJS conversion, a JSX transform, or `removeComments` all make the emitted text load-bearing, and then it is used instead.
+
 ### tsconfig compiler options
 
 The compiler options that change the output are read from `tsconfig.json`. They are never overridden by a flag.
@@ -136,7 +162,9 @@ The compiler options that change the output are read from `tsconfig.json`. They 
 | `--external` | Leave a package unbundled (repeatable). |
 | `--mode` | Output layout: `app` (one bundle per entry, packages inlined, `import()` split into chunks, no `.d.ts`) or `lib` (one file per module, packages external by default, nothing split). Inferred from the output path when omitted. |
 | `--bundle` | Bundle bare package imports in library output instead of leaving them external (alias `--bundle-node-modules`). |
+| `--deps-dir` | Directory for bundled packages in library output. Empty keeps `node_modules/<package>/...`; `--deps-dir vendor` writes `vendor/<package>/...`. |
 | `--conditions` | Extra `package.json` `"exports"` conditions (repeatable). |
+| `--platform` | Runtime the JavaScript output targets: `browser`, `node`, or `neutral`. `browser` drops the `node` condition and matches `browser`; `neutral` keeps the tsconfig settings. Defaults to `browser` for app-mode ESM output and `neutral` otherwise. Declaration output always keeps the tsconfig settings. |
 | `--alias` | Specifier prefix mapping `from=to` (repeatable). |
 | `--define` | Replace a free reference `KEY=EXPR` (repeatable). Keys are identifiers or dotted chains (`process.env.NODE_ENV`); values must be one JavaScript expression. |
 | `--drop` | `console` and/or `debugger` (repeatable). |

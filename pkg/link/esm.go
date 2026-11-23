@@ -16,20 +16,25 @@ import (
 )
 
 type esModule struct {
-	id            string
-	src           string
-	jsMap         string
-	linkedMap     string
-	file          *ast.SourceFile
-	locals        map[string]*esLocal
-	imports       map[string]*esImport // local name -> import
-	exports       map[string]*esExp
-	stars         []string // module ids re-exported with export *
-	sideImps      []string
-	needed        []string
-	inst          bool
-	liveExp       map[string]bool
-	liveLoc       map[string]bool
+	id        string
+	src       string
+	jsMap     string
+	linkedMap string
+	file      *ast.SourceFile
+	locals    map[string]*esLocal
+	imports   map[string]*esImport // local name -> import
+	exports   map[string]*esExp
+	stars     []string // module ids re-exported with export *
+	sideImps  []string
+	needed    []string
+	inst      bool
+	liveExp   map[string]bool
+	liveLoc   map[string]bool
+	// scanning and scanned guard the walk of a local's initializer. A
+	// reference inside that initializer reaches the same local again, and the
+	// outer walk already covers it.
+	scanning      map[string]bool
+	scanned       map[string]bool
 	extFinal      map[extKey]string
 	ctx           *linkContext
 	path          string // os path for resolve importer
@@ -115,16 +120,18 @@ func parseLinkedModule(ctx *linkContext, id, src, path string) (*esModule, error
 		impPath = filepath.FromSlash(id)
 	}
 	m := &esModule{
-		id:      id,
-		src:     src,
-		file:    file,
-		locals:  map[string]*esLocal{},
-		imports: map[string]*esImport{},
-		exports: map[string]*esExp{},
-		liveExp: map[string]bool{},
-		liveLoc: map[string]bool{},
-		ctx:     ctx,
-		path:    impPath,
+		id:       id,
+		src:      src,
+		file:     file,
+		locals:   map[string]*esLocal{},
+		imports:  map[string]*esImport{},
+		exports:  map[string]*esExp{},
+		liveExp:  map[string]bool{},
+		liveLoc:  map[string]bool{},
+		scanning: map[string]bool{},
+		scanned:  map[string]bool{},
+		ctx:      ctx,
+		path:     impPath,
 	}
 	if file.Statements != nil {
 		for _, stmt := range file.Statements.Nodes {
@@ -490,15 +497,20 @@ func markLocal(mods map[string]*esModule, m *esModule, name string) error {
 
 func markLocalProps(mods map[string]*esModule, m *esModule, name string, props map[string]bool, escapes bool) error {
 	loc := m.locals[name]
+	grown := false
 	if loc != nil {
 		if loc.props == nil {
 			loc.props = map[string]bool{}
 		}
-		if escapes {
+		if escapes && !loc.escapes {
 			loc.escapes = true
+			grown = true
 		}
 		for p := range props {
-			loc.props[p] = true
+			if !loc.props[p] {
+				loc.props[p] = true
+				grown = true
+			}
 		}
 	}
 	already := m.liveLoc[name]
@@ -517,6 +529,12 @@ func markLocalProps(mods map[string]*esModule, m *esModule, name string, props m
 	if loc == nil {
 		return nil
 	}
+	if m.scanning[name] || (m.scanned[name] && !grown) {
+		return nil
+	}
+	m.scanning[name] = true
+	m.scanned[name] = true
+	defer delete(m.scanning, name)
 	switch {
 	case loc.cjsFromExports != "":
 		return markLocal(mods, m, cjsExportsLocal)
@@ -849,6 +867,13 @@ func (m *esModule) walkFunction(n *ast.Node, sc *scope, fn func(ref)) {
 	for _, p := range n.Parameters() {
 		eachBindingIdent(p.AsParameterDeclaration().Name(), func(id *ast.Node) { fnScope.define(id.Text()) })
 	}
+	for _, p := range n.Parameters() {
+		// A default value is evaluated in the parameter scope and can read a
+		// module binding, so it keeps that binding alive.
+		if init := p.AsParameterDeclaration().Initializer; init != nil {
+			m.walk(init, p, fnScope, fn)
+		}
+	}
 	if n.Kind == ast.KindFunctionExpression {
 		if name := n.AsFunctionExpression().Name(); name != nil {
 			fnScope.define(name.Text())
@@ -1016,10 +1041,19 @@ func isPropertyName(n, parent *ast.Node) bool {
 }
 
 func defineLexical(n *ast.Node, sc *scope) {
-	if n == nil || n.Kind != ast.KindVariableStatement {
+	if n == nil {
 		return
 	}
-	listNode := n.AsVariableStatement().DeclarationList
+	var listNode *ast.Node
+	switch n.Kind {
+	case ast.KindVariableStatement:
+		listNode = n.AsVariableStatement().DeclarationList
+	case ast.KindVariableDeclarationList:
+		// A for, for-in, or for-of initializer binds in the loop scope.
+		listNode = n
+	default:
+		return
+	}
 	if listNode == nil {
 		return
 	}
@@ -1156,7 +1190,7 @@ func assignNames(mods map[string]*esModule, order []string, names *namer) error 
 		m := mods[id]
 		locals := make([]string, 0, len(m.locals))
 		for name, loc := range m.locals {
-			if m.liveLoc[name] || (loc.defExpr && m.liveExp["default"]) {
+			if m.liveLoc[name] || (loc.defExpr && m.liveExp["default"]) || m.keptLocal(loc) {
 				locals = append(locals, name)
 			}
 		}
@@ -1303,12 +1337,25 @@ func renderLinked(mods map[string]*esModule, order []string, entry *esModule, fo
 		b.WriteString(commonJSHelperSource(helper))
 		b.WriteString("\n\n")
 	}
+	type section struct {
+		display string
+		body    string
+	}
+	var sections []section
 	for _, m := range sorted {
 		body := strings.TrimSpace(m.renderBody(mods, helper))
 		if body == "" {
 			continue
 		}
-		fmt.Fprintf(&b, "// %s\n%s\n\n", modpath.DisplayRel(root, m.osPath()), body)
+		if n := len(sections); n > 0 && needsStatementEnd(sections[n-1].body, body) {
+			// A module kept verbatim can end a statement without a semicolon,
+			// and the next body may start with a token that continues it.
+			sections[n-1].body += ";"
+		}
+		sections = append(sections, section{display: modpath.DisplayRel(root, m.osPath()), body: body})
+	}
+	for _, s := range sections {
+		fmt.Fprintf(&b, "// %s\n%s\n\n", s.display, s.body)
 	}
 	named, def := entry.exportList(mods)
 	if format == "cjs" {
@@ -1437,6 +1484,25 @@ func topoModules(mods map[string]*esModule, entry *esModule) []*esModule {
 	}
 	visit(entry)
 	return out
+}
+
+// needsStatementEnd reports whether prev must end with a semicolon so that
+// next, which starts with a token that can continue an expression, stays a
+// separate statement.
+func needsStatementEnd(prev, next string) bool {
+	trimmed := strings.TrimRight(prev, " \t\r\n")
+	if trimmed == "" || strings.HasSuffix(trimmed, ";") {
+		return false
+	}
+	i := skipTrivia(next)
+	if i >= len(next) {
+		return false
+	}
+	switch next[i] {
+	case '(', '[', '`', '+', '-', '/':
+		return true
+	}
+	return false
 }
 
 func (m *esModule) deps(mods map[string]*esModule) []string {
@@ -1582,7 +1648,11 @@ func (m *esModule) renderBody(mods map[string]*esModule, helper string) string {
 	for _, imp := range m.namespaceObjects(mods) {
 		chunks = append(chunks, imp)
 	}
-	chunks = append(chunks, m.renderCJSBindings(mods, helper)...)
+	// Static CommonJS bindings copy expressions out of the module body, so they
+	// follow it: a const or let they read is not hoisted.
+	if m.cjsMode != cjsStatic {
+		chunks = append(chunks, m.renderCJSBindings(mods, helper)...)
+	}
 	if !m.cjsWrapAll && m.file != nil && m.file.Statements != nil {
 		var edits []edit
 		for _, stmt := range m.file.Statements.Nodes {
@@ -1614,6 +1684,9 @@ func (m *esModule) renderBody(mods map[string]*esModule, helper string) string {
 		}
 	} else if m.jsMap != "" {
 		m.linkedMap = m.jsMap
+	}
+	if m.cjsMode == cjsStatic {
+		chunks = append(chunks, m.renderCJSBindings(mods, helper)...)
 	}
 	return strings.Join(chunks, "\n")
 }
@@ -1700,6 +1773,16 @@ func (m *esModule) statementEdits(mods map[string]*esModule, stmt *ast.Node) []e
 				return
 			}
 			edits = append(edits, edit{start: jsedit.TokenStart(m.src, r.node), end: r.node.End(), text: text})
+		case refLocalProp, refImportProp:
+			// x.prop keeps only the object reference here; the property is
+			// handled by the tree shaker.
+			final, ok := m.outputName(r.name)
+			if !ok || final == r.name {
+				return
+			}
+			if obj := objectIdent(r.node); obj != nil {
+				edits = append(edits, edit{start: jsedit.TokenStart(m.src, obj), end: obj.End(), text: final})
+			}
 		case refNSProp:
 			imp := m.imports[r.name]
 			if imp == nil {
@@ -1736,6 +1819,16 @@ func (m *esModule) statementEdits(mods map[string]*esModule, stmt *ast.Node) []e
 		}
 	}
 	return edits
+}
+
+// keptLocal reports whether the statement declaring loc stays in the output
+// even though nothing references the local. A declaration whose initializer has
+// a side effect is kept, so its name still has to be unique across the bundle.
+func (m *esModule) keptLocal(loc *esLocal) bool {
+	if loc == nil || loc.stmt == nil {
+		return false
+	}
+	return m.keepStmt(loc.stmt)
 }
 
 func (m *esModule) keepStmt(stmt *ast.Node) bool {

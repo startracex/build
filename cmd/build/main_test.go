@@ -664,6 +664,45 @@ func TestCLIHTMLEntrySingleBundle(t *testing.T) {
 	}
 }
 
+// TestCLIHTMLEntryAppDir covers an HTML entry with --mode app and --outdir,
+// where every script becomes an entry bundle beside the page.
+func TestCLIHTMLEntryAppDir(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	page := `<!doctype html><html><body><script type="module" src="./src/main.ts"></script></body></html>`
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(page), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "main.ts"), []byte("import { value } from \"./util.js\";\nexport const n = value;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "util.ts"), []byte("export const value = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	out := filepath.Join(dir, "dist")
+	if err := run([]string{"--outdir", out, "--mode", "app", "index.html"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(out, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `src="./src/main.js"`) {
+		t.Fatalf("script src not rewritten to the entry bundle:\n%s", body)
+	}
+	js, err := os.ReadFile(filepath.Join(out, "src", "main.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(js), "util.js") || !strings.Contains(string(js), "value = 1") {
+		t.Fatalf("dependency was not bundled into the entry:\n%s", js)
+	}
+}
+
 func TestCLIEntryFileNamesPathAndDuplicates(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")
@@ -1307,8 +1346,10 @@ func TestCLITSConfigModuleResolution(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The "node" export condition only exists for the node resolution kinds.
-	writeFile(t, filepath.Join(pkgDir, "package.json"), `{"name":"pkg","type":"module","exports":{".":{"node":"./node.js"}}}`)
+	writeFile(t, filepath.Join(pkgDir, "package.json"), `{"name":"pkg","type":"module","exports":{".":{"node":"./node.js","browser":"./browser.js","default":"./default.js"}}}`)
 	writeFile(t, filepath.Join(pkgDir, "node.js"), "export const value = \"NODE_BUILD\";\n")
+	writeFile(t, filepath.Join(pkgDir, "browser.js"), "export const value = \"BROWSER_BUILD\";\n")
+	writeFile(t, filepath.Join(pkgDir, "default.js"), "export const value = \"DEFAULT_BUILD\";\n")
 	t.Chdir(dir)
 
 	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
@@ -1316,11 +1357,11 @@ func TestCLITSConfigModuleResolution(t *testing.T) {
   "include": ["index.ts"]
 }
 `)
-	bundle := filepath.Join(dir, "bundle.js")
-	if err := run([]string{"-o", bundle}, nil, nil); err != nil {
+	nodeBuild := filepath.Join(dir, "node.js")
+	if err := run([]string{"--platform", "node", "-o", nodeBuild}, nil, nil); err != nil {
 		t.Fatalf("moduleResolution node16 should match the node condition: %v", err)
 	}
-	body, err := os.ReadFile(bundle)
+	body, err := os.ReadFile(nodeBuild)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1328,14 +1369,116 @@ func TestCLITSConfigModuleResolution(t *testing.T) {
 		t.Fatalf("package was not bundled:\n%s", body)
 	}
 
+	// App mode with ESM output resolves for the browser by default, so the node
+	// condition must not be matched even though the tsconfig asks for node16.
+	browserBuild := filepath.Join(dir, "browser.js")
+	if err := run([]string{"-o", browserBuild}, nil, nil); err != nil {
+		t.Fatalf("app mode should resolve for the browser: %v", err)
+	}
+	body, err = os.ReadFile(browserBuild)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "BROWSER_BUILD") || strings.Contains(string(body), "NODE_BUILD") {
+		t.Fatalf("browser platform should match the browser condition:\n%s", body)
+	}
+
+	// An explicit neutral platform keeps the tsconfig semantics.
+	neutralBuild := filepath.Join(dir, "neutral.js")
+	if err := run([]string{"--platform", "neutral", "-o", neutralBuild}, nil, nil); err != nil {
+		t.Fatalf("neutral platform should keep the tsconfig: %v", err)
+	}
+	body, err = os.ReadFile(neutralBuild)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "NODE_BUILD") {
+		t.Fatalf("neutral platform should keep the node condition:\n%s", body)
+	}
+
 	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
   "compilerOptions": { "module": "esnext", "outDir": "dist" },
   "include": ["index.ts"]
 }
 `)
-	err = run([]string{"-o", filepath.Join(dir, "bundler.js")}, nil, nil)
-	if err == nil || !strings.Contains(err.Error(), "pkg") {
-		t.Fatalf("bundler resolution should not match the node condition: %v", err)
+	// With no moduleResolution the tsconfig implies bundler resolution, so the
+	// node condition is out and the default branch is matched.
+	bundlerBuild := filepath.Join(dir, "bundler.js")
+	if err := run([]string{"--platform", "neutral", "-o", bundlerBuild}, nil, nil); err != nil {
+		t.Fatalf("bundler resolution should fall back to default: %v", err)
+	}
+	body, err = os.ReadFile(bundlerBuild)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "DEFAULT_BUILD") {
+		t.Fatalf("bundler resolution should not match the node condition:\n%s", body)
+	}
+}
+
+func TestCLIPlatformDoesNotAffectDeclarations(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), "import { value } from \"pkg\";\nexport const n = value;\n")
+	pkgDir := filepath.Join(dir, "node_modules", "pkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(pkgDir, "package.json"), `{"name":"pkg","type":"module","exports":{".":{"node":{"types":"./node.d.ts","default":"./node.js"},"browser":{"types":"./browser.d.ts","default":"./browser.js"},"default":{"types":"./node.d.ts","default":"./node.js"}}}}`)
+	writeFile(t, filepath.Join(pkgDir, "node.js"), "export const value = \"NODE_BUILD\";\n")
+	writeFile(t, filepath.Join(pkgDir, "browser.js"), "export const value = \"BROWSER_BUILD\";\n")
+	writeFile(t, filepath.Join(pkgDir, "node.d.ts"), "export declare const value: \"NODE_TYPE\";\n")
+	writeFile(t, filepath.Join(pkgDir, "browser.d.ts"), "export declare const value: \"BROWSER_TYPE\";\n")
+	t.Chdir(dir)
+
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": {
+    "module": "esnext",
+    "moduleResolution": "node16",
+    "declaration": true,
+    "outDir": "dist"
+  },
+  "include": ["index.ts"]
+}
+`)
+	// No entry on the command line, so tsconfig.json drives the build.
+	if err := run([]string{"--platform", "browser"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	var body []byte
+	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() && entry.Name() == "node_modules" {
+			return filepath.SkipDir
+		}
+		if entry.IsDir() || !strings.HasSuffix(path, ".d.ts") {
+			return nil
+		}
+		body, err = os.ReadFile(path)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(body) == 0 {
+		t.Fatalf("no declaration file was written")
+	}
+	if !strings.Contains(string(body), "NODE_TYPE") {
+		t.Fatalf("declaration emit should keep the tsconfig resolution:\n%s", body)
+	}
+	if strings.Contains(string(body), "BROWSER_TYPE") {
+		t.Fatalf("platform leaked into declaration emit:\n%s", body)
+	}
+}
+
+func TestCLIPlatformFlagRejectsUnknownValue(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), "export const n = 1;\n")
+	t.Chdir(dir)
+	err := run([]string{"--platform", "deno", "-o", filepath.Join(dir, "out.js"), "index.ts"}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "platform") {
+		t.Fatalf("unknown platform should be rejected: %v", err)
 	}
 }
 

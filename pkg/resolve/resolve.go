@@ -35,12 +35,48 @@ var nodeBuiltins = map[string]struct{}{
 	"v8": {}, "vm": {}, "wasi": {}, "worker_threads": {}, "zlib": {},
 }
 
+// Platform selects the runtime the JavaScript output is written for. It only
+// steers the package.json "exports" conditions used for the JavaScript graph;
+// declaration emit keeps the tsconfig settings untouched.
+type Platform string
+
+const (
+	// PlatformAuto leaves the choice to the bundler, which picks Browser for a
+	// single-file ESM output and Neutral otherwise.
+	PlatformAuto Platform = ""
+	// PlatformNeutral resolves packages with the conditions the tsconfig
+	// implies.
+	PlatformNeutral Platform = "neutral"
+	// PlatformBrowser resolves packages for a browser. The "node" condition is
+	// left out, so a package cannot select a server build, and "browser" is
+	// matched when a package offers it.
+	PlatformBrowser Platform = "browser"
+	// PlatformNode resolves packages for Node, keeping the "node" condition
+	// that node16 and nodeNext resolution add.
+	PlatformNode Platform = "node"
+)
+
+// ParsePlatform validates a platform name as written on the command line.
+func ParsePlatform(name string) (Platform, error) {
+	switch Platform(strings.TrimSpace(name)) {
+	case PlatformAuto:
+		return PlatformAuto, nil
+	case PlatformNeutral, PlatformBrowser, PlatformNode:
+		return Platform(strings.TrimSpace(name)), nil
+	default:
+		return PlatformAuto, fmt.Errorf("unknown platform %q (want browser, node, or neutral)", name)
+	}
+}
+
 // Config holds resolver options supplied by the bundler.
 type Config struct {
 	Alias    map[string]string
 	External []string
 	Format   string // "esm", "cjs", ...
 	LibBuild bool   // library mode: bare package imports are external
+	// Platform is the runtime the JavaScript output targets. Empty behaves like
+	// PlatformNeutral.
+	Platform Platform
 	// CompilerOptions carries the tsconfig options that change how module
 	// specifiers are resolved: "moduleResolution" and "paths".
 	CompilerOptions *core.CompilerOptions
@@ -70,6 +106,7 @@ func (f BaseURLFallback) IsZero() bool {
 // Resolver resolves import specifiers using tsgo's bundler resolver.
 type Resolver struct {
 	res       *tsmodule.DefaultResolver
+	fs        *realpathFS
 	mode      core.ResolutionMode
 	cfg       Config
 	externals map[string]struct{}
@@ -91,12 +128,14 @@ func New(entryDir string, conditions []string, mode core.ResolutionMode, cfg Con
 		return nil, err
 	}
 	rooted := tspath.RootedDirectoryPathFromAbsolute(dir)
+	fs := newRealpathFS(osvfs.FS())
 	res := tsmodule.NewResolver(tsmodule.ResolverOptions{
-		Host:            resolutionHost{fs: osvfs.FS(), dir: rooted},
-		CompilerOptions: resolutionCompilerOptions(conditions, cfg.CompilerOptions, cfg.BaseURL),
+		Host:            resolutionHost{fs: fs, dir: rooted},
+		CompilerOptions: resolutionCompilerOptions(conditions, cfg.Platform, cfg.CompilerOptions, cfg.BaseURL),
 	})
 	return &Resolver{
 		res:       res,
+		fs:        fs,
 		mode:      mode,
 		cfg:       cfg,
 		externals: map[string]struct{}{},
@@ -104,9 +143,12 @@ func New(entryDir string, conditions []string, mode core.ResolutionMode, cfg Con
 }
 
 // resolutionCompilerOptions builds the compiler options used to resolve module
-// specifiers. The tsconfig options that steer resolution are honoured;
-// everything else keeps the bundler defaults.
-func resolutionCompilerOptions(conditions []string, src *core.CompilerOptions, baseURL BaseURLFallback) *core.CompilerOptions {
+// specifiers for the JavaScript graph. The tsconfig options that steer
+// resolution are honoured; everything else keeps the bundler defaults.
+//
+// The platform only decides which "exports" conditions are available. It never
+// reaches declaration emit, which keeps the tsconfig settings as written.
+func resolutionCompilerOptions(conditions []string, platform Platform, src *core.CompilerOptions, baseURL BaseURLFallback) *core.CompilerOptions {
 	opts := &core.CompilerOptions{
 		Module:                     core.ModuleKindESNext,
 		ModuleResolution:           core.ModuleResolutionKindBundler,
@@ -118,15 +160,32 @@ func resolutionCompilerOptions(conditions []string, src *core.CompilerOptions, b
 		ResolvePackageJsonImports:  core.TSTrue,
 		CustomConditions:           ExportConditions(conditions),
 	}
-	if src == nil {
-		return opts
+	if src != nil {
+		opts.Paths = WithPathsFallback(src.Paths, baseURL, src.PathsBasePath)
+		opts.PathsBasePath = src.PathsBasePath
+		if kind := NormalizeModuleResolution(src.ModuleResolution); kind != core.ModuleResolutionKindUnknown {
+			opts.ModuleResolution = kind
+		}
 	}
-	opts.Paths = WithPathsFallback(src.Paths, baseURL, src.PathsBasePath)
-	opts.PathsBasePath = src.PathsBasePath
-	if kind := NormalizeModuleResolution(src.ModuleResolution); kind != core.ModuleResolutionKindUnknown {
-		opts.ModuleResolution = kind
+	if platform == PlatformBrowser {
+		// node16 and nodeNext resolution add the "node" condition, and a package
+		// can point that at a server build: Lit maps it to its SSR shims, which
+		// replace customElements in a browser. Bundler resolution leaves the
+		// condition out, and "browser" is matched where a package offers it.
+		opts.ModuleResolution = core.ModuleResolutionKindBundler
+		opts.CustomConditions = appendCondition(opts.CustomConditions, "browser")
 	}
 	return opts
+}
+
+// appendCondition adds a condition unless it is already there.
+func appendCondition(conditions []string, condition string) []string {
+	for _, existing := range conditions {
+		if existing == condition {
+			return conditions
+		}
+	}
+	return append(conditions, condition)
 }
 
 // WithPathsFallback returns the path mappings with the wildcard fallback
@@ -321,7 +380,10 @@ func (r *Resolver) resolveWithCompiler(importer, spec string) (string, bool, err
 	if resolved == nil || !resolved.IsResolved() {
 		return "", false, nil
 	}
-	abs, err := modpath.AbsFile(filepath.FromSlash(resolved.ResolvedFileName.AsString()))
+	// Later reads use this path as the module id, so it must not cross a
+	// reparse point the file system refuses to traverse.
+	raw := r.fs.realNative(filepath.FromSlash(resolved.ResolvedFileName.AsString()))
+	abs, err := modpath.AbsFile(raw)
 	if err != nil {
 		return "", false, fmt.Errorf("cannot resolve %q imported by %s: %w", spec, importer, err)
 	}

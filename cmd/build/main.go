@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/startracex/build/pkg/bundler"
+	"github.com/startracex/build/pkg/resolve"
 	"github.com/urfave/cli/v2"
 )
 
@@ -44,6 +45,7 @@ func run(args []string, stderr, stdout io.Writer) error {
 			&cli.StringFlag{Name: "jsx", Usage: "JSX transform: react, react-jsx, react-jsxdev, preserve, or react-native"},
 			&cli.StringFlag{Name: "global-name", Aliases: []string{"g"}, Usage: "global variable name for iife/umd"},
 			&cli.StringSliceFlag{Name: "conditions", Usage: "extra package.json exports conditions (repeatable)"},
+			&cli.StringFlag{Name: "platform", Usage: "runtime for the JavaScript output: browser, node, or neutral (default browser for app mode)"},
 			&cli.StringSliceFlag{Name: "alias", Usage: "import alias from=to (repeatable)"},
 			&cli.StringSliceFlag{Name: "define", Usage: "replace a free reference KEY=EXPR (repeatable)"},
 			&cli.StringSliceFlag{Name: "drop", Usage: "drop console calls or debugger statements (repeatable)"},
@@ -52,6 +54,7 @@ func run(args []string, stderr, stdout io.Writer) error {
 			&cli.StringSliceFlag{Name: "external", Usage: "package left unbundled (repeatable)"},
 			&cli.StringFlag{Name: "mode", Usage: "output layout: app (one bundle per entry) or lib (one file per module)"},
 			&cli.BoolFlag{Name: "bundle", Aliases: []string{"bundle-node-modules"}, Usage: "bundle bare package imports in library output"},
+			&cli.StringFlag{Name: "deps-dir", Usage: "directory for bundled packages in library output (default node_modules)"},
 			&cli.StringFlag{Name: "cache-dir", Usage: "directory for transpile cache"},
 			&cli.BoolFlag{Name: "manifest", Usage: "write manifest.json of emitted assets"},
 			&cli.StringFlag{Name: "public-path", Usage: "URL prefix for emitted assets"},
@@ -87,6 +90,9 @@ func warnIgnoredFlags(c *cli.Context, opts *bundler.Options, declaration bool) {
 	if opts.BundleNodeModules {
 		fmt.Fprintln(c.App.ErrWriter, "build: warning: --bundle has no effect in app mode, package imports are bundled already")
 	}
+	if opts.DepsDir != "" {
+		fmt.Fprintln(c.App.ErrWriter, "build: warning: --deps-dir has no effect in app mode, packages are inlined into the bundle")
+	}
 	switch {
 	case c.IsSet("dts"):
 		fmt.Fprintln(c.App.ErrWriter, "build: warning: --dts has no effect in app mode, app output has no declarations")
@@ -118,11 +124,19 @@ func action(c *cli.Context) error {
 	formatSet := c.IsSet("format")
 	alias := parseKV(c.StringSlice("alias"))
 	define := parseKV(c.StringSlice("define"))
+	// The platform decides how the module graph is resolved, and a build loads
+	// that graph once, so every output shares one platform.
+	platform, err := resolve.ParsePlatform(c.String("platform"))
+	if err != nil {
+		return err
+	}
 	base := bundler.Options{
 		JSX:               bundler.JSX(flagOr(c, "jsx", string(bundler.JSXReact))),
 		External:          c.StringSlice("external"),
 		BundleNodeModules: c.Bool("bundle"),
+		DepsDir:           c.String("deps-dir"),
 		Conditions:        c.StringSlice("conditions"),
+		Platform:          platform,
 		Alias:             alias,
 		Define:            define,
 		Drop:              c.StringSlice("drop"),
