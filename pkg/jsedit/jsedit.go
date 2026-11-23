@@ -60,8 +60,8 @@ func StripShebang(js string) string {
 	if !strings.HasPrefix(js, "#!") {
 		return js
 	}
-	if i := strings.IndexByte(js, '\n'); i >= 0 {
-		return js[i+1:]
+	if _, after, ok := strings.Cut(js, "\n"); ok {
+		return after
 	}
 	return ""
 }

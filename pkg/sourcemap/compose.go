@@ -77,10 +77,7 @@ func ComposeLinked(js, fileName string, modules []ModuleMap) string {
 		}
 		if dm := decodedMaps[currentDisplay]; dm != nil {
 			// Map this generated line relative to section using transpile map's gen lines.
-			rel := i - sectionStart
-			if rel < 0 {
-				rel = 0
-			}
+			rel := max(i-sectionStart, 0)
 			if segs := dm.segs[rel]; len(segs) > 0 {
 				for _, s := range segs {
 					srcName := currentDisplay
@@ -179,7 +176,7 @@ func decodeMap(mapJSON, fallbackContent string) *decodedMap {
 			continue
 		}
 		genCol := 0
-		for _, part := range strings.Split(line, ",") {
+		for part := range strings.SplitSeq(line, ",") {
 			vals, n := decodeVLQs(part)
 			if n < 1 {
 				continue

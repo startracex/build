@@ -46,7 +46,7 @@ func ParseQuery(spec string) Query {
 		return Query{Path: spec}
 	}
 	iq := Query{Path: base, Query: q}
-	for _, part := range strings.Split(q, "&") {
+	for part := range strings.SplitSeq(q, "&") {
 		switch part {
 		case "raw":
 			iq.Raw = true

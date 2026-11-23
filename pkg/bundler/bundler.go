@@ -30,6 +30,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -260,9 +261,7 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 		if merged.entry == "" {
 			merged.entry = sub.entry
 		}
-		for k, v := range sub.Manifest {
-			merged.Manifest[k] = v
-		}
+		maps.Copy(merged.Manifest, sub.Manifest)
 	}
 	save := b.opts
 	b.opts = withOutput(opts, outputs[0])

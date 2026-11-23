@@ -221,10 +221,7 @@ func hasPureAnnotation(src string, pos int) bool {
 	if pos < 0 || pos > len(src) {
 		return false
 	}
-	tok := scanner.SkipTrivia(src, pos)
-	if tok > len(src) {
-		tok = len(src)
-	}
+	tok := min(scanner.SkipTrivia(src, pos), len(src))
 	if commentHasPure(src[pos:tok]) {
 		return true
 	}

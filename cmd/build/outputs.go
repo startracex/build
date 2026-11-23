@@ -86,7 +86,7 @@ func planOutputs(mode outputMode, paths []string, formats []bundler.Format, fall
 	}
 
 	outs := make([]bundler.OutputOptions, 0, target)
-	for i := 0; i < target; i++ {
+	for i := range target {
 		out := bundler.OutputOptions{Format: alignedFormats[i], Name: name}
 		if mode == outputFile {
 			out.OutFile = alignedPaths[i]

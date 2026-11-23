@@ -30,7 +30,7 @@ func RemapEdits(mapJSON, genSource string, edits []jsedit.Edit) string {
 		return mapJSON
 	}
 	sorted := append([]jsedit.Edit(nil), edits...)
-	for i := 0; i < len(sorted); i++ {
+	for i := range sorted {
 		for j := i + 1; j < len(sorted); j++ {
 			if sorted[j].Start < sorted[i].Start {
 				sorted[i], sorted[j] = sorted[j], sorted[i]
@@ -125,7 +125,7 @@ func decodeAllPoints(mappings string) []mapPointCol {
 			continue
 		}
 		genCol := 0
-		for _, part := range strings.Split(line, ",") {
+		for part := range strings.SplitSeq(line, ",") {
 			vals, n := decodeVLQs(part)
 			if n < 1 {
 				continue

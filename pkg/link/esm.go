@@ -478,10 +478,8 @@ func (m *esModule) need(id string) {
 	if id == "" || id == m.id {
 		return
 	}
-	for _, existing := range m.needed {
-		if existing == id {
-			return
-		}
+	if slices.Contains(m.needed, id) {
+		return
 	}
 	m.needed = append(m.needed, id)
 }

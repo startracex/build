@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -41,13 +42,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 	for id, n := range entryOwner {
 		if n > 1 {
 			// Entry roots themselves stay in their entry files.
-			isEntry := false
-			for _, eid := range entryIDs {
-				if eid == id {
-					isEntry = true
-					break
-				}
-			}
+			isEntry := slices.Contains(entryIDs, id)
 			if !isEntry {
 				sharedMods[id] = true
 			}
