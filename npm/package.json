@@ -1,0 +1,25 @@
+{
+  "name": "@startracex/build",
+  "version": "0.1.0",
+  "description": "A TypeScript and JavaScript bundler compiled to WebAssembly, with a JavaScript file-system bridge",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./build/index.d.ts",
+      "default": "./build/index.js"
+    },
+    "./node-fs": {
+      "types": "./build/node-fs.d.ts",
+      "default": "./build/node-fs.js"
+    },
+    "./memory-fs": {
+      "types": "./build/memory-fs.d.ts",
+      "default": "./build/memory-fs.js"
+    },
+    "./*": "./*"
+  },
+  "files": [
+    "src",
+    "build"
+  ]
+}

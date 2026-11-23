@@ -1,0 +1,12 @@
+{
+    "name": "build",
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "devDependencies": {
+        "@types/node": "^26.6.6",
+        "@startracex/dev-config": "^0.7.0"
+    }
+}
