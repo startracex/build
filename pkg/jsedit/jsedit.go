@@ -66,18 +66,99 @@ func StripShebang(js string) string {
 	return ""
 }
 
-// StripSourceMappingComment removes trailing //# sourceMappingURL comments.
+// StripSourceMappingComment removes the sourceMappingURL comments from
+// JavaScript source. Both the "//#" and the legacy "//@" spelling are
+// removed, in the line-comment form and in the block-comment form.
+//
+// Line terminators follow the JavaScript rules: LF, CR, CRLF, LS (U+2028) and
+// PS (U+2029). A comment only reaches its own line terminator, so code that
+// follows the comment on the same logical line is kept.
 func StripSourceMappingComment(src string) string {
-	lines := strings.Split(src, "\n")
-	var kept []string
-	for _, line := range lines {
-		trim := strings.TrimSpace(line)
-		if strings.HasPrefix(trim, "//# sourceMappingURL=") || strings.HasPrefix(trim, "//@ sourceMappingURL=") {
+	// Fast path: most modules carry no source map comment at all.
+	if !strings.Contains(src, "sourceMappingURL=") {
+		return src
+	}
+	exotic := strings.ContainsRune(src, '\u2028') || strings.ContainsRune(src, '\u2029')
+	var b strings.Builder
+	b.Grow(len(src))
+	rest := src
+	for len(rest) > 0 {
+		lineEnd, next := cutLine(rest, exotic)
+		if isSourceMappingLine(rest[:lineEnd]) {
+			rest = rest[next:]
 			continue
 		}
-		kept = append(kept, line)
+		b.WriteString(rest[:next])
+		rest = rest[next:]
 	}
-	return strings.Join(kept, "\n")
+	return b.String()
+}
+
+// cutLine returns the end of the first line of src, excluding the line
+// terminator, and the start of the next line.
+func cutLine(src string, exotic bool) (lineEnd, next int) {
+	lf := strings.IndexByte(src, '\n')
+	limit := len(src)
+	if lf >= 0 {
+		limit = lf
+	}
+	// The terminator search stays inside the current line. Searching the whole
+	// remainder instead turns a LF-only file into O(n^2).
+	cr := strings.IndexByte(src[:limit], '\r')
+	ls, ps := -1, -1
+	if exotic {
+		ls = strings.Index(src[:limit], "\u2028")
+		ps = strings.Index(src[:limit], "\u2029")
+	}
+	best := -1
+	switch {
+	case cr >= 0:
+		best = cr
+	case ls >= 0 && (ps < 0 || ls < ps):
+		best = ls
+	case ps >= 0:
+		best = ps
+	}
+	if best < 0 {
+		if lf >= 0 {
+			return lf, lf + 1
+		}
+		return len(src), len(src)
+	}
+	switch src[best] {
+	case '\r':
+		if best+1 < len(src) && src[best+1] == '\n' {
+			return best, best + 2
+		}
+		return best, best + 1
+	default: // U+2028 / U+2029
+		return best, best + 3
+	}
+}
+
+// isSourceMappingLine reports whether line is a sourceMappingURL comment.
+func isSourceMappingLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	switch {
+	case strings.HasPrefix(trimmed, "//"):
+		return hasSourceMappingURL(trimmed[2:])
+	case strings.HasPrefix(trimmed, "/*"):
+		return hasSourceMappingURL(strings.TrimSuffix(trimmed[2:], "*/"))
+	}
+	return false
+}
+
+// hasSourceMappingURL reports whether rest is a sourceMappingURL directive:
+// "# sourceMappingURL=" or the legacy "@ sourceMappingURL=".
+func hasSourceMappingURL(rest string) bool {
+	if rest == "" || (rest[0] != '#' && rest[0] != '@') {
+		return false
+	}
+	rest = rest[1:]
+	if rest == "" || rest[0] != ' ' {
+		return false
+	}
+	return strings.HasPrefix(rest[1:], "sourceMappingURL=")
 }
 
 // ParseEmittedJS parses transpiled JavaScript for AST-based rewrites.
