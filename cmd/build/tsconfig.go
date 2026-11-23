@@ -19,13 +19,6 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-func rejectConfigWithFiles(c *cli.Context, entries []string) error {
-	if c.String("project") != "" && len(entries) > 0 {
-		return errors.New("option 'project' cannot be mixed with source files on a command line")
-	}
-	return nil
-}
-
 func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration, declarationMap *bool) error {
 	// Files on the command line (without -p) ignore tsconfig.json, matching
 	// classic tsc / bundler CLI behavior.

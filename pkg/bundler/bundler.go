@@ -219,6 +219,7 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	b.usedOutputPaths = map[string]bool{}
 	if len(outputs) == 1 {
 		result, err := b.emitForFormat(opts, outputs[0], roots)
 		if err != nil {
@@ -308,6 +309,9 @@ type bundler struct {
 	// outputPaths maps module id -> rendered output path when using a
 	// filename template. It keeps relative imports aligned with hashed names.
 	outputPaths map[string]string
+	// usedOutputPaths tracks every rendered path across outputs so duplicate
+	// names are renamed deterministically instead of overwriting files.
+	usedOutputPaths map[string]bool
 	// chunkPaths maps module id -> relative chunk path for splitting.
 	chunkPaths map[string]string
 	// linkingChunk is the chunk path currently being linked (empty for entry).

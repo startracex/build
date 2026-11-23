@@ -65,10 +65,10 @@ func ContentHash(data string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// RenderEntryFileName expands [name], [format], [hash], and [hash:N] in an
-// entry filename pattern. hash is usually the digest of the emitted content.
-func RenderEntryFileName(pattern, name, format, hash string) string {
-	rendered := strings.NewReplacer("[name]", name, "[format]", format).Replace(pattern)
+// RenderEntryFileName expands [name], [path], [format], [hash], and [hash:N]
+// in an entry filename pattern. hash is usually the digest of the emitted content.
+func RenderEntryFileName(pattern, name, path, format, hash string) string {
+	rendered := strings.NewReplacer("[name]", name, "[path]", path, "[format]", format).Replace(pattern)
 	if hash == "" {
 		hash = ContentHash(rendered)
 	}

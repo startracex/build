@@ -37,7 +37,7 @@ func run(args []string, stderr, stdout io.Writer) error {
 		Flags: []cli.Flag{
 			&cli.StringSliceFlag{Name: "outfile", Aliases: []string{"o"}, Usage: "single-file bundle path (repeatable)"},
 			&cli.StringSliceFlag{Name: "outdir", Usage: "directory for per-module or split output (repeatable)"},
-			&cli.StringFlag{Name: "entry-file-names", Usage: "filename pattern for --outdir outputs ([name], [format], [hash], [hash:N])"},
+			&cli.StringFlag{Name: "entry-file-names", Usage: "filename pattern for --outdir outputs ([name], [path], [format], [hash], [hash:N])"},
 			&cli.StringFlag{Name: "project", Aliases: []string{"p"}, Usage: "tsconfig.json file or directory"},
 			&cli.StringSliceFlag{Name: "format", Usage: "output format: esm, cjs, iife, umd (repeatable)"},
 			&cli.StringFlag{Name: "jsx", Usage: "JSX transform: react, react-jsx, react-jsxdev, preserve, or react-native"},
@@ -72,9 +72,6 @@ func action(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := rejectConfigWithFiles(c, entries); err != nil {
-		return err
-	}
 
 	explicitFormats := c.StringSlice("format")
 	formatSet := c.IsSet("format")
@@ -95,6 +92,24 @@ func action(c *cli.Context) error {
 		EntryFileNames: c.String("entry-file-names"),
 	}
 
+	if len(entries) == 1 {
+		base.Entry = entries[0]
+	} else {
+		base.Entries = entries
+	}
+	base.Format = bundler.FormatESM
+	declaration, declarationMap := false, false
+	if err := applyTSConfig(c, &base, &declaration, &declarationMap); err != nil {
+		return err
+	}
+	if formatSet && len(explicitFormats) == 1 {
+		base.Format = bundler.Format(explicitFormats[0])
+	}
+	if c.IsSet("jsx") {
+		base.JSX = bundler.JSX(c.String("jsx"))
+	}
+	applyEmitFlags(c, &base, &declaration, &declarationMap)
+
 	if len(outfiles) > 0 {
 		base.EntryFileNames = ""
 		templated := false
@@ -104,11 +119,15 @@ func action(c *cli.Context) error {
 				break
 			}
 		}
-		if len(entries) == 0 {
+		entryCount := len(base.Entries)
+		if base.Entry != "" {
+			entryCount++
+		}
+		if entryCount == 0 {
 			return errors.New("--outfile requires at least one entry")
 		}
-		if !templated && len(entries) != 1 {
-			return fmt.Errorf("--outfile requires a single entry, got %d", len(entries))
+		if !templated && entryCount != 1 {
+			return fmt.Errorf("--outfile requires a single entry, got %d", entryCount)
 		}
 		if len(outfiles) > 1 {
 			cleaned, err := uniqueFiles(outfiles)
@@ -119,19 +138,11 @@ func action(c *cli.Context) error {
 				return errors.New("duplicate --outfile paths")
 			}
 		}
-		if len(entries) == 1 {
-			base.Entry = entries[0]
+		if entryCount == 1 {
 			base.Mode = bundler.ModeApp
 		} else {
-			base.Entries = entries
 			base.Mode = bundler.ModeLib
 		}
-		base.Format = bundler.FormatESM
-		if formatSet && len(explicitFormats) == 1 {
-			base.Format = bundler.Format(explicitFormats[0])
-		}
-		declaration, declarationMap := false, false
-		applyEmitFlags(c, &base, &declaration, &declarationMap)
 		plan, err := planOutputs(outputFile, outfiles, formatList(explicitFormats, formatSet, base.Format), base.Format, "", base.GlobalName)
 		if err != nil {
 			return err
@@ -140,24 +151,12 @@ func action(c *cli.Context) error {
 		return writeBuild(c, base)
 	}
 
-	base.Entries = entries
 	base.Mode = bundler.ModeLib
 	if c.Bool("splitting") {
 		base.Mode = bundler.ModeApp
 	}
-	declaration, declarationMap := false, false
-	if err := applyTSConfig(c, &base, &declaration, &declarationMap); err != nil {
-		return err
-	}
 	if base.EntryFileNames != "" && len(outdirs) == 0 && base.OutDir == "" {
 		return errors.New("--entry-file-names requires --outdir")
-	}
-	if c.IsSet("jsx") {
-		base.JSX = bundler.JSX(c.String("jsx"))
-	}
-	applyEmitFlags(c, &base, &declaration, &declarationMap)
-	if formatSet && len(explicitFormats) == 1 {
-		base.Format = bundler.Format(explicitFormats[0])
 	}
 	plan, err := planOutputs(outputDir, outdirs, formatList(explicitFormats, formatSet, base.Format), base.Format, base.OutDir, base.GlobalName)
 	if err != nil {

@@ -112,6 +112,9 @@ func TestTemplateOfHashPlaceholder(t *testing.T) {
 	if got := templateOf("dist/[hash.js"); got != "" {
 		t.Fatalf("templateOf invalid hash = %q", got)
 	}
+	if got := templateOf("dist/[path].js"); got != "dist/[path].js" {
+		t.Fatalf("templateOf path = %q", got)
+	}
 }
 
 func TestPlanOutputsTemplate(t *testing.T) {

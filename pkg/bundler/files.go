@@ -77,7 +77,7 @@ func (b *bundler) appResult(entry, js, linked string, emitFmt Format) (*Result, 
 		if HasHashPlaceholder(b.opts.NameTemplate) {
 			hash = ContentHash(js)
 		}
-		jsName = RenderEntryFileName(b.opts.NameTemplate, name, emitFmt, hash)
+		jsName = RenderEntryFileName(b.opts.NameTemplate, name, name, emitFmt, hash)
 	}
 	if b.sourceMap {
 		js = strings.TrimRight(js, "\n") + "\n//# sourceMappingURL=" + filepath.Base(jsName) + ".map\n"

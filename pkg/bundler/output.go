@@ -24,9 +24,9 @@ type OutputOptions struct {
 	EntryFileNames string
 }
 
-// RenderEntryFileName expands [name], [format], [hash], and [hash:N].
-func RenderEntryFileName(pattern, name string, format Format, hash string) string {
-	return output.RenderEntryFileName(pattern, name, string(format), hash)
+// RenderEntryFileName expands [name], [path], [format], [hash], and [hash:N].
+func RenderEntryFileName(pattern, name, path string, format Format, hash string) string {
+	return output.RenderEntryFileName(pattern, name, path, string(format), hash)
 }
 
 // ContentHash returns the digest used by [hash] placeholders.

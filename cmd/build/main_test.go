@@ -142,8 +142,8 @@ func TestCLIUsageErrors(t *testing.T) {
 	if err := run([]string{"--outdir", "dist", "a.ts"}, nil, nil); err != nil {
 		t.Fatalf("files on CLI should ignore tsconfig: %v", err)
 	}
-	if err := run([]string{"--project", withConfig, "a.ts"}, nil, nil); err == nil || !strings.Contains(err.Error(), "cannot be mixed") {
-		t.Fatalf("error = %v", err)
+	if err := run([]string{"--project", withConfig, "a.ts"}, nil, nil); err != nil {
+		t.Fatalf("project with explicit entry: %v", err)
 	}
 	nested := filepath.Join(withConfig, "nested")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
@@ -400,6 +400,56 @@ func TestCLIEntryFileNamesWithOutdir(t *testing.T) {
 	}
 }
 
+func TestCLIEntryFileNamesPathAndDuplicates(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	for _, sub := range []string{"a", "b"} {
+		if err := os.MkdirAll(filepath.Join(src, sub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(src, "a", "index.ts"), []byte("export const a = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "b", "index.ts"), []byte("import { a } from \"../a/index.js\";\nexport const b = a + 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config := `{"compilerOptions":{"module":"commonjs","rootDir":"src","outDir":"dist"},"include":["src/**/*.ts"]}`
+	if err := os.WriteFile(filepath.Join(dir, "tsconfig.json"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	if err := run([]string{"-p", ".", "--outdir", "pathout", "--entry-file-names", "[path].cjs", "--format", "cjs"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	pathOut := filepath.Join(dir, "pathout")
+	body, err := os.ReadFile(filepath.Join(pathOut, "b", "index.cjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "../a/index.cjs") {
+		t.Fatalf("path import not rewritten:\n%s", body)
+	}
+
+	if err := run([]string{"-p", ".", "--outdir", "nameout", "--entry-file-names", "[name].cjs", "--format", "cjs"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	nameOut := filepath.Join(dir, "nameout")
+	for _, name := range []string{"index.cjs", "index-2.cjs"} {
+		if _, err := os.Stat(filepath.Join(nameOut, name)); err != nil {
+			t.Fatalf("missing %s: %v", name, err)
+		}
+	}
+	body, err = os.ReadFile(filepath.Join(nameOut, "index-2.cjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "./index.cjs") {
+		t.Fatalf("renamed import not rewritten:\n%s", body)
+	}
+}
+
 func TestCLIJSXPreserve(t *testing.T) {
 	dir := t.TempDir()
 	entry := filepath.Join(dir, "ui.tsx")
@@ -432,6 +482,48 @@ func TestCLIJSXPreserve(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "<div") {
 		t.Fatalf("preserve JSX missing from CLI output:\n%s", body)
+	}
+}
+
+func TestCLIProjectWithExplicitEntryUsesCompilerOptions(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	entry := filepath.Join(src, "ui.tsx")
+	if err := os.WriteFile(entry, []byte("export const view = <div>hi</div>;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config := `{"compilerOptions":{"jsx":"preserve","sourceMap":true,"declaration":true,"declarationMap":true,"outDir":"tsout","rootDir":"src"},"include":["src/**/*.tsx"]}`
+	if err := os.WriteFile(filepath.Join(dir, "tsconfig.json"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	out := filepath.Join(dir, "out")
+	if err := run([]string{"-p", ".", "--outdir", out, "src/ui.tsx"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(out, "ui.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "<div") {
+		t.Fatalf("jsx from tsconfig not applied:\n%s", body)
+	}
+	for _, name := range []string{"ui.js.map", "ui.d.ts", "ui.d.ts.map"} {
+		if _, err := os.Stat(filepath.Join(out, name)); err != nil {
+			t.Fatalf("missing %s: %v", name, err)
+		}
+	}
+
+	bundle := filepath.Join(dir, "bundle.js")
+	if err := run([]string{"-p", ".", "-o", bundle, "src/ui.tsx"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(bundle + ".map"); err != nil {
+		t.Fatalf("outfile should use sourceMap from tsconfig: %v", err)
 	}
 }
 

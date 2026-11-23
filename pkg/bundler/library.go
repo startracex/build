@@ -1,6 +1,7 @@
 package bundler
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -18,6 +19,11 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 	if b.opts.RootDir != "" {
 		root = b.opts.RootDir
 	}
+	ids := make([]string, 0, len(b.units))
+	for id := range b.units {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
 	pattern := b.opts.NameTemplate
 	fullPathPattern := pattern != ""
 	if !fullPathPattern {
@@ -27,29 +33,26 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 	if pattern != "" && (b.opts.OutFile != "" || b.opts.OutDir != "") {
 		hasHash := HasHashPlaceholder(pattern)
 		b.outputPaths = make(map[string]string, len(b.units))
-		for id, unit := range b.units {
+		for _, id := range ids {
+			unit := b.units[id]
 			abs := filepath.FromSlash(id)
 			jsRel := modpath.DisplayRel(root, modpath.JavascriptOutputAbs(abs))
 			name := strings.TrimSuffix(filepath.Base(jsRel), filepath.Ext(jsRel))
+			pathValue := strings.TrimSuffix(filepath.ToSlash(jsRel), filepath.Ext(jsRel))
 			hash := ""
 			if hasHash {
 				hash = ContentHash(unit.code)
 			}
-			rendered := RenderEntryFileName(pattern, name, b.format, hash)
-			if fullPathPattern {
-				b.outputPaths[id] = rendered
-			} else {
-				b.outputPaths[id] = filepath.Join(b.opts.OutDir, filepath.FromSlash(rendered))
+			rendered := RenderEntryFileName(pattern, name, pathValue, b.format, hash)
+			outPath := rendered
+			if !fullPathPattern {
+				outPath = filepath.Join(b.opts.OutDir, filepath.FromSlash(rendered))
 			}
+			b.outputPaths[id] = b.uniqueOutputPath(outPath)
 		}
 	}
 	var files []Output
 	var entryJS string
-	ids := make([]string, 0, len(b.units))
-	for id := range b.units {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
 	for _, id := range ids {
 		unit := b.units[id]
 		abs := filepath.FromSlash(id)
@@ -108,4 +111,23 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 		}
 	}
 	return &Result{Files: files, entry: entryJS}, nil
+}
+
+func (b *bundler) uniqueOutputPath(path string) string {
+	if b.usedOutputPaths == nil {
+		b.usedOutputPaths = map[string]bool{}
+	}
+	if !b.usedOutputPaths[path] {
+		b.usedOutputPaths[path] = true
+		return path
+	}
+	ext := filepath.Ext(path)
+	stem := strings.TrimSuffix(path, ext)
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s-%d%s", stem, i, ext)
+		if !b.usedOutputPaths[candidate] {
+			b.usedOutputPaths[candidate] = true
+			return candidate
+		}
+	}
 }

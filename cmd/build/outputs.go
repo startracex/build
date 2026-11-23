@@ -25,7 +25,7 @@ type outputPlan struct {
 }
 
 func templateOf(path string) string {
-	if strings.Contains(path, "[name]") || strings.Contains(path, "[format]") || bundler.HasHashPlaceholder(path) {
+	if strings.Contains(path, "[name]") || strings.Contains(path, "[path]") || strings.Contains(path, "[format]") || bundler.HasHashPlaceholder(path) {
 		return path
 	}
 	return ""
