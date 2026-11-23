@@ -8,8 +8,10 @@ import (
 	"strings"
 
 	"github.com/startracex/build/pkg/bundler"
+	"github.com/startracex/build/pkg/resolve"
 	"github.com/startracex/tsgo/pkg/ast"
 	"github.com/startracex/tsgo/pkg/bundled"
+	"github.com/startracex/tsgo/pkg/collections"
 	"github.com/startracex/tsgo/pkg/core"
 	"github.com/startracex/tsgo/pkg/diagnostics"
 	"github.com/startracex/tsgo/pkg/locale"
@@ -35,11 +37,12 @@ func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration, declarati
 	if path == "" {
 		return nil, nil
 	}
-	parsed, err := readTSConfig(path)
+	parsed, configFileName, err := readTSConfig(path)
 	if err != nil {
 		return nil, err
 	}
 	compiler := parsed.CompilerOptions()
+	opts.BaseURL = applyBaseURL(compiler, parsed, configFileName)
 	if !c.IsSet("format") {
 		opts.Format = formatFromModule(compiler.Module)
 	}
@@ -130,27 +133,95 @@ func resolveProjectPath(path string) (string, error) {
 	return abs, nil
 }
 
-func readTSConfig(path string) (*tsoptions.ParsedCommandLine, error) {
+func readTSConfig(path string) (*tsoptions.ParsedCommandLine, tspath.RootedFilePath, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	rooted, ok := tspath.TryRootedFilePathFromAbsolute(abs)
 	if !ok {
-		return nil, fmt.Errorf("invalid tsconfig path %s", abs)
+		return nil, "", fmt.Errorf("invalid tsconfig path %s", abs)
 	}
 	fs := bundled.WrapFS(osvfs.FS())
 	parsed, diags := tsoptions.GetParsedCommandLineOfConfigFile(rooted, nil, nil, tsoptions.NewDefaultParseConfigHost(fs), nil)
 	if parsed == nil {
 		if err := diagnosticError(diags); err != nil {
-			return nil, err
+			return nil, "", err
 		}
-		return nil, fmt.Errorf("cannot read %s", abs)
+		return nil, "", fmt.Errorf("cannot read %s", abs)
 	}
 	if err := diagnosticError(append(diags, parsed.Errors...)); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return parsed, nil
+	return parsed, rooted, nil
+}
+
+// applyBaseURL folds the removed "baseUrl" option into the "paths" mappings.
+//
+// TypeScript 5 resolved every "paths" substitution relative to "baseUrl" and
+// used "baseUrl" as the root for bare specifiers. TypeScript 7 dropped
+// "baseUrl": substitutions are resolved relative to the directory of the
+// tsconfig that declared "paths", and bare specifiers have no project root to
+// fall back to. The substitutions are rebased so that they keep naming the
+// same files, and the wildcard mapping that stands in for the project root is
+// returned to the caller.
+//
+// The value is read from the serialized config instead of the deprecated
+// CompilerOptions field, which TypeScript 7 only allows inside option parsing
+// and validation.
+func applyBaseURL(compiler *core.CompilerOptions, parsed *tsoptions.ParsedCommandLine, configFileName tspath.RootedFilePath) resolve.BaseURLFallback {
+	baseURL := tsconfigBaseURL(parsed, configFileName)
+	if baseURL == "" {
+		return resolve.BaseURLFallback{}
+	}
+	basePath := compiler.PathsBasePath
+	if basePath == "" {
+		basePath = configFileName.Directory()
+	}
+	compiler.PathsBasePath = basePath
+	caseSensitivity := parsed.CaseSensitivity()
+	paths := compiler.Paths
+	if paths != nil {
+		updated := collections.NewOrderedMapWithSizeHint[string, []string](paths.Size())
+		for key, values := range paths.Entries() {
+			rewritten := make([]string, len(values))
+			for i, value := range values {
+				rewritten[i] = rebasePathValue(value, baseURL, basePath, caseSensitivity)
+			}
+			updated.Set(key, rewritten)
+		}
+		compiler.Paths = updated
+	}
+	return resolve.BaseURLFallback{Directory: baseURL, CaseSensitivity: caseSensitivity}
+}
+
+// tsconfigBaseURL returns the directory of the "baseUrl" option, or an empty
+// path when the config does not set it.
+func tsconfigBaseURL(parsed *tsoptions.ParsedCommandLine, configFileName tspath.RootedFilePath) tspath.RootedDirectoryPath {
+	serialized := tsoptions.ConvertToTSConfig(parsed, configFileName)
+	if serialized == nil || serialized.CompilerOptions == nil {
+		return ""
+	}
+	value, ok := serialized.CompilerOptions.Get("baseUrl")
+	if !ok {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok || text == "" {
+		return ""
+	}
+	// The serialized value is relative to the config file.
+	return tspath.ToRootedDirectoryPath(text, configFileName.Directory())
+}
+
+// rebasePathValue rewrites a "paths" substitution so that it stays relative to
+// basePath while still naming the file the original substitution named under
+// baseURL.
+func rebasePathValue(value string, baseURL, basePath tspath.RootedDirectoryPath, caseSensitivity tspath.CaseSensitivity) string {
+	if value == "" || tspath.IsRootedDiskPath(value) {
+		return value
+	}
+	return resolve.RelativeTo(baseURL.ResolveFile(value), basePath, caseSensitivity)
 }
 
 func configFiles(parsed *tsoptions.ParsedCommandLine) ([]string, error) {

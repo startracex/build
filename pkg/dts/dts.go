@@ -36,9 +36,13 @@ type Options struct {
 	CustomConditions []string
 	// CompilerOptions carries the tsconfig options that change the declaration
 	// output and the type checking behind it: the strict family, "lib",
-	// "types", "paths", "baseUrl", "moduleResolution", the decorator and JSX
+	// "types", "paths", "moduleResolution", the decorator and JSX
 	// settings. The declaration-only switches are always set by this package.
 	CompilerOptions *core.CompilerOptions
+	// BaseURL stands in for the removed tsconfig "baseUrl" option. TypeScript
+	// 5 resolved bare specifiers against it, so a tsconfig that still uses it
+	// keeps working.
+	BaseURL resolve.BaseURLFallback
 }
 
 // declarationCompilerOptions builds the compiler options for the declaration
@@ -96,8 +100,7 @@ func declarationCompilerOptions(opts Options, declMap core.Tristate) *core.Compi
 
 	// Module resolution.
 	compilerOpts.ModuleResolution = resolve.NormalizeModuleResolution(src.ModuleResolution)
-	compilerOpts.Paths = src.Paths
-	compilerOpts.BaseUrl = src.BaseUrl
+	compilerOpts.Paths = resolve.WithPathsFallback(src.Paths, opts.BaseURL, src.PathsBasePath)
 	compilerOpts.PathsBasePath = src.PathsBasePath
 	compilerOpts.ResolvePackageJsonExports = src.ResolvePackageJsonExports
 	compilerOpts.ResolvePackageJsonImports = src.ResolvePackageJsonImports

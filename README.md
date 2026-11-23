@@ -111,7 +111,7 @@ The compiler options that change the output are read from `tsconfig.json`. They 
 | `useDefineForClassFields` | Native class fields (`true`) or constructor assignment (`false`). |
 | `verbatimModuleSyntax` | Keeps import and export statements exactly as written. |
 | `jsxFactory`, `jsxFragmentFactory`, `jsxImportSource` | Custom JSX factory, fragment factory, and runtime package. |
-| `baseUrl`, `paths` | Resolve aliased specifiers to local files. |
+| `baseUrl`, `paths` | Resolve aliased specifiers to local files. TypeScript 7 removed `baseUrl`, so it is translated into the equivalent `paths` mappings and a project root for bare specifiers. |
 | `moduleResolution` | `node16`, `nodenext`, or `bundler` resolution of `package.json` `"exports"`. |
 | `strict` family, `lib`, `types` | Type checking and inference behind the emitted declarations. |
 | `customConditions` | Extra `package.json` `"exports"` conditions. |

@@ -19,7 +19,6 @@ func TestDeclarationCompilerOptionsKeepsTSConfigSettings(t *testing.T) {
 		JsxFragmentFactory:         "Fragment",
 		JsxImportSource:            "preact",
 		ModuleResolution:           core.ModuleResolutionKindNode16,
-		BaseUrl:                    "/project",
 		PathsBasePath:              "/project",
 		Lib:                        []string{"es2020"},
 		Types:                      []string{"node"},
@@ -44,8 +43,8 @@ func TestDeclarationCompilerOptionsKeepsTSConfigSettings(t *testing.T) {
 	if opts.ModuleResolution != core.ModuleResolutionKindNode16 {
 		t.Fatalf("moduleResolution not copied")
 	}
-	if opts.BaseUrl != "/project" || opts.PathsBasePath != "/project" {
-		t.Fatalf("baseUrl/pathsBasePath not copied")
+	if opts.PathsBasePath != "/project" {
+		t.Fatalf("pathsBasePath not copied")
 	}
 	if len(opts.Lib) != 1 || opts.Lib[0] != "es2020" {
 		t.Fatalf("lib not copied")

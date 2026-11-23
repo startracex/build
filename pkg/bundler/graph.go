@@ -81,6 +81,7 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		Format:          string(loadFormat),
 		LibBuild:        outMode == ModeLib && !opts.BundleNodeModules,
 		CompilerOptions: b.compilerOpts,
+		BaseURL:         opts.BaseURL,
 		ResolveHook:     combineResolveHook(ctx, opts.Plugins, opts.Resolve),
 		OnAsset:         b.onAsset,
 	})

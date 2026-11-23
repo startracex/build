@@ -148,6 +148,10 @@ type Options struct {
 	// specifiers are resolved. The bundler owns module kind, target, JSX
 	// transform, and source maps; the rest comes from here.
 	CompilerOptions *core.CompilerOptions
+	// BaseURL stands in for the removed tsconfig "baseUrl" option. TypeScript
+	// 5 resolved bare specifiers against it, so a tsconfig that still uses it
+	// keeps working.
+	BaseURL resolve.BaseURLFallback
 	// Outputs lists Rollup-style emit targets. The module graph is loaded once;
 	// each output is linked/emitted from that shared graph.
 	Outputs []OutputOptions

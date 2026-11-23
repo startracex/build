@@ -1046,6 +1046,115 @@ func TestCLITSConfigPaths(t *testing.T) {
 	}
 }
 
+func TestCLITSConfigPathsWithBaseUrlSubdirectory(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(src, "index.ts"), "import { value } from \"@app/util\";\nexport const n = value;\n")
+	writeFile(t, filepath.Join(src, "util.ts"), "export const value = 1;\n")
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": {
+    "module": "esnext",
+    "baseUrl": "./src",
+    "paths": { "@app/*": ["*"] },
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"]
+}
+`)
+	t.Chdir(dir)
+	if err := run(nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "dist", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `from "./util.js"`) {
+		t.Fatalf("paths alias was not resolved against baseUrl:\n%s", body)
+	}
+}
+
+func TestCLITSConfigBaseUrlFallsBackToProjectRoot(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(src, "index.ts"), "import { value } from \"helper\";\nexport const n = value;\n")
+	writeFile(t, filepath.Join(src, "helper.ts"), "export const value = 1;\n")
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": {
+    "module": "esnext",
+    "baseUrl": "./src",
+    "declaration": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"]
+}
+`)
+	t.Chdir(dir)
+	if err := run(nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "dist", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `from "./helper.js"`) {
+		t.Fatalf("bare specifier was not resolved against baseUrl:\n%s", body)
+	}
+	decl, err := os.ReadFile(filepath.Join(dir, "dist", "index.d.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(decl), `export declare const n`) {
+		t.Fatalf("declaration did not resolve the bare specifier against baseUrl:\n%s", decl)
+	}
+}
+
+func TestCLITSConfigBaseUrlKeepsPackagesExternal(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	pkg := filepath.Join(dir, "node_modules", "some-pkg")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(src, "index.ts"), "import { value } from \"some-pkg\";\nexport const n = value;\n")
+	writeFile(t, filepath.Join(pkg, "index.js"), "export const value = 1;\n")
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": {
+    "module": "esnext",
+    "baseUrl": "./src",
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"]
+}
+`)
+	t.Chdir(dir)
+	if err := run(nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "dist", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `from "some-pkg"`) {
+		t.Fatalf("package import should stay external:\n%s", body)
+	}
+	if strings.Contains(string(body), "const value = 1") {
+		t.Fatalf("package import should not be bundled:\n%s", body)
+	}
+}
+
 func TestCLITSConfigPathsWithoutBaseUrl(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")
