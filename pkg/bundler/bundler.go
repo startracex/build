@@ -104,6 +104,9 @@ type Options struct {
 	// OutFile is the JavaScript path used by app mode. The declaration and
 	// source map are written beside it.
 	OutFile string
+	// NameTemplate marks OutFile as a per-entry filename pattern. [name] and
+	// [format] are replaced when emitting each entry. Empty means a literal path.
+	NameTemplate string
 	// OutDir is the directory used by per-module output.
 	OutDir string
 	// RootDir is the base for paths written under OutDir. Empty uses the
@@ -286,16 +289,19 @@ type bundler struct {
 	format    Format
 	outMode   Mode
 	jsx       core.JsxEmit
-	mode    core.ResolutionMode
-	res     *resolve.Resolver
-	loading map[string]bool
-	units   map[string]*unit
-	assets  map[string]*asset.Unit
+	mode      core.ResolutionMode
+	res       *resolve.Resolver
+	loading   map[string]bool
+	units     map[string]*unit
+	assets    map[string]*asset.Unit
 	decl      bool
 	declMap   bool
 	sourceMap bool
 	target    core.ScriptTarget
 	cache     *cache.TranspileCache
+	// outputPaths maps module id -> rendered output path when using a
+	// filename template. It keeps relative imports aligned with hashed names.
+	outputPaths map[string]string
 	// chunkPaths maps module id -> relative chunk path for splitting.
 	chunkPaths map[string]string
 	// linkingChunk is the chunk path currently being linked (empty for entry).

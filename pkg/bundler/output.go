@@ -18,6 +18,18 @@ type OutputOptions struct {
 	OutFile string
 	OutDir  string
 	Name    string // global name for IIFE/UMD
+	// NameTemplate marks OutFile as a per-entry filename pattern.
+	NameTemplate string
+}
+
+// RenderEntryFileName expands [name], [format], [hash], and [hash:N].
+func RenderEntryFileName(pattern, name string, format Format, hash string) string {
+	return output.RenderEntryFileName(pattern, name, string(format), hash)
+}
+
+// ContentHash returns the digest used by [hash] placeholders.
+func ContentHash(data string) string {
+	return output.ContentHash(data)
 }
 
 func (o Options) normalizedOutputs() ([]OutputOptions, error) {
@@ -36,6 +48,9 @@ func (o Options) normalizedOutputs() ([]OutputOptions, error) {
 			if out.Name == "" {
 				out.Name = o.GlobalName
 			}
+			if out.NameTemplate == "" {
+				out.NameTemplate = o.NameTemplate
+			}
 			outs = append(outs, out)
 		}
 		return outs, nil
@@ -45,10 +60,11 @@ func (o Options) normalizedOutputs() ([]OutputOptions, error) {
 		return nil, err
 	}
 	return []OutputOptions{{
-		Format:  format,
-		OutFile: o.OutFile,
-		OutDir:  o.OutDir,
-		Name:    o.GlobalName,
+		Format:       format,
+		OutFile:      o.OutFile,
+		OutDir:       o.OutDir,
+		Name:         o.GlobalName,
+		NameTemplate: o.NameTemplate,
 	}}, nil
 }
 
@@ -57,6 +73,7 @@ func withOutput(opts Options, out OutputOptions) Options {
 	opts.OutFile = out.OutFile
 	opts.OutDir = out.OutDir
 	opts.GlobalName = out.Name
+	opts.NameTemplate = out.NameTemplate
 	opts.Outputs = nil
 	return opts
 }

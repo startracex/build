@@ -48,7 +48,7 @@ func rewriteRelativeSpecifiers(src, fromAbs string, b *bundler, typescript bool)
 			if err != nil || external {
 				continue
 			}
-			next := relativeOutputSpecifier(fromAbs, resolved)
+			next := b.outputSpecifier(fromAbs, resolved, typescript)
 			edits = append(edits, edit{
 				start: jsedit.TokenStart(src, specNode),
 				end:   specNode.End(),
@@ -67,7 +67,7 @@ func rewriteRelativeSpecifiers(src, fromAbs string, b *bundler, typescript bool)
 			edits = append(edits, edit{
 				start: jsedit.TokenStart(src, arg),
 				end:   arg.End(),
-				text:  quoteJS(relativeOutputSpecifier(fromAbs, resolved)),
+				text:  quoteJS(b.outputSpecifier(fromAbs, resolved, typescript)),
 			})
 		})
 		jsedit.WalkRequires(stmt, func(arg *ast.Node) {
@@ -82,7 +82,7 @@ func rewriteRelativeSpecifiers(src, fromAbs string, b *bundler, typescript bool)
 			edits = append(edits, edit{
 				start: jsedit.TokenStart(src, arg),
 				end:   arg.End(),
-				text:  quoteJS(relativeOutputSpecifier(fromAbs, resolved)),
+				text:  quoteJS(b.outputSpecifier(fromAbs, resolved, typescript)),
 			})
 		})
 	}
@@ -113,6 +113,29 @@ func specifierNodes(stmt *ast.Node) []*ast.Node {
 	default:
 		return nil
 	}
+}
+
+func (b *bundler) outputSpecifier(fromAbs, toAbs string, typescript bool) string {
+	if len(b.outputPaths) == 0 {
+		return relativeOutputSpecifier(fromAbs, toAbs)
+	}
+	fromOut := b.outputPaths[moduleID(fromAbs)]
+	toOut := b.outputPaths[moduleID(toAbs)]
+	if fromOut == "" || toOut == "" {
+		return relativeOutputSpecifier(fromAbs, toAbs)
+	}
+	if typescript {
+		toOut = strings.TrimSuffix(toOut, filepath.Ext(toOut)) + ".d.ts"
+	}
+	rel, err := filepath.Rel(filepath.Dir(fromOut), toOut)
+	if err != nil {
+		return relativeOutputSpecifier(fromAbs, toAbs)
+	}
+	rel = filepath.ToSlash(rel)
+	if !strings.HasPrefix(rel, ".") {
+		rel = "./" + rel
+	}
+	return rel
 }
 
 func relativeOutputSpecifier(fromAbs, toAbs string) string {

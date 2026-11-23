@@ -71,6 +71,14 @@ func (b *bundler) appResult(entry, js, linked string, emitFmt Format) (*Result, 
 	if jsName == "" {
 		jsName = "bundle.js"
 	}
+	if b.opts.NameTemplate != "" {
+		name := strings.TrimSuffix(filepath.Base(entry), filepath.Ext(entry))
+		hash := ""
+		if strings.Contains(b.opts.NameTemplate, "[hash") {
+			hash = ContentHash(js)
+		}
+		jsName = RenderEntryFileName(b.opts.NameTemplate, name, emitFmt, hash)
+	}
 	if b.sourceMap {
 		js = strings.TrimRight(js, "\n") + "\n//# sourceMappingURL=" + filepath.Base(jsName) + ".map\n"
 	}

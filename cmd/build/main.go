@@ -94,11 +94,35 @@ func action(c *cli.Context) error {
 	}
 
 	if len(outfiles) > 0 {
-		if len(entries) != 1 {
+		templated := false
+		for _, outfile := range outfiles {
+			if templateOf(outfile) != "" {
+				templated = true
+				break
+			}
+		}
+		if len(entries) == 0 {
+			return errors.New("--outfile requires at least one entry")
+		}
+		if !templated && len(entries) != 1 {
 			return fmt.Errorf("--outfile requires a single entry, got %d", len(entries))
 		}
-		base.Entry = entries[0]
-		base.Mode = bundler.ModeApp
+		if len(outfiles) > 1 {
+			cleaned, err := uniqueFiles(outfiles)
+			if err != nil {
+				return err
+			}
+			if len(cleaned) != len(outfiles) {
+				return errors.New("duplicate --outfile paths")
+			}
+		}
+		if len(entries) == 1 {
+			base.Entry = entries[0]
+			base.Mode = bundler.ModeApp
+		} else {
+			base.Entries = entries
+			base.Mode = bundler.ModeLib
+		}
 		base.Format = bundler.FormatESM
 		if formatSet && len(explicitFormats) == 1 {
 			base.Format = bundler.Format(explicitFormats[0])

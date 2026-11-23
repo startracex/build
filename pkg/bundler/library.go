@@ -18,6 +18,16 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 	if b.opts.RootDir != "" {
 		root = b.opts.RootDir
 	}
+	b.outputPaths = nil
+	if b.opts.NameTemplate != "" && b.opts.OutFile != "" {
+		b.outputPaths = make(map[string]string, len(b.units))
+		for id, unit := range b.units {
+			abs := filepath.FromSlash(id)
+			jsRel := modpath.DisplayRel(root, modpath.JavascriptOutputAbs(abs))
+			name := strings.TrimSuffix(filepath.Base(jsRel), filepath.Ext(jsRel))
+			b.outputPaths[id] = RenderEntryFileName(b.opts.NameTemplate, name, b.format, ContentHash(unit.code))
+		}
+	}
 	var files []Output
 	var entryJS string
 	ids := make([]string, 0, len(b.units))
@@ -33,13 +43,16 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 		if err != nil {
 			return nil, err
 		}
-		mapName := filepath.Base(jsRel) + ".map"
+		templated := len(b.outputPaths) > 0
+		jsPath := jsRel
+		if templated {
+			jsPath = b.outputPaths[id]
+		} else if b.opts.OutDir != "" {
+			jsPath = filepath.Join(b.opts.OutDir, filepath.FromSlash(jsRel))
+		}
+		mapName := filepath.Base(jsPath) + ".map"
 		if b.sourceMap && strings.TrimSpace(unit.jsMap) != "" {
 			js = strings.TrimRight(js, "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
-		}
-		jsPath := jsRel
-		if b.opts.OutDir != "" {
-			jsPath = filepath.Join(b.opts.OutDir, filepath.FromSlash(jsRel))
 		}
 		files = append(files, Output{Path: jsPath, Data: js})
 		if moduleID(abs) == moduleID(entry) {
@@ -47,19 +60,18 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 		}
 		if b.sourceMap && strings.TrimSpace(unit.jsMap) != "" {
 			mapPath := jsPath + ".map"
-			files = append(files, Output{Path: mapPath, Data: sourcemap.RetargetSourceMap(unit.jsMap, filepath.Base(jsRel), modpath.DisplayRel(root, abs), unit.source)})
+			files = append(files, Output{Path: mapPath, Data: sourcemap.RetargetSourceMap(unit.jsMap, filepath.Base(jsPath), modpath.DisplayRel(root, abs), unit.source)})
 		}
 		if b.decl && strings.TrimSpace(unit.dts) != "" {
 			dts, err := rewriteRelativeSpecifiers(unit.dts, abs, b, true)
 			if err != nil {
 				return nil, err
 			}
-			dtsRel := strings.TrimSuffix(jsRel, filepath.Ext(jsRel)) + ".d.ts"
-			dtsPath := dtsRel
-			if b.opts.OutDir != "" {
-				dtsPath = filepath.Join(b.opts.OutDir, filepath.FromSlash(dtsRel))
+			dtsPath := strings.TrimSuffix(jsPath, filepath.Ext(jsPath)) + ".d.ts"
+			if !templated && b.opts.OutDir == "" {
+				dtsPath = strings.TrimSuffix(jsRel, filepath.Ext(jsRel)) + ".d.ts"
 			}
-			mapName := filepath.Base(dtsRel) + ".map"
+			mapName := filepath.Base(dtsPath) + ".map"
 			if b.declMap && strings.TrimSpace(unit.dtsMap) != "" {
 				dts = strings.TrimRight(jsedit.StripSourceMappingComment(dts), "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
 			}
@@ -67,7 +79,7 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			if b.declMap && strings.TrimSpace(unit.dtsMap) != "" {
 				files = append(files, Output{
 					Path: dtsPath + ".map",
-					Data: sourcemap.RelativizeDeclarationMap(unit.dtsMap, filepath.Base(dtsRel), root),
+					Data: sourcemap.RelativizeDeclarationMap(unit.dtsMap, filepath.Base(dtsPath), root),
 				})
 			}
 		}

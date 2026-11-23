@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -125,6 +126,9 @@ func TestCLIUsageErrors(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 	if err := run([]string{"--outfile", "out.js", "--outdir", "dist", "a.ts"}, nil, nil); err == nil || !strings.Contains(err.Error(), "cannot both") {
+		t.Fatalf("error = %v", err)
+	}
+	if err := run([]string{"-o", "out.js", "-o", "./out.js", "a.ts"}, nil, nil); err == nil || !strings.Contains(err.Error(), "duplicate") {
 		t.Fatalf("error = %v", err)
 	}
 	withConfig := t.TempDir()
@@ -259,6 +263,86 @@ func TestCLIExplicitEmitFlagsOverrideTSConfig(t *testing.T) {
 	}
 	if fileExists(filepath.Join(out, "index.d.ts.map")) {
 		t.Fatal("unexpected index.d.ts.map with --map=false")
+	}
+}
+
+func TestCLITemplatedOutfileSingleEntry(t *testing.T) {
+	dir := t.TempDir()
+	entry := filepath.Join(dir, "index.ts")
+	if err := os.WriteFile(entry, []byte("export const n: number = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pattern := filepath.Join(dir, "dist", "[name].js")
+	if err := run([]string{"-o", pattern, entry}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	findOutput(t, filepath.Join(dir, "dist"), "index.js")
+}
+
+func TestCLITemplatedOutfileMultipleEntries(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "index.ts"), []byte("import { add } from \"./math.js\";\nexport const sum = add(2, 3);\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "math.ts"), []byte("export function add(a: number, b: number): number { return a + b; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	if err := run([]string{"-o", filepath.Join("dist", "[name].cjs"), "--format", "cjs", "src"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"index.cjs", "math.cjs"} {
+		findOutput(t, filepath.Join(dir, "dist"), name)
+	}
+}
+
+func TestCLITemplatedOutfileHash(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "index.ts"), []byte("import { add } from \"./math.js\";\nexport const sum = add(2, 3);\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "math.ts"), []byte("export function add(a: number, b: number): number { return a + b; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	dist := filepath.Join(dir, "dist")
+	if err := run([]string{"-o", filepath.Join("dist", "[name].[hash:6].cjs"), "--format", "cjs", "src"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dist)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pattern := regexp.MustCompile(`^(index|math)\.[0-9a-f]{6}\.cjs$`)
+	var indexName, mathName string
+	for _, entry := range entries {
+		if !pattern.MatchString(entry.Name()) {
+			t.Fatalf("unexpected output %q", entry.Name())
+		}
+		if strings.HasPrefix(entry.Name(), "index.") {
+			indexName = entry.Name()
+		}
+		if strings.HasPrefix(entry.Name(), "math.") {
+			mathName = entry.Name()
+		}
+	}
+	if indexName == "" || mathName == "" {
+		t.Fatalf("missing hashed outputs: %#v", entries)
+	}
+	body, err := os.ReadFile(filepath.Join(dist, indexName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"./`+mathName+`"`) {
+		t.Fatalf("index import not rewritten to hashed name %q:\n%s", mathName, body)
 	}
 }
 

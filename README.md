@@ -39,6 +39,15 @@ build -o dist/index.js --format esm --format cjs src/index.ts
 build --format iife --global-name App -o dist/app.js src/index.ts
 ```
 
+`[name]` is replaced with the entry or module base name, and `[format]` with the output format. `[hash]` is a SHA-256 digest of the emitted content; use `[hash:N]` to keep the first `N` characters (default `8`). A templated `-o` allows multiple entries and emits one file per entry (library mode), rewriting relative imports to the hashed filenames:
+
+```bash
+build -o 'dist/[name].cjs' --format cjs src/
+build -o 'dist/[name].[hash:8].js' src/
+```
+
+Without a placeholder, `-o` still requires exactly one entry.
+
 ### Output alignment
 
 Output paths and `--format` are paired from the right: the last path takes the last format, and so on. Missing entries are filled in automatically instead of requiring one flag per output:
@@ -75,7 +84,7 @@ Passing files on the command line ignores `tsconfig.json`. `-p` cannot be combin
 
 | Flag | Meaning |
 | --- | --- |
-| `-o`, `--outfile` | Single-file bundle path (repeatable). With one path and several `--format` values, the extension is derived per format. |
+| `-o`, `--outfile` | Single-file bundle path (repeatable). Supports `[name]`, `[format]`, `[hash]`, and `[hash:N]` placeholders; with a placeholder, multiple entries emit one file per entry. |
 | `--outdir` | Directory for per-module or split output (repeatable). |
 | arguments | Entry files or globs. |
 | `-p`, `--project` | `tsconfig.json` file or directory. |

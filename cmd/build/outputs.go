@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/startracex/build/pkg/bundler"
 )
@@ -16,10 +17,18 @@ const (
 // outputPlan is the CLI-level description of one or more emit targets.
 // When Outputs is empty, Format and Base describe a single scalar output.
 type outputPlan struct {
-	Mode    outputMode
-	Base    string
-	Format  bundler.Format
-	Outputs []bundler.OutputOptions
+	Mode     outputMode
+	Base     string
+	Format   bundler.Format
+	Template string
+	Outputs  []bundler.OutputOptions
+}
+
+func templateOf(path string) string {
+	if strings.Contains(path, "[name]") || strings.Contains(path, "[format]") || strings.Contains(path, "[hash") {
+		return path
+	}
+	return ""
 }
 
 // planOutputs pairs explicit output paths with formats from the right. Missing
@@ -73,7 +82,7 @@ func planOutputs(mode outputMode, paths []string, formats []bundler.Format, fall
 	}
 
 	if target == 1 {
-		return outputPlan{Mode: mode, Base: alignedPaths[0], Format: alignedFormats[0]}, nil
+		return outputPlan{Mode: mode, Base: alignedPaths[0], Format: alignedFormats[0], Template: templateOf(alignedPaths[0])}, nil
 	}
 
 	outs := make([]bundler.OutputOptions, 0, target)
@@ -81,6 +90,7 @@ func planOutputs(mode outputMode, paths []string, formats []bundler.Format, fall
 		out := bundler.OutputOptions{Format: alignedFormats[i], Name: name}
 		if mode == outputFile {
 			out.OutFile = alignedPaths[i]
+			out.NameTemplate = templateOf(alignedPaths[i])
 		} else {
 			out.OutDir = alignedPaths[i]
 		}
@@ -91,13 +101,14 @@ func planOutputs(mode outputMode, paths []string, formats []bundler.Format, fall
 
 func derivedPlan(mode outputMode, base string, formats []bundler.Format, name string) outputPlan {
 	if len(formats) == 1 {
-		return outputPlan{Mode: mode, Base: base, Format: formats[0]}
+		return outputPlan{Mode: mode, Base: base, Format: formats[0], Template: templateOf(base)}
 	}
 	outs := make([]bundler.OutputOptions, 0, len(formats))
 	for _, format := range formats {
 		out := bundler.OutputOptions{Format: format, Name: name}
 		if mode == outputFile {
 			out.OutFile = derivePath(mode, base, format)
+			out.NameTemplate = templateOf(out.OutFile)
 		} else {
 			out.OutDir = derivePath(mode, base, format)
 		}
@@ -115,6 +126,7 @@ func derivePath(mode outputMode, base string, format bundler.Format) string {
 
 func applyOutputPlan(opts *bundler.Options, plan outputPlan) {
 	opts.Outputs = plan.Outputs
+	opts.NameTemplate = plan.Template
 	opts.OutFile = ""
 	opts.OutDir = ""
 	if plan.Mode == outputFile {

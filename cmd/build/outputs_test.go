@@ -105,6 +105,22 @@ func TestPlanOutputsKeepsExplicitPaths(t *testing.T) {
 	}
 }
 
+func TestPlanOutputsTemplate(t *testing.T) {
+	pattern := filepath.Join("dist", "[name].cjs")
+	plan, err := planOutputs(outputFile, []string{pattern}, []bundler.Format{bundler.FormatCJS}, bundler.FormatCJS, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Template != pattern {
+		t.Fatalf("template = %q, want %q", plan.Template, pattern)
+	}
+	var opts bundler.Options
+	applyOutputPlan(&opts, plan)
+	if opts.NameTemplate != pattern {
+		t.Fatalf("NameTemplate = %q, want %q", opts.NameTemplate, pattern)
+	}
+}
+
 func TestPlanOutputsScalarAndDerivedFromBase(t *testing.T) {
 	scalar, err := planOutputs(outputDir, []string{"dist"}, []bundler.Format{bundler.FormatESM}, bundler.FormatESM, "tsout", "")
 	if err != nil {
