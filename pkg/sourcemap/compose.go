@@ -228,8 +228,9 @@ func decodeVLQs(s string) ([]int, int) {
 				break
 			}
 		}
+		// Base64 VLQ stores the sign in the low bit: an odd value is negative.
 		if value&1 != 0 {
-			out = append(out, ^(value >> 1))
+			out = append(out, -(value >> 1))
 		} else {
 			out = append(out, value>>1)
 		}

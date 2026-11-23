@@ -13,6 +13,7 @@ import (
 	"github.com/startracex/build/pkg/output"
 	"github.com/startracex/build/pkg/plugin"
 	"github.com/startracex/build/pkg/resolve"
+	"github.com/startracex/build/pkg/sourcemap"
 	"github.com/startracex/build/pkg/wrap"
 	"github.com/startracex/tsgo/pkg/core"
 )
@@ -40,6 +41,9 @@ func (b *bundler) transformKey() string {
 func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bundler, []string, error) {
 	roots, err := opts.absRoots()
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := define.Validate(opts.Define, opts.Drop); err != nil {
 		return nil, nil, err
 	}
 	outMode, err := normalizeMode(opts.Mode)
@@ -104,10 +108,31 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		if err != nil {
 			return nil, nil, err
 		}
-		unit.code = define.ApplyDefineDrop(code, opts.Define, opts.Drop)
+		rewritten, stages, err := define.ApplyDefineDrop(code, opts.Define, opts.Drop)
+		if err != nil {
+			return nil, nil, err
+		}
+		unit.code = rewritten
+		if len(stages) > 0 {
+			// The map describes the code before the rewrite, so each stage
+			// shifts it until it describes the emitted module again.
+			unit.jsMap = remapStages(unit.jsMap, stages)
+			unit.file = nil
+		}
 		b.units[id] = unit
 	}
 	return b, roots, nil
+}
+
+// remapStages applies the define/drop edit stages to a module source map.
+func remapStages(mapData string, stages []define.Stage) string {
+	if strings.TrimSpace(mapData) == "" {
+		return mapData
+	}
+	for _, stage := range stages {
+		mapData = sourcemap.RemapEdits(mapData, stage.Source, stage.Edits)
+	}
+	return mapData
 }
 
 func validateBuildOutputs(opts Options, outputs []OutputOptions, outMode Mode, roots []string) error {

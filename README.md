@@ -138,7 +138,7 @@ The compiler options that change the output are read from `tsconfig.json`. They 
 | `--bundle` | Bundle bare package imports in library output instead of leaving them external (alias `--bundle-node-modules`). |
 | `--conditions` | Extra `package.json` `"exports"` conditions (repeatable). |
 | `--alias` | Specifier prefix mapping `from=to` (repeatable). |
-| `--define` | Replace a free identifier `KEY=VAL` (repeatable); folds `if (false)` / `if (true)` after replace. |
+| `--define` | Replace a free reference `KEY=EXPR` (repeatable). Keys are identifiers or dotted chains (`process.env.NODE_ENV`); values must be one JavaScript expression. |
 | `--drop` | `console` and/or `debugger` (repeatable). |
 | `--map` | Write source maps (alias `--sourcemap`); with `--dts` also writes `.d.ts.map`. |
 | `--dts` | Write `.d.ts` for per-module output. |
@@ -181,9 +181,18 @@ Dynamic CJS factories (`__commonJS`) keep the factory body; static CJS shape ana
 
 Order: **transpile → Transform → define/drop (with branch fold) → link/wrap → source maps → GenerateBundle**.
 
+### Define and drop
+
+`--define` and `--drop` are AST edits over each module, not text replacement:
+
+- A define key is replaced only where it is a free reference. Property names (`obj.__DEV__`), strings, comments, declaration names, and identifiers a local binding shadows are left alone. Dotted keys match the whole property chain, and the longest key wins.
+- Every value is parsed before the build: an empty value, a statement, or invalid syntax fails with the key name instead of reaching the output. Values that are not a primary expression are parenthesized where they are substituted.
+- `drop=console` removes `console.*` calls and drops their arguments' side effects; `drop=debugger` removes `debugger` statements. A call in a statement position disappears, one inside an expression becomes `void 0` (so the surrounding expression still evaluates to `undefined`). A removed statement in a single-statement slot, such as `if (x) console.log(y)`, becomes `{}`, and a deletion that would join the next line through automatic semicolon insertion keeps a `;`.
+- Constant branches are folded after the replacement, one nesting level per pass: `if (false)`, `if (true)`, `false && x`, `true || x`. A folded branch keeps its statements at their original offsets, so the body's mappings survive; a multi-statement body stays inside a plain block to preserve indentation and scope.
+
 ### Source maps
 
-`--map` composes per-module transpile maps with linker sections; IIFE/UMD wrap offsets are applied. Declaration source maps are written when `--dts` and `--map` are both explicitly enabled. When only one of them is passed, or neither is passed, `sourceMap`, `declaration`, and `declarationMap` keep their `tsconfig.json` values.
+`--map` composes per-module transpile maps with linker sections; IIFE/UMD wrap offsets are applied. Every define/drop edit stage is applied to the module map before composition: deleted ranges lose their mappings, replaced ranges keep theirs at the replacement position, and later positions shift with the text. Declaration source maps are written when `--dts` and `--map` are both explicitly enabled. When only one of them is passed, or neither is passed, `sourceMap`, `declaration`, and `declarationMap` keep their `tsconfig.json` values.
 
 ## Library API
 
