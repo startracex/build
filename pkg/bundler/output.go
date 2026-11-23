@@ -32,6 +32,11 @@ func ContentHash(data string) string {
 	return output.ContentHash(data)
 }
 
+// HasHashPlaceholder reports whether pattern contains [hash] or [hash:N].
+func HasHashPlaceholder(pattern string) bool {
+	return output.HasHashPlaceholder(pattern)
+}
+
 func (o Options) normalizedOutputs() ([]OutputOptions, error) {
 	if len(o.Outputs) > 0 {
 		var outs []OutputOptions

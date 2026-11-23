@@ -105,6 +105,15 @@ func TestPlanOutputsKeepsExplicitPaths(t *testing.T) {
 	}
 }
 
+func TestTemplateOfHashPlaceholder(t *testing.T) {
+	if got := templateOf("dist/[hash:8].js"); got != "dist/[hash:8].js" {
+		t.Fatalf("templateOf valid hash = %q", got)
+	}
+	if got := templateOf("dist/[hash.js"); got != "" {
+		t.Fatalf("templateOf invalid hash = %q", got)
+	}
+}
+
 func TestPlanOutputsTemplate(t *testing.T) {
 	pattern := filepath.Join("dist", "[name].cjs")
 	plan, err := planOutputs(outputFile, []string{pattern}, []bundler.Format{bundler.FormatCJS}, bundler.FormatCJS, "", "")

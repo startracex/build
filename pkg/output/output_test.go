@@ -27,6 +27,22 @@ func TestRenderEntryFileNameHash(t *testing.T) {
 	}
 }
 
+func TestHasHashPlaceholder(t *testing.T) {
+	cases := map[string]bool{
+		"dist/[hash].js":   true,
+		"dist/[hash:8].js": true,
+		"dist/[hash":       false,
+		"dist/[hash:]":     false,
+		"dist/[hash:8":     false,
+		"dist/hash].js":    false,
+	}
+	for pattern, want := range cases {
+		if got := HasHashPlaceholder(pattern); got != want {
+			t.Errorf("HasHashPlaceholder(%q) = %v, want %v", pattern, got, want)
+		}
+	}
+}
+
 func TestContentHashStable(t *testing.T) {
 	first := ContentHash("hello")
 	second := ContentHash("hello")

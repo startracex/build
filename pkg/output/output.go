@@ -53,6 +53,12 @@ const DefaultHashLength = 8
 
 var hashPlaceholder = regexp.MustCompile(`\[hash(?::(\d+))?\]`)
 
+// HasHashPlaceholder reports whether pattern contains a well-formed [hash]
+// or [hash:N] placeholder.
+func HasHashPlaceholder(pattern string) bool {
+	return hashPlaceholder.MatchString(pattern)
+}
+
 // ContentHash returns the SHA-256 digest used by [hash] placeholders.
 func ContentHash(data string) string {
 	sum := sha256.Sum256([]byte(data))

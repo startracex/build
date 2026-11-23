@@ -20,12 +20,17 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 	}
 	b.outputPaths = nil
 	if b.opts.NameTemplate != "" && b.opts.OutFile != "" {
+		hasHash := HasHashPlaceholder(b.opts.NameTemplate)
 		b.outputPaths = make(map[string]string, len(b.units))
 		for id, unit := range b.units {
 			abs := filepath.FromSlash(id)
 			jsRel := modpath.DisplayRel(root, modpath.JavascriptOutputAbs(abs))
 			name := strings.TrimSuffix(filepath.Base(jsRel), filepath.Ext(jsRel))
-			b.outputPaths[id] = RenderEntryFileName(b.opts.NameTemplate, name, b.format, ContentHash(unit.code))
+			hash := ""
+			if hasHash {
+				hash = ContentHash(unit.code)
+			}
+			b.outputPaths[id] = RenderEntryFileName(b.opts.NameTemplate, name, b.format, hash)
 		}
 	}
 	var files []Output
