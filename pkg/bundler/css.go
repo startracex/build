@@ -19,7 +19,7 @@ func (b *bundler) emitEntryCSS(result *Result, jsOut, entryAbs string) {
 	}
 	cssPath := jsOut
 	if cssPath == "" {
-		base := filepath.Base(javascriptOutputAbs(entryAbs))
+		base := filepath.Base(modpath.JavascriptOutputAbs(entryAbs))
 		if b.opts.OutDir != "" {
 			cssPath = filepath.Join(b.opts.OutDir, base)
 		} else {
@@ -38,7 +38,7 @@ func (b *bundler) emitEntryCSS(result *Result, jsOut, entryAbs string) {
 
 func (b *bundler) cssForEntry(entryAbs string) (string, map[string]bool) {
 	graph := b.staticDeps()
-	reached := reach(graph, moduleID(entryAbs))
+	reached := reach(graph, modpath.ModuleID(entryAbs))
 	ids := keysOf(reached)
 	var parts []string
 	sources := map[string]bool{}

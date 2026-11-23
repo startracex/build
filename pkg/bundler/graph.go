@@ -9,6 +9,7 @@ import (
 	"github.com/startracex/build/pkg/asset"
 	"github.com/startracex/build/pkg/cache"
 	"github.com/startracex/build/pkg/define"
+	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/output"
 	"github.com/startracex/build/pkg/plugin"
 	"github.com/startracex/build/pkg/resolve"
@@ -156,7 +157,7 @@ func (b *bundler) emitForFormat(opts Options, out OutputOptions, roots []string)
 			b.format = FormatCJS
 		}
 		var js string
-		js, err = b.linkModules(moduleID(entry), nil)
+		js, err = b.linkModules(modpath.ModuleID(entry), nil)
 		if err != nil {
 			return nil, err
 		}

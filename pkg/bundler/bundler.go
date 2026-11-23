@@ -254,7 +254,7 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 			for _, root := range roots {
 				jsOut := outputs[0].OutFile
 				if jsOut == "" && outputs[0].OutDir != "" {
-					jsOut = filepath.Join(outputs[0].OutDir, filepath.Base(javascriptOutputAbs(root)))
+					jsOut = filepath.Join(outputs[0].OutDir, filepath.Base(modpath.JavascriptOutputAbs(root)))
 				}
 				b.emitEntryCSS(result, jsOut, root)
 			}
@@ -279,7 +279,7 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 			for _, root := range roots {
 				jsOut := out.OutFile
 				if jsOut == "" && out.OutDir != "" {
-					jsOut = filepath.Join(out.OutDir, filepath.Base(javascriptOutputAbs(root)))
+					jsOut = filepath.Join(out.OutDir, filepath.Base(modpath.JavascriptOutputAbs(root)))
 				}
 				b.emitEntryCSS(sub, jsOut, root)
 			}
@@ -352,7 +352,7 @@ type bundler struct {
 }
 
 func (b *bundler) load(path string) error {
-	id := moduleID(path)
+	id := modpath.ModuleID(path)
 	if b.loading[id] {
 		return nil
 	}
@@ -368,7 +368,7 @@ func (b *bundler) load(path string) error {
 		return err
 	}
 	path = abs
-	id = moduleID(path)
+	id = modpath.ModuleID(path)
 	if b.loading[id] {
 		return nil
 	}
@@ -632,7 +632,7 @@ func (o Options) absRoots() ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		id := moduleID(abs)
+		id := modpath.ModuleID(abs)
 		if seen[id] {
 			continue
 		}

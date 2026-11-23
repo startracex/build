@@ -119,8 +119,8 @@ func (b *bundler) outputSpecifier(fromAbs, toAbs string) string {
 	if len(b.outputPaths) == 0 {
 		return relativeOutputSpecifier(fromAbs, toAbs)
 	}
-	fromOut := b.outputPaths[moduleID(fromAbs)]
-	toOut := b.outputPaths[moduleID(toAbs)]
+	fromOut := b.outputPaths[modpath.ModuleID(fromAbs)]
+	toOut := b.outputPaths[modpath.ModuleID(toAbs)]
 	if fromOut == "" || toOut == "" {
 		return relativeOutputSpecifier(fromAbs, toAbs)
 	}

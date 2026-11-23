@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/plugin"
 	"github.com/startracex/build/pkg/resolve"
 	"github.com/startracex/tsgo/pkg/core"
@@ -298,7 +299,7 @@ export const sum = fromFile + virtualVal;
 			return "", false, false, nil
 		},
 		Load: func(_ plugin.HookCtx, id string) (string, bool, error) {
-			if filepath.ToSlash(id) == filepath.ToSlash(moduleID(virtualID)) {
+			if filepath.ToSlash(id) == filepath.ToSlash(modpath.ModuleID(virtualID)) {
 				return "export const virtualVal = 7;\n", true, nil
 			}
 			return "", false, nil

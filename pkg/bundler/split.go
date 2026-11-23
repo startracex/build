@@ -27,7 +27,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 	entryIDs := make([]string, 0, len(entries))
 	entrySync := map[string]map[string]bool{}
 	for _, e := range entries {
-		id := moduleID(e)
+		id := modpath.ModuleID(e)
 		entryIDs = append(entryIDs, id)
 		entrySync[id] = reach(graph, id)
 	}
@@ -187,7 +187,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 		if linkFmt == FormatIIFE || linkFmt == FormatUMD {
 			b.format = FormatCJS
 		}
-		linked, err := b.linkModules(moduleID(e), nil)
+		linked, err := b.linkModules(modpath.ModuleID(e), nil)
 		b.format = emitFmt
 		if err != nil {
 			return nil, err
@@ -250,7 +250,7 @@ func (b *bundler) staticDeps() map[string][]string {
 			if err != nil || external || resolved == "" {
 				continue
 			}
-			out[id] = append(out[id], moduleID(resolved))
+			out[id] = append(out[id], modpath.ModuleID(resolved))
 		}
 	}
 	return out
@@ -278,7 +278,7 @@ func (b *bundler) dynamicImportEdges() map[string]map[string]bool {
 			if edges[id] == nil {
 				edges[id] = map[string]bool{}
 			}
-			edges[id][moduleID(resolved)] = true
+			edges[id][modpath.ModuleID(resolved)] = true
 			return false
 		})
 	}

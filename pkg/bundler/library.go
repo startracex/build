@@ -75,7 +75,7 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 		}
 		files = append(files, Output{Path: jsPath, Data: js})
 		b.sources[filepath.ToSlash(abs)] = jsPath
-		if moduleID(abs) == moduleID(entry) {
+		if modpath.ModuleID(abs) == modpath.ModuleID(entry) {
 			entryJS = js
 		}
 		if b.sourceMap && strings.TrimSpace(unit.jsMap) != "" {
