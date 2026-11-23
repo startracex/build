@@ -95,11 +95,13 @@ build --outdir dist --format esm --format cjs "src/**/*.ts"
 build --outdir dist a.ts b.ts
 # app: one bundle per entry, modules shared by several entries → chunks/shared-*.js
 build --mode app --outdir dist src/index.ts a.ts b.ts
-# app + splitting: import() targets → chunks/*.js
-build --mode app --outdir dist --splitting src/index.ts
+# app: import() targets → chunks/*.js
+build --mode app --outdir dist src/index.ts
 ```
 
-`--mode` picks the output layout: `app` writes one bundle per entry and inlines package imports, `lib` writes one file per module and leaves package imports external. It is inferred from the output path when omitted: `--outfile` with a single entry is `app`, everything else is `lib`. `--splitting` requires `--outdir` and app mode; it only controls whether `import()` targets become their own chunk.
+`--mode` picks the output layout: `app` writes one bundle per entry and inlines package imports, `lib` writes one file per module and leaves package imports external. It is inferred from the output path when omitted: `--outfile` with a single entry is `app`, everything else is `lib`.
+
+Splitting follows the mode. In `app` mode with `--outdir` every `import()` target becomes its own chunk, so the dynamic import stays lazy; modules shared by several entries go to `chunks/shared-*.js`. In `lib` mode nothing is split and `import()` stays a real dynamic import of the emitted file. The one exception is `app` mode with `--outfile`: a single file cannot hold chunks, so the `import()` target is inlined into the bundle.
 
 Passing files on the command line without `-p` ignores `tsconfig.json`. With `-p`, explicit files are used as the entries while compiler options are read from that `tsconfig.json`.
 
@@ -132,7 +134,7 @@ The compiler options that change the output are read from `tsconfig.json`. They 
 | `--global-name` | Required for `iife` / `umd`. |
 | `--jsx` | `react`, `react-jsx`, `react-jsxdev`, `preserve`, or `react-native`. `preserve` and `react-native` keep JSX syntax in the output. |
 | `--external` | Leave a package unbundled (repeatable). |
-| `--mode` | Output layout: `app` (one bundle per entry, packages inlined, no `.d.ts`) or `lib` (one file per module, packages external by default). Inferred from the output path when omitted. |
+| `--mode` | Output layout: `app` (one bundle per entry, packages inlined, `import()` split into chunks, no `.d.ts`) or `lib` (one file per module, packages external by default, nothing split). Inferred from the output path when omitted. |
 | `--bundle` | Bundle bare package imports in library output instead of leaving them external (alias `--bundle-node-modules`). |
 | `--conditions` | Extra `package.json` `"exports"` conditions (repeatable). |
 | `--alias` | Specifier prefix mapping `from=to` (repeatable). |
@@ -140,7 +142,6 @@ The compiler options that change the output are read from `tsconfig.json`. They 
 | `--drop` | `console` and/or `debugger` (repeatable). |
 | `--map` | Write source maps (alias `--sourcemap`); with `--dts` also writes `.d.ts.map`. |
 | `--dts` | Write `.d.ts` for per-module output. |
-| `--splitting` | Emit `import()` targets as separate chunks (requires `--outdir` and app mode). |
 | `--cache-dir` | Cache transpile results (key includes plugins/define/drop). |
 | `--manifest` | Write `manifest.json` for emitted assets. |
 | `--public-path` | URL prefix for `?url` / file assets. |
@@ -156,8 +157,8 @@ The compiler options that change the output are read from `tsconfig.json`. They 
 
 ### App multi-entry and splitting
 
-- Single entry + `--outfile`: one linked file (IIFE/UMD need `--global-name`).
-- App mode + `--outdir`: one bundle per entry; modules shared by several entries go to `chunks/shared-*.js`, and `--splitting` moves `import()` targets to `chunks/*.js`.
+- Single entry + `--outfile`: one linked file (IIFE/UMD need `--global-name`). The `import()` target is inlined into it, since a single file cannot hold chunks.
+- App mode + `--outdir`: one bundle per entry; modules shared by several entries go to `chunks/shared-*.js`, and every `import()` target goes to `chunks/*.js`.
 - Library mode (`--outdir`) leaves bare package imports external by default; `--bundle` emits package files as regular modules instead.
 - `Options.ManualChunks` can force modules into named chunks by path substring.
 - IIFE/UMD: single entry only.

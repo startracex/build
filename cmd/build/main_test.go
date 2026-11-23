@@ -1392,14 +1392,6 @@ func TestCLIModeConflicts(t *testing.T) {
 		!strings.Contains(err.Error(), "--mode lib needs --outdir") {
 		t.Fatalf("error = %v", err)
 	}
-	if err := run([]string{"--mode", "lib", "--splitting", "--outdir", "dist", "index.ts"}, nil, nil); err == nil ||
-		!strings.Contains(err.Error(), "--splitting needs app mode") {
-		t.Fatalf("error = %v", err)
-	}
-	if err := run([]string{"--outfile", "out.js", "--splitting", "index.ts"}, nil, nil); err == nil ||
-		!strings.Contains(err.Error(), "--splitting needs --outdir") {
-		t.Fatalf("error = %v", err)
-	}
 	if err := run([]string{"--mode", "app", "--outfile", "out.js", "index.ts", "other.ts"}, nil, nil); err == nil ||
 		!strings.Contains(err.Error(), "single entry") {
 		t.Fatalf("error = %v", err)
@@ -1460,7 +1452,7 @@ func TestCLIAppModeSplittingChunks(t *testing.T) {
 	t.Chdir(dir)
 
 	out := filepath.Join(dir, "dist")
-	if err := run([]string{"--mode", "app", "--outdir", out, "--splitting", "src/index.ts"}, nil, nil); err != nil {
+	if err := run([]string{"--mode", "app", "--outdir", out, "src/index.ts"}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := os.ReadDir(filepath.Join(out, "chunks"))
@@ -1476,6 +1468,32 @@ func TestCLIAppModeSplittingChunks(t *testing.T) {
 	}
 	if !strings.Contains(string(body), `import("./chunks/`) {
 		t.Fatalf("dynamic import was not rewritten to a chunk:\n%s", body)
+	}
+	if strings.Contains(string(body), "Promise.resolve") {
+		t.Fatalf("dynamic import was inlined instead of split:\n%s", body)
+	}
+}
+
+func TestCLILibModeKeepsDynamicImport(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(src, "index.ts"), "export const load = () => import(\"./lazy.js\");\n")
+	writeFile(t, filepath.Join(src, "lazy.ts"), "export const value = 1;\n")
+	t.Chdir(dir)
+
+	out := filepath.Join(dir, "dist")
+	if err := run([]string{"--outdir", out, "src/index.ts"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(out, "src", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `import("./lazy.js")`) {
+		t.Fatalf("lib mode should keep the dynamic import:\n%s", body)
 	}
 }
 

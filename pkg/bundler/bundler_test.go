@@ -898,10 +898,9 @@ export async function load() {
 `)
 	out := filepath.Join(dir, "dist")
 	result, err := Build(context.Background(), Options{
-		Entry:     filepath.Join(dir, "index.ts"),
-		Mode:      ModeApp,
-		OutDir:    out,
-		Splitting: true,
+		Entry:  filepath.Join(dir, "index.ts"),
+		Mode:   ModeApp,
+		OutDir: out,
 	})
 	if err != nil {
 		t.Fatal(err)

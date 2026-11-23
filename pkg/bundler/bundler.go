@@ -21,8 +21,11 @@
 // replace a specifier with a file.
 //
 // Multiple Outputs emit the same input in several formats (for example ESM and
-// CJS). Define/Drop, Alias, asset queries (?raw/?url), CSS, code splitting, and
-// a transpile cache are available through Options.
+// CJS). Define/Drop, Alias, asset queries (?raw/?url), CSS, and a transpile
+// cache are available through Options.
+//
+// App mode with an OutDir splits the graph: modules shared by several entries
+// go to chunks/shared-*.js and every import() target becomes chunks/*.js.
 //
 // The compiler options read from tsconfig.json reach the build through the
 // context, see Options.CompilerOptions. They decide the emitted JavaScript,
@@ -166,10 +169,8 @@ type Options struct {
 	Drop []string
 	// Alias maps import prefixes to filesystem paths (longest prefix wins).
 	Alias map[string]string
-	// Splitting emits async import() targets as separate chunks (app + OutDir).
-	Splitting bool
 	// ManualChunks maps a module path substring to a chunk base name under
-	// chunks/ (e.g. "node_modules/lodash" -> "vendor-lodash"). App split only.
+	// chunks/ (e.g. "node_modules/lodash" -> "vendor-lodash"). App mode only.
 	ManualChunks map[string]string
 	// CacheDir stores transpile results keyed by content hash.
 	CacheDir string

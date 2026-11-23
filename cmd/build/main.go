@@ -37,12 +37,12 @@ func run(args []string, stderr, stdout io.Writer) error {
 			"   Output paths and --format are repeatable and aligned from the right.",
 		Flags: []cli.Flag{
 			&cli.StringSliceFlag{Name: "outfile", Aliases: []string{"o"}, Usage: "single-file bundle path (repeatable)"},
-			&cli.StringSliceFlag{Name: "outdir", Usage: "directory for per-module or split output (repeatable)"},
-			&cli.StringFlag{Name: "entry-file-names", Usage: "filename pattern for --outdir outputs ([name], [path], [format], [hash], [hash:N])"},
+			&cli.StringSliceFlag{Name: "outdir", Aliases: []string{"d"}, Usage: "directory for per-module or split output (repeatable)"},
+			&cli.StringFlag{Name: "entry-file-names", Aliases: []string{"n"}, Usage: "filename pattern for --outdir outputs ([name], [path], [format], [hash], [hash:N])"},
 			&cli.StringFlag{Name: "project", Aliases: []string{"p"}, Usage: "tsconfig.json file or directory"},
-			&cli.StringSliceFlag{Name: "format", Usage: "output format: esm, cjs, iife, umd (repeatable)"},
+			&cli.StringSliceFlag{Name: "format", Aliases: []string{"f"}, Usage: "output format: esm, cjs, iife, umd (repeatable)"},
 			&cli.StringFlag{Name: "jsx", Usage: "JSX transform: react, react-jsx, react-jsxdev, preserve, or react-native"},
-			&cli.StringFlag{Name: "global-name", Usage: "global variable name for iife/umd"},
+			&cli.StringFlag{Name: "global-name", Aliases: []string{"g"}, Usage: "global variable name for iife/umd"},
 			&cli.StringSliceFlag{Name: "conditions", Usage: "extra package.json exports conditions (repeatable)"},
 			&cli.StringSliceFlag{Name: "alias", Usage: "import alias from=to (repeatable)"},
 			&cli.StringSliceFlag{Name: "define", Usage: "replace identifier KEY=VAL (repeatable)"},
@@ -51,8 +51,7 @@ func run(args []string, stderr, stdout io.Writer) error {
 			&cli.BoolFlag{Name: "dts", Usage: "write .d.ts files for per-module output"},
 			&cli.StringSliceFlag{Name: "external", Usage: "package left unbundled (repeatable)"},
 			&cli.StringFlag{Name: "mode", Usage: "output layout: app (one bundle per entry) or lib (one file per module)"},
-			&cli.BoolFlag{Name: "bundle", Aliases: []string{"bundle-node-modules"}, Usage: "bundle bare package imports in library output"},
-			&cli.BoolFlag{Name: "splitting", Usage: "emit import() targets as chunks (requires --outdir and app mode)"},
+			&cli.BoolFlag{Name: "bundle", Usage: "bundle bare package imports in library output"},
 			&cli.StringFlag{Name: "cache-dir", Usage: "directory for transpile cache"},
 			&cli.BoolFlag{Name: "manifest", Usage: "write manifest.json of emitted assets"},
 			&cli.StringFlag{Name: "public-path", Usage: "URL prefix for emitted assets"},
@@ -106,7 +105,6 @@ func action(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	splitting := c.Bool("splitting")
 	entries, err := expandEntries(c.Args().Slice())
 	if err != nil {
 		return err
@@ -129,7 +127,6 @@ func action(c *cli.Context) error {
 		Define:            define,
 		Drop:              c.StringSlice("drop"),
 		GlobalName:        c.String("global-name"),
-		Splitting:         splitting,
 		CacheDir:          c.String("cache-dir"),
 		Manifest:          c.Bool("manifest"),
 		PublicPath:        c.String("public-path"),
@@ -201,9 +198,6 @@ func action(c *cli.Context) error {
 		default:
 			base.Mode = bundler.ModeLib
 		}
-		if splitting {
-			return errors.New("--splitting needs --outdir")
-		}
 		plan, err := planOutputs(outputFile, outfiles, formatList(explicitFormats, formatSet, base.Format), base.Format, "", base.GlobalName)
 		if err != nil {
 			return err
@@ -218,14 +212,8 @@ func action(c *cli.Context) error {
 		base.Mode = bundler.ModeApp
 	case bundler.ModeLib:
 		base.Mode = bundler.ModeLib
-		if splitting {
-			return errors.New("--splitting needs app mode")
-		}
 	default:
 		base.Mode = bundler.ModeLib
-		if splitting {
-			base.Mode = bundler.ModeApp
-		}
 	}
 	if base.EntryFileNames != "" && len(outdirs) == 0 && base.OutDir == "" {
 		return errors.New("--entry-file-names requires --outdir")

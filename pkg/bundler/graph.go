@@ -120,9 +120,6 @@ func validateBuildOutputs(opts Options, outputs []OutputOptions, outMode Mode, r
 				if len(roots) != 1 {
 					return fmt.Errorf("single-file output requires one entry")
 				}
-				if opts.Splitting {
-					return fmt.Errorf("code splitting requires --outdir")
-				}
 			case len(roots) > 1 && (out.Format == FormatIIFE || out.Format == FormatUMD):
 				return fmt.Errorf("iife/umd output supports a single entry only")
 			}
@@ -152,7 +149,7 @@ func (b *bundler) emitForFormat(opts Options, out OutputOptions, roots []string)
 	if b.outMode == ModeLib {
 		result, err = b.emitLibrary(entry)
 	} else if b.opts.OutDir != "" {
-		result, err = b.emitSplit(roots, opts.Splitting)
+		result, err = b.emitSplit(roots)
 	} else {
 		linkFmt := b.format
 		if linkFmt == FormatIIFE || linkFmt == FormatUMD {
