@@ -6,7 +6,7 @@
 // and "main". For ESM output, a package.json "module" field is preferred
 // when "exports" is absent.
 //
-// App mode (the default) links the local graph into one file. ESM output
+// App mode links the local graph into one file. ESM output
 // uses real import and export declarations. CommonJS output uses the same
 // link and assigns the entry exports to module.exports. Unused side-effect-free
 // exports are dropped. Node built-ins and packages listed in Options.External

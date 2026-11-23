@@ -19,11 +19,6 @@ const (
 	FormatUMD  = "umd"
 )
 
-const (
-	ModeApp = "app"
-	ModeLib = "lib"
-)
-
 // DeriveOutFile picks an extension for dual-format outfile emission.
 func DeriveOutFile(base string, format string) string {
 	dir := filepath.Dir(base)
@@ -90,14 +85,9 @@ func RenderEntryFileName(pattern, name, path, format, hash string) string {
 }
 
 // ValidateOutputPaths checks outfile/outdir constraints for one emit target.
-func ValidateOutputPaths(format, outFile, outDir, mode string, entryCount int) error {
+func ValidateOutputPaths(outFile, outDir string) error {
 	if outFile != "" && outDir != "" {
 		return fmt.Errorf("outfile and outdir cannot both be set on one output")
-	}
-	if mode == ModeApp || mode == "" {
-		if outFile != "" && entryCount != 1 {
-			return fmt.Errorf("single-file output requires one entry")
-		}
 	}
 	return nil
 }

@@ -151,9 +151,6 @@ func EmitProgram(ctx context.Context, absPaths []string, opts Options) (map[stri
 	if err != nil {
 		return nil, err
 	}
-	if program == nil {
-		return nil, fmt.Errorf("declaration program was not created")
-	}
 
 	out := map[string]Emit{}
 	result := program.Emit(ctx, compiler.EmitOptions{

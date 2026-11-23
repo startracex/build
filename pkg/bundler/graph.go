@@ -113,7 +113,7 @@ func validateBuildOutputs(opts Options, outputs []OutputOptions, outMode Mode, r
 	multiApp := outMode == ModeApp && len(roots) > 1
 	needSplit := outMode == ModeApp && (opts.Splitting || multiApp)
 	for _, out := range outputs {
-		if err := output.ValidateOutputPaths(string(out.Format), out.OutFile, out.OutDir, string(outMode), len(roots)); err != nil {
+		if err := output.ValidateOutputPaths(out.OutFile, out.OutDir); err != nil {
 			return err
 		}
 		if needSplit && out.OutDir == "" {
