@@ -33,6 +33,7 @@ func (b *bundler) attachDeclarations() error {
 		BaseURL:          b.opts.BaseURL,
 		FS:               b.fs,
 		CWD:              b.cwd,
+		RootDir:          b.rootDir,
 	})
 	if err != nil {
 		return err

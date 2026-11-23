@@ -1311,12 +1311,15 @@ func (m *esModule) markImport(mods map[string]*esModule, imp *esImport, prop str
 	return markExportProps(mods, dep, imported, imp.props, escapes, map[string]bool{})
 }
 
-func renderLinked(mods map[string]*esModule, order []string, entry *esModule, format string, helper string, cwd string) string {
+func renderLinked(mods map[string]*esModule, order []string, entry *esModule, format string, helper string, cwd, rootDir string) string {
 	var paths []string
 	for _, id := range order {
 		paths = append(paths, filepath.FromSlash(id))
 	}
-	root := modpath.DisplayRoot(cwd, paths)
+	root := rootDir
+	if root == "" {
+		root = modpath.DisplayRoot(cwd, paths)
+	}
 	sorted := topoModules(mods, entry)
 
 	var b strings.Builder

@@ -40,6 +40,7 @@ func run(args []string, stderr, stdout io.Writer) error {
 			&cli.StringSliceFlag{Name: "outfile", Aliases: []string{"o"}, Usage: "single-file bundle path (repeatable)"},
 			&cli.StringSliceFlag{Name: "outdir", Aliases: []string{"d"}, Usage: "directory for per-module or split output (repeatable)"},
 			&cli.StringFlag{Name: "entry-file-names", Aliases: []string{"n"}, Usage: "filename pattern for --outdir outputs ([name], [path], [format], [hash], [hash:N])"},
+			&cli.StringFlag{Name: "root-dir", Aliases: []string{"r"}, Usage: "base directory for paths written under the output directory"},
 			&cli.StringFlag{Name: "project", Aliases: []string{"p"}, Usage: "tsconfig.json file or directory"},
 			&cli.StringSliceFlag{Name: "format", Aliases: []string{"f"}, Usage: "output format: esm, cjs, iife, umd (repeatable)"},
 			&cli.StringFlag{Name: "jsx", Usage: "JSX transform: react, react-jsx, react-jsxdev, preserve, or react-native"},
@@ -145,6 +146,7 @@ func action(c *cli.Context) error {
 		Manifest:          c.Bool("manifest"),
 		PublicPath:        c.String("public-path"),
 		EntryFileNames:    c.String("entry-file-names"),
+		RootDir:           c.String("root-dir"),
 	}
 
 	if len(entries) == 1 {

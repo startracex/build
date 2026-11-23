@@ -49,6 +49,9 @@ type Options struct {
 	// CWD resolves relative paths. Empty falls back to the process working
 	// directory.
 	CWD string
+	// RootDir is the source root used for declaration paths. Empty falls back
+	// to the common directory of absPaths.
+	RootDir string
 }
 
 // declarationCompilerOptions builds the compiler options for the declaration
@@ -113,9 +116,13 @@ func EmitProgram(ctx context.Context, absPaths []string, opts Options) (map[stri
 		declMap = core.TSTrue
 	}
 	compilerOpts := declarationCompilerOptions(opts, declMap)
+	sourceRoot := opts.RootDir
+	if sourceRoot == "" {
+		sourceRoot = modpath.DisplayRoot(opts.CWD, absPaths)
+	}
 	host := compiler.NewCompilerHost(fs, bundled.LibPath(), nil, nil, nil)
 	program, err := compiler.NewProgram(ctx, compiler.ProgramOptions{
-		Config:         tsoptions.NewParsedCommandLine(compilerOpts, roots, nil, tspath.RootedDirectoryPathFromAbsolute(modpath.DisplayRoot(opts.CWD, absPaths)), fs.CaseSensitivity()),
+		Config:         tsoptions.NewParsedCommandLine(compilerOpts, roots, nil, tspath.RootedDirectoryPathFromAbsolute(sourceRoot), fs.CaseSensitivity()),
 		Host:           host,
 		SingleThreaded: core.TSTrue,
 	})

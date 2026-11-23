@@ -17,8 +17,8 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 		return nil, err
 	}
 	root := modpath.DisplayRoot(b.cwd, unitPaths(b, entry))
-	if b.opts.RootDir != "" {
-		root = b.opts.RootDir
+	if b.rootDir != "" {
+		root = b.rootDir
 	}
 	ids := make([]string, 0, len(b.units))
 	for id := range b.units {

@@ -173,7 +173,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 	}
 
 	var entryJS string
-	rootDir := b.opts.RootDir
+	rootDir := b.rootDir
 	if rootDir == "" {
 		rootDir = modpath.DisplayRoot(b.cwd, entries)
 	}

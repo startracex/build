@@ -12,8 +12,8 @@ func (b *bundler) composeAppSourceMap(js, file string) string {
 		paths = append(paths, filepath.FromSlash(id))
 	}
 	root := modpath.DisplayRoot(b.cwd, paths)
-	if b.opts.RootDir != "" {
-		root = b.opts.RootDir
+	if b.rootDir != "" {
+		root = b.rootDir
 	}
 	var mods []sourcemap.ModuleMap
 	for id, unit := range b.units {

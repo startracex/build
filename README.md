@@ -63,7 +63,7 @@ An `.html` file can be used as an entry. It is parsed with `golang.org/x/net/htm
 build --outdir dist index.html
 ```
 
-The HTML directory is used as the default root for emitted paths, unless `rootDir` is set in `tsconfig.json`.
+The HTML directory is used as the default root for emitted paths, unless `rootDir` is set in `tsconfig.json` or `--root-dir` is passed.
 
 Both layouts accept an HTML entry:
 
@@ -154,6 +154,7 @@ The compiler options that change the output are read from `tsconfig.json`. They 
 | `-o`, `--outfile` | Single-file bundle path (repeatable). Supports `[name]`, `[path]`, `[format]`, `[hash]`, and `[hash:N]` placeholders; with a placeholder, several modules emit one file per module. |
 | `--outdir` | Directory for per-module or split output (repeatable). |
 | `--entry-file-names` | Filename pattern for `--outdir` outputs: `[name]`, `[path]`, `[format]`, `[hash]`, `[hash:N]`. Ignored with `--outfile`. |
+| `-r`, `--root-dir` | Base directory for paths written under the output dir. Defaults to tsconfig `rootDir`, then the common source directory. |
 | arguments | Entry files (including `.html`), directories, or globs. Directories are expanded to supported source files (excluding `node_modules` and `.d.ts`). |
 | `-p`, `--project` | `tsconfig.json` file or directory. |
 | `--format` | `esm`, `cjs`, `iife`, or `umd`. Repeatable; paired with output paths from the right. |

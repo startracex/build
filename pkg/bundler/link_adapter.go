@@ -30,6 +30,7 @@ func (b *bundler) linkModules(entryID string, preserve []string) (string, error)
 		Resolver:        linkResolver{b},
 		PreserveExports: preserve,
 		CWD:             b.cwd,
+		RootDir:         b.rootDir,
 		FS:              b.fs,
 	})
 	if err != nil {

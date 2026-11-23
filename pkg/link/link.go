@@ -39,6 +39,8 @@ type Options struct {
 	// CWD resolves relative display paths. Empty falls back to the deepest
 	// common directory of the linked modules.
 	CWD string
+	// RootDir overrides the base for relative display paths.
+	RootDir string
 	// FS reads the package.json files that decide side-effect pruning. Nil uses
 	// the OS file system.
 	FS vfs.FS
@@ -104,7 +106,7 @@ func Link(mods map[string]Module, entryID string, opts Options) (Result, error) 
 	if format == "iife" || format == "umd" {
 		format = "cjs"
 	}
-	code := renderLinked(parsed, order, entry, format, helper, opts.CWD)
+	code := renderLinked(parsed, order, entry, format, helper, opts.CWD, opts.RootDir)
 	maps := map[string]string{}
 	for id, m := range parsed {
 		if m.linkedMap != "" {

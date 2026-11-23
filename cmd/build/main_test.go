@@ -1455,6 +1455,42 @@ export const local: T = { name: "x" };
 	}
 }
 
+// TestCLIRootDirFlagOverridesTSConfig checks that the explicit flag wins over
+// tsconfig's rootDir, and that tsconfig's value is the default.
+func TestCLIRootDirFlagOverridesTSConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "src", "index.ts"), `export const value = 1;
+`)
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": {
+    "module": "esnext",
+    "target": "es2022",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}`)
+	t.Chdir(dir)
+
+	out := filepath.Join(dir, "out")
+	if err := run([]string{"--bundle", "-p", "tsconfig.json", "-d", out}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "index.js")); err != nil {
+		t.Fatalf("tsconfig rootDir was not used: %v", err)
+	}
+
+	flagged := filepath.Join(dir, "flagged")
+	if err := run([]string{"--bundle", "-p", "tsconfig.json", "-r", ".", "-d", flagged}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(flagged, "src", "index.js")); err != nil {
+		t.Fatalf("--root-dir did not override tsconfig: %v", err)
+	}
+}
+
 func TestCLIPlatformDoesNotAffectDeclarations(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), "import { value } from \"pkg\";\nexport const n = value;\n")

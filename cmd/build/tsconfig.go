@@ -69,10 +69,12 @@ func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration, declarati
 	if opts.OutDir == "" && compiler.OutDir != "" {
 		opts.OutDir = filepath.FromSlash(compiler.OutDir.AsString())
 	}
-	if compiler.RootDir != "" {
-		opts.RootDir = filepath.FromSlash(compiler.RootDir.AsString())
-	} else if common := parsed.CommonSourceDirectory(); common != "" {
-		opts.RootDir = filepath.FromSlash(common.AsString())
+	if !c.IsSet("root-dir") {
+		if compiler.RootDir != "" {
+			opts.RootDir = filepath.FromSlash(compiler.RootDir.AsString())
+		} else if common := parsed.CommonSourceDirectory(); common != "" {
+			opts.RootDir = filepath.FromSlash(common.AsString())
+		}
 	}
 	if len(opts.Entries) == 0 && opts.Entry == "" {
 		files, err := configFiles(parsed)

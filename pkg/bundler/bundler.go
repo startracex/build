@@ -135,8 +135,9 @@ type Options struct {
 	EntryFileNames string
 	// OutDir is the directory used by per-module output.
 	OutDir string
-	// RootDir is the base for paths written under OutDir. Empty uses the
-	// common directory of the loaded files.
+	// RootDir is the base for paths written under OutDir. When empty, the
+	// rootDir from CompilerOptions is used, then the deepest directory shared
+	// by the entry files.
 	RootDir string
 	// Declaration writes .d.ts files in library mode. Nil means no, matching tsc.
 	// App mode does not write declarations.
@@ -374,6 +375,7 @@ type bundler struct {
 	// from Options, defaulting to the OS file system and working directory.
 	fs        vfs.FS
 	cwd       string
+	rootDir   string
 	loading   map[string]bool
 	units     map[string]*unit
 	assets    map[string]*asset.Unit
@@ -643,7 +645,7 @@ func (b *bundler) loadAsset(abs string, kind asset.Kind) error {
 	if _, ok := b.assets[id]; ok {
 		return nil
 	}
-	au, js, err := asset.Load(b.fs, abs, kind, b.opts.RootDir, b.opts.PublicPath)
+	au, js, err := asset.Load(b.fs, abs, kind, b.rootDir, b.opts.PublicPath)
 	if err != nil {
 		return err
 	}

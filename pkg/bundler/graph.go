@@ -43,6 +43,21 @@ func resolutionPlatform(platform resolve.Platform, mode Mode, format Format) res
 	return resolve.PlatformNeutral
 }
 
+// effectiveRootDir resolves the base used for paths written under the output
+// directory. An explicit option wins, then the rootDir from tsconfig, then the
+// deepest directory shared by the entry files.
+func effectiveRootDir(opts Options, cwd string) string {
+	if opts.RootDir != "" {
+		if abs, err := modpath.AbsPath(cwd, opts.RootDir); err == nil {
+			return abs
+		}
+	}
+	if opts.CompilerOptions != nil && opts.CompilerOptions.RootDir != "" {
+		return filepath.ToSlash(opts.CompilerOptions.RootDir.AsString())
+	}
+	return ""
+}
+
 // newTranspileCache builds the optional transpile cache. The directory is
 // resolved against the build root, so a virtual file system keeps its entries in
 // the same tree as the sources, and the OS file system gets the same absolute
@@ -84,6 +99,7 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 	if err != nil {
 		return nil, nil, err
 	}
+	rootDir := effectiveRootDir(opts, cwd)
 	if err := define.Validate(opts.Define, opts.Drop); err != nil {
 		return nil, nil, err
 	}
@@ -114,6 +130,7 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		mode:         resolution,
 		fs:           opts.FS,
 		cwd:          cwd,
+		rootDir:      rootDir,
 		loading:      map[string]bool{},
 		units:        map[string]*unit{},
 		assets:       map[string]*asset.Unit{},
