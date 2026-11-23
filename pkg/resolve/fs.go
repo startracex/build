@@ -12,13 +12,17 @@ import (
 // attempt fails. Windows refuses to traverse an untrusted mount point, and a
 // package manager can leave dependency directories as reparse points that fail
 // that check, while the link target itself stays readable.
+//
+// A base FS that is not the OS file system does its own resolution: there is no
+// native path to walk, so Realpath answers instead.
 type realpathFS struct {
 	vfs.FS
-	cache sync.Map // rooted path string -> tspath.RootedPath
+	native bool
+	cache  sync.Map // rooted path string -> tspath.RootedPath
 }
 
-func newRealpathFS(base vfs.FS) *realpathFS {
-	return &realpathFS{FS: base}
+func newRealpathFS(base vfs.FS, native bool) *realpathFS {
+	return &realpathFS{FS: base, native: native}
 }
 
 // real reports the target of p and whether it differs from p.
@@ -29,6 +33,11 @@ func (f *realpathFS) real(p tspath.RootedPath) (tspath.RootedPath, bool) {
 		return target, target != p
 	}
 	target := p
+	if !f.native {
+		target = f.FS.Realpath(p)
+		f.cache.Store(key, target)
+		return target, target != p
+	}
 	// filepath.EvalSymlinks walks the links one component at a time, which
 	// succeeds where opening a handle to the whole path does not.
 	if real, err := filepath.EvalSymlinks(filepath.FromSlash(key)); err == nil && real != "" {

@@ -4,6 +4,8 @@ import (
 	"encoding/json/v2"
 	"sort"
 	"strings"
+
+	"github.com/startracex/tsgo/pkg/vfs"
 )
 
 // ModuleMap is one module's transpile map plus original source text.
@@ -104,8 +106,9 @@ func lookupSegment(m *decodedMap, line, col int) (seg, bool) {
 
 // ComposeLinked builds a source map for linked output by combining per-module
 // transpile maps with "// path" section markers. Generated columns map to
-// original columns when a transpile map is present; otherwise line identity.
-func ComposeLinked(js, fileName string, modules []ModuleMap) string {
+// original columns when a transpile map is present; otherwise line identity. A
+// nil fs reads source contents from the OS file system.
+func ComposeLinked(fs vfs.FS, js, fileName string, modules []ModuleMap) string {
 	byDisplay := map[string]ModuleMap{}
 	for _, m := range modules {
 		byDisplay[m.Display] = m
@@ -135,10 +138,10 @@ func ComposeLinked(js, fileName string, modules []ModuleMap) string {
 		if ok {
 			srcContent = m.Original
 			if srcContent == "" {
-				srcContent = readIfExists(currentDisplay)
+				srcContent = readIfExists(fs, currentDisplay)
 			}
 		} else {
-			srcContent = readIfExists(currentDisplay)
+			srcContent = readIfExists(fs, currentDisplay)
 		}
 		si, seen := index[srcName]
 		if !seen {

@@ -19,6 +19,7 @@ import (
 	"github.com/startracex/tsgo/pkg/locale"
 	"github.com/startracex/tsgo/pkg/tsoptions"
 	"github.com/startracex/tsgo/pkg/tspath"
+	"github.com/startracex/tsgo/pkg/vfs"
 	"github.com/startracex/tsgo/pkg/vfs/osvfs"
 )
 
@@ -43,6 +44,11 @@ type Options struct {
 	// 5 resolved bare specifiers against it, so a tsconfig that still uses it
 	// keeps working.
 	BaseURL resolve.BaseURLFallback
+	// FS reads the program sources. Nil uses the OS file system.
+	FS vfs.FS
+	// CWD resolves relative paths. Empty falls back to the process working
+	// directory.
+	CWD string
 }
 
 // declarationCompilerOptions builds the compiler options for the declaration
@@ -84,7 +90,11 @@ func declarationCompilerOptions(opts Options, declMap core.Tristate) *core.Compi
 // EmitProgram runs a tsgo declaration-only program for the given TypeScript paths.
 // Keys in the result map are normalized via Key.
 func EmitProgram(ctx context.Context, absPaths []string, opts Options) (map[string]Emit, error) {
-	fs := bundled.WrapFS(osvfs.FS())
+	base := opts.FS
+	if base == nil {
+		base = osvfs.FS()
+	}
+	fs := bundled.WrapFS(base)
 	sort.Strings(absPaths)
 	var roots []tspath.RootedFilePath
 	for _, abs := range absPaths {
@@ -105,7 +115,7 @@ func EmitProgram(ctx context.Context, absPaths []string, opts Options) (map[stri
 	compilerOpts := declarationCompilerOptions(opts, declMap)
 	host := compiler.NewCompilerHost(fs, bundled.LibPath(), nil, nil, nil)
 	program, err := compiler.NewProgram(ctx, compiler.ProgramOptions{
-		Config:         tsoptions.NewParsedCommandLine(compilerOpts, roots, nil, tspath.RootedDirectoryPathFromAbsolute(modpath.DisplayRoot(absPaths)), fs.CaseSensitivity()),
+		Config:         tsoptions.NewParsedCommandLine(compilerOpts, roots, nil, tspath.RootedDirectoryPathFromAbsolute(modpath.DisplayRoot(opts.CWD, absPaths)), fs.CaseSensitivity()),
 		Host:           host,
 		SingleThreaded: core.TSTrue,
 	})
@@ -146,9 +156,13 @@ func EmitProgram(ctx context.Context, absPaths []string, opts Options) (map[stri
 
 // Key normalizes a filesystem path for declaration emit maps.
 func Key(path string) string {
-	abs, err := filepath.Abs(filepath.FromSlash(path))
-	if err != nil {
-		abs = path
+	// The compiler reports absolute paths. Only a relative one needs the
+	// working directory, which a wasm build may not have.
+	abs := filepath.FromSlash(path)
+	if !filepath.IsAbs(abs) {
+		if cleaned, err := filepath.Abs(abs); err == nil {
+			abs = cleaned
+		}
 	}
 	id := modpath.ModuleID(abs)
 	if runtime.GOOS == "windows" {

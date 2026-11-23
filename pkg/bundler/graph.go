@@ -3,6 +3,7 @@ package bundler
 import (
 	"context"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -55,7 +56,12 @@ func transformKeyFor(opts Options) string {
 }
 
 func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bundler, []string, error) {
-	roots, err := opts.absRoots()
+	cwd := opts.CWD
+	if cwd == "" {
+		// A wasm build has no working directory; the caller supplies CWD there.
+		cwd, _ = os.Getwd()
+	}
+	roots, err := opts.absRoots(cwd)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -86,6 +92,8 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		outMode:      outMode,
 		jsx:          jsx,
 		mode:         resolution,
+		fs:           opts.FS,
+		cwd:          cwd,
 		loading:      map[string]bool{},
 		units:        map[string]*unit{},
 		assets:       map[string]*asset.Unit{},
@@ -111,6 +119,8 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		BaseURL:         opts.BaseURL,
 		ResolveHook:     combineResolveHook(ctx, opts.Plugins, opts.Resolve),
 		OnAsset:         b.onAsset,
+		FS:              b.fs,
+		CWD:             b.cwd,
 	})
 	if err != nil {
 		return nil, nil, err

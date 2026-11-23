@@ -12,7 +12,7 @@ func (b *bundler) composeAppSourceMap(js, file string) string {
 	for id := range b.units {
 		paths = append(paths, filepath.FromSlash(id))
 	}
-	root := modpath.DisplayRoot(paths)
+	root := modpath.DisplayRoot(b.cwd, paths)
 	if b.opts.RootDir != "" {
 		root = b.opts.RootDir
 	}
@@ -35,5 +35,5 @@ func (b *bundler) composeAppSourceMap(js, file string) string {
 			JSMap:    jsMap,
 		})
 	}
-	return sourcemap.ComposeLinked(js, file, mods)
+	return sourcemap.ComposeLinked(b.fs, js, file, mods)
 }

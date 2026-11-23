@@ -29,6 +29,8 @@ func (b *bundler) linkModules(entryID string, preserve []string) (string, error)
 		Chunks:          linkChunks{b},
 		Resolver:        linkResolver{b},
 		PreserveExports: preserve,
+		CWD:             b.cwd,
+		FS:              b.fs,
 	})
 	if err != nil {
 		return "", err

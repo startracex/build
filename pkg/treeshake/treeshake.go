@@ -2,13 +2,14 @@ package treeshake
 
 import (
 	"encoding/json/v2"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
 
+	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/tsgo/pkg/ast"
 	"github.com/startracex/tsgo/pkg/scanner"
+	"github.com/startracex/tsgo/pkg/vfs"
 )
 
 func IsPureDecl(src string, stmt *ast.Node) bool {
@@ -269,9 +270,10 @@ func commentHasPure(s string) bool {
 }
 
 // ModuleSideEffectsFree reports whether file can be skipped when imported only
-// for side effects, based on the nearest package.json "sideEffects" field.
-func ModuleSideEffectsFree(file string) bool {
-	pkgDir, side, ok := findSideEffectsField(file)
+// for side effects, based on the nearest package.json "sideEffects" field. A nil
+// fs reads the OS file system.
+func ModuleSideEffectsFree(fs vfs.FS, file string) bool {
+	pkgDir, side, ok := findSideEffectsField(fs, file)
 	if !ok {
 		return false
 	}
@@ -299,10 +301,10 @@ func ModuleSideEffectsFree(file string) bool {
 	}
 }
 
-func findSideEffectsField(file string) (pkgDir string, side any, ok bool) {
+func findSideEffectsField(fs vfs.FS, file string) (pkgDir string, side any, ok bool) {
 	dir := filepath.Dir(file)
 	for {
-		raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
+		raw, err := modpath.ReadFile(fs, filepath.Join(dir, "package.json"))
 		if err == nil {
 			var meta struct {
 				SideEffects any `json:"sideEffects"`

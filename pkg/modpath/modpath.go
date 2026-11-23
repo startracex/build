@@ -6,6 +6,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/startracex/tsgo/pkg/tspath"
+	"github.com/startracex/tsgo/pkg/vfs"
+	"github.com/startracex/tsgo/pkg/vfs/osvfs"
 )
 
 // ModuleID returns a slash-normalized module identifier for an absolute path.
@@ -48,15 +52,34 @@ func NodeModulesRel(abs string) (string, bool) {
 	return "", false
 }
 
-// AbsFile resolves path to a clean absolute path and ensures it is a file.
-func AbsFile(path string) (string, error) {
-	abs, err := filepath.Abs(path)
+// AbsPath returns path as a clean absolute path. A relative path is resolved
+// against cwd, so a caller that knows the project root does not have to rely on
+// the process working directory.
+func AbsPath(cwd, path string) (string, error) {
+	if filepath.IsAbs(path) || cwd == "" {
+		return filepath.Abs(path)
+	}
+	return filepath.Join(cwd, path), nil
+}
+
+// AbsFile resolves path to a clean absolute path and asks fs whether it is a
+// file. A relative path is resolved against cwd. Passing the nil FS reads the
+// OS file system.
+func AbsFile(fs vfs.FS, cwd, path string) (string, error) {
+	abs, err := AbsPath(cwd, path)
 	if err != nil {
 		return "", err
 	}
-	info, err := os.Stat(abs)
-	if err != nil {
-		return "", err
+	if fs == nil {
+		fs = osvfs.FS()
+	}
+	rooted, ok := tspath.TryRootedFilePathFromAbsolute(filepath.ToSlash(abs))
+	if !ok {
+		return "", fmt.Errorf("%s: %w", abs, vfs.ErrNotExist)
+	}
+	info := fs.Stat(tspath.RootedPath(rooted))
+	if info == nil {
+		return "", fmt.Errorf("%s: %w", abs, vfs.ErrNotExist)
 	}
 	if info.IsDir() {
 		return "", fmt.Errorf("%s is a directory", abs)
@@ -64,10 +87,29 @@ func AbsFile(path string) (string, error) {
 	return abs, nil
 }
 
-// DisplayRoot picks a filesystem root for relative display paths.
-func DisplayRoot(paths []string) string {
-	cwd, err := os.Getwd()
-	if err == nil && len(paths) > 0 {
+// ReadFile reads path through fs. A missing file reports fs.ErrNotExist, so a
+// caller does not depend on the wording of an fs specific error. Passing the
+// nil FS reads the OS file system.
+func ReadFile(fs vfs.FS, path string) ([]byte, error) {
+	if fs == nil {
+		return os.ReadFile(path)
+	}
+	rooted, ok := tspath.TryRootedFilePathFromAbsolute(filepath.ToSlash(path))
+	if !ok {
+		return nil, fmt.Errorf("%s: %w", path, vfs.ErrNotExist)
+	}
+	text, ok := fs.ReadFile(rooted)
+	if !ok {
+		return nil, fmt.Errorf("%s: %w", path, vfs.ErrNotExist)
+	}
+	return []byte(text), nil
+}
+
+// DisplayRoot picks a filesystem root for relative display paths. A path below
+// cwd is displayed relative to it; without a usable cwd the deepest common
+// directory of paths is used instead.
+func DisplayRoot(cwd string, paths []string) string {
+	if cwd != "" && len(paths) > 0 {
 		inside := true
 		for _, p := range paths {
 			rel, relErr := filepath.Rel(cwd, p)

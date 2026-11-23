@@ -31,6 +31,8 @@ func (b *bundler) attachDeclarations() error {
 		CustomConditions: resolve.ExportConditions(b.opts.Conditions),
 		CompilerOptions:  b.compilerOpts,
 		BaseURL:          b.opts.BaseURL,
+		FS:               b.fs,
+		CWD:              b.cwd,
 	})
 	if err != nil {
 		return err

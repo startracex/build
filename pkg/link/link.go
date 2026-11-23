@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/startracex/build/pkg/treeshake"
+	"github.com/startracex/tsgo/pkg/vfs"
 )
 
 // Resolver resolves import specifiers during linking.
@@ -35,6 +36,12 @@ type Options struct {
 	// PreserveExports lists module ids whose public exports stay live even when
 	// they are not the link entry (used for shared chunks).
 	PreserveExports []string
+	// CWD resolves relative display paths. Empty falls back to the deepest
+	// common directory of the linked modules.
+	CWD string
+	// FS reads the package.json files that decide side-effect pruning. Nil uses
+	// the OS file system.
+	FS vfs.FS
 }
 
 // Result is the linked script plus per-module maps remapped through linker edits.
@@ -55,7 +62,7 @@ func Link(mods map[string]Module, entryID string, opts Options) (Result, error) 
 			return Result{}, err
 		}
 		em.jsMap = mod.JSMap
-		em.effectsFree = treeshake.ModuleSideEffectsFree(em.osPath())
+		em.effectsFree = treeshake.ModuleSideEffectsFree(opts.FS, em.osPath())
 		parsed[id] = em
 		order = append(order, id)
 	}
@@ -97,7 +104,7 @@ func Link(mods map[string]Module, entryID string, opts Options) (Result, error) 
 	if format == "iife" || format == "umd" {
 		format = "cjs"
 	}
-	code := renderLinked(parsed, order, entry, format, helper)
+	code := renderLinked(parsed, order, entry, format, helper, opts.CWD)
 	maps := map[string]string{}
 	for id, m := range parsed {
 		if m.linkedMap != "" {

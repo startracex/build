@@ -30,6 +30,11 @@
 // The compiler options read from tsconfig.json reach the build through the
 // context, see Options.CompilerOptions. They decide the emitted JavaScript,
 // the declaration output, and how module specifiers are resolved.
+//
+// A build reads no files through the os package when Options.FS is set: every
+// source, asset, package.json, and map falls back to that file system instead.
+// Together with Options.CWD this lets the bundler run on a virtual file system,
+// for example a js/wasm build with an in-memory FS.
 package bundler
 
 import (
@@ -39,7 +44,6 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -59,6 +63,7 @@ import (
 	"github.com/startracex/tsgo/pkg/parser"
 	"github.com/startracex/tsgo/pkg/transpile"
 	"github.com/startracex/tsgo/pkg/tspath"
+	"github.com/startracex/tsgo/pkg/vfs"
 )
 
 // Mode selects how output files are laid out.
@@ -182,7 +187,8 @@ type Options struct {
 	// ManualChunks maps a module path substring to a chunk base name under
 	// chunks/ (e.g. "node_modules/lodash" -> "vendor-lodash"). App mode only.
 	ManualChunks map[string]string
-	// CacheDir stores transpile results keyed by content hash.
+	// CacheDir stores transpile results keyed by content hash. The cache writes
+	// to the OS file system, so a virtual FS build leaves it empty.
 	CacheDir string
 	// Manifest writes a JSON map of source assets to emitted paths.
 	Manifest bool
@@ -195,6 +201,13 @@ type Options struct {
 	// Plugins run Resolve/Load/Transform/GenerateBundle hooks (first ok wins
 	// for resolve/load; transform and generate chain).
 	Plugins []plugin.Plugin
+	// FS reads sources, assets, and the paths the resolver probes. Nil uses the
+	// OS file system. A build that targets wasm or runs on a virtual file
+	// system supplies its own implementation.
+	FS vfs.FS
+	// CWD resolves relative entry paths and display paths. Empty falls back to
+	// the process working directory, which a wasm build may not have.
+	CWD string
 }
 
 // Bundle reads Entry and returns the entry JavaScript.
@@ -329,13 +342,17 @@ type unit struct {
 }
 
 type bundler struct {
-	ctx       context.Context
-	opts      Options
-	format    Format
-	outMode   Mode
-	jsx       core.JsxEmit
-	mode      core.ResolutionMode
-	res       *resolve.Resolver
+	ctx     context.Context
+	opts    Options
+	format  Format
+	outMode Mode
+	jsx     core.JsxEmit
+	mode    core.ResolutionMode
+	res     *resolve.Resolver
+	// fs reads every source and asset; cwd resolves relative paths. Both come
+	// from Options, defaulting to the OS file system and working directory.
+	fs        vfs.FS
+	cwd       string
 	loading   map[string]bool
 	units     map[string]*unit
 	assets    map[string]*asset.Unit
@@ -379,7 +396,7 @@ func (b *bundler) load(path string) error {
 	if strings.Contains(path, "?") {
 		return fmt.Errorf("missing asset module %s", path)
 	}
-	abs, err := filepath.Abs(path)
+	abs, err := modpath.AbsPath(b.cwd, path)
 	if err != nil {
 		return err
 	}
@@ -411,7 +428,7 @@ func (b *bundler) load(path string) error {
 		if !asset.SupportedSource(path) {
 			return fmt.Errorf("unsupported module %s", path)
 		}
-		srcBytes, err := os.ReadFile(path)
+		srcBytes, err := modpath.ReadFile(b.fs, path)
 		if err != nil {
 			return fmt.Errorf("read %s: %w", path, err)
 		}
@@ -605,7 +622,7 @@ func (b *bundler) loadAsset(abs string, kind asset.Kind) error {
 	if _, ok := b.assets[id]; ok {
 		return nil
 	}
-	au, js, err := asset.Load(abs, kind, b.opts.RootDir, b.opts.PublicPath)
+	au, js, err := asset.Load(b.fs, abs, kind, b.opts.RootDir, b.opts.PublicPath)
 	if err != nil {
 		return err
 	}
@@ -716,7 +733,7 @@ func parseSource(path, src string) (*ast.SourceFile, error) {
 	}, src, core.EnsureScriptKindFromFileName(rooted)), nil
 }
 
-func (o Options) absRoots() ([]string, error) {
+func (o Options) absRoots(cwd string) ([]string, error) {
 	var raw []string
 	if o.Entry != "" {
 		raw = append(raw, o.Entry)
@@ -728,7 +745,7 @@ func (o Options) absRoots() ([]string, error) {
 	seen := map[string]bool{}
 	var roots []string
 	for _, path := range raw {
-		abs, err := filepath.Abs(path)
+		abs, err := modpath.AbsPath(cwd, path)
 		if err != nil {
 			return nil, err
 		}

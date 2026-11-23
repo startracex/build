@@ -3,12 +3,12 @@ package sourcemap
 import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/startracex/build/pkg/asset"
 	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/tsgo/pkg/vfs"
 )
 
 // marshalMap encodes a source map object with the settings the v1 encoder used:
@@ -24,8 +24,10 @@ func marshalMap(v any) ([]byte, error) {
 	)
 }
 
-// AppSourceMap builds a line-level source map from linker source comments.
-func AppSourceMap(js, file string) string {
+// AppSourceMap builds a line-level source map from linker source comments. It
+// reads the marked sources through fs to fill sourcesContent; a nil fs reads the
+// OS file system.
+func AppSourceMap(fs vfs.FS, js, file string) string {
 	lines := strings.Split(js, "\n")
 	var sources []string
 	index := map[string]int{}
@@ -40,7 +42,7 @@ func AppSourceMap(js, file string) string {
 				n = len(sources)
 				index[name] = n
 				sources = append(sources, name)
-				contents[name] = readIfExists(name)
+				contents[name] = readIfExists(fs, name)
 			}
 			current = n
 			srcLine = 0
@@ -130,8 +132,8 @@ func sourceComment(line string) (string, bool) {
 	return "", false
 }
 
-func readIfExists(path string) string {
-	buf, err := os.ReadFile(filepath.FromSlash(path))
+func readIfExists(fs vfs.FS, path string) string {
+	buf, err := modpath.ReadFile(fs, filepath.FromSlash(path))
 	if err != nil {
 		return ""
 	}

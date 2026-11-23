@@ -4,13 +4,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/tsgo/pkg/vfs"
 )
 
 // Kind classifies how an import is treated at emit time.
@@ -115,9 +115,10 @@ func JoinPublicPath(public, rel string) string {
 	return public + "/" + strings.TrimPrefix(rel, "/")
 }
 
-// Load reads an asset file and returns the unit plus synthetic ESM source.
-func Load(abs string, kind Kind, rootDir, publicPath string) (*Unit, string, error) {
-	data, err := os.ReadFile(abs)
+// Load reads an asset file through fs and returns the unit plus synthetic ESM
+// source. A nil fs reads the OS file system.
+func Load(fs vfs.FS, abs string, kind Kind, rootDir, publicPath string) (*Unit, string, error) {
+	data, err := modpath.ReadFile(fs, abs)
 	if err != nil {
 		return nil, "", fmt.Errorf("read asset %s: %w", abs, err)
 	}

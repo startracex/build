@@ -175,7 +175,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 	var entryJS string
 	rootDir := b.opts.RootDir
 	if rootDir == "" {
-		rootDir = modpath.DisplayRoot(entries)
+		rootDir = modpath.DisplayRoot(b.cwd, entries)
 	}
 	for i, e := range entries {
 		rel := filepath.Base(modpath.JavascriptOutputAbs(e))

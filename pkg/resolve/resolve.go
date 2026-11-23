@@ -5,7 +5,6 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -89,6 +88,11 @@ type Config struct {
 	BaseURL     BaseURLFallback
 	ResolveHook func(importer, spec string) (path string, external bool, ok bool, err error)
 	OnAsset     func(abs string, q asset.Query) error
+	// FS reads the files the resolver probes. Nil uses the OS file system.
+	FS vfs.FS
+	// CWD resolves relative paths. Empty falls back to the process working
+	// directory.
+	CWD string
 }
 
 // BaseURLFallback describes the project root that stands in for the removed
@@ -109,6 +113,7 @@ func (f BaseURLFallback) IsZero() bool {
 type Resolver struct {
 	res       *tsmodule.DefaultResolver
 	fs        *realpathFS
+	cwd       string
 	mode      core.ResolutionMode
 	cfg       Config
 	externals map[string]struct{}
@@ -125,12 +130,19 @@ func (h resolutionHost) GetCurrentDirectory() tspath.RootedDirectoryPath { retur
 
 // New constructs a Resolver rooted at entryDir.
 func New(entryDir string, conditions []string, mode core.ResolutionMode, cfg Config) (*Resolver, error) {
-	dir, err := filepath.Abs(entryDir)
+	dir, err := modpath.AbsPath(cfg.CWD, entryDir)
 	if err != nil {
 		return nil, err
 	}
 	rooted := tspath.RootedDirectoryPathFromAbsolute(dir)
-	fs := newRealpathFS(osvfs.FS())
+	base := cfg.FS
+	// Only the OS file system needs the reparse point retry; an injected FS
+	// answers through its own Realpath.
+	native := base == nil
+	if native {
+		base = osvfs.FS()
+	}
+	fs := newRealpathFS(base, native)
 	res := tsmodule.NewResolver(tsmodule.ResolverOptions{
 		Host:            resolutionHost{fs: fs, dir: rooted},
 		CompilerOptions: resolutionCompilerOptions(conditions, cfg.Platform, cfg.CompilerOptions, cfg.BaseURL),
@@ -138,6 +150,7 @@ func New(entryDir string, conditions []string, mode core.ResolutionMode, cfg Con
 	return &Resolver{
 		res:       res,
 		fs:        fs,
+		cwd:       cfg.CWD,
 		mode:      mode,
 		cfg:       cfg,
 		externals: map[string]struct{}{},
@@ -254,7 +267,7 @@ func (r *Resolver) resolveSpec(importer, spec string, allowModuleField bool) (st
 			if !filepath.IsAbs(joined) {
 				joined = filepath.Join(filepath.Dir(importer), filepath.FromSlash(specPath))
 			}
-			abs, err := modpath.AbsFile(joined)
+			abs, err := modpath.AbsFile(r.fs, r.cwd, joined)
 			if err == nil {
 				id, err := r.assetResolved(abs, iq)
 				if err != nil {
@@ -278,9 +291,11 @@ func (r *Resolver) resolveSpec(importer, spec string, allowModuleField bool) (st
 				r.NoteExternal(name)
 				return "", true, nil
 			}
-			abs, err := modpath.AbsFile(path)
+			abs, err := modpath.AbsFile(r.fs, r.cwd, path)
 			if err != nil {
-				abs, err = filepath.Abs(filepath.Clean(path))
+				// A hook may name a file the injected FS does not report, for
+				// example a virtual id; keep the cleaned path.
+				abs, err = modpath.AbsPath(r.cwd, path)
 				if err != nil {
 					return "", false, fmt.Errorf("resolve %q from %s: %w", spec, importer, err)
 				}
@@ -328,7 +343,7 @@ func (r *Resolver) resolveSpec(importer, spec string, allowModuleField bool) (st
 		if !filepath.IsAbs(candidate) {
 			candidate = filepath.Join(filepath.Dir(importer), filepath.FromSlash(specPath))
 		}
-		if abs, err := modpath.AbsFile(candidate); err == nil && (iq.Raw || iq.URL || asset.IsExt(modpath.LowerExt(abs))) {
+		if abs, err := modpath.AbsFile(r.fs, r.cwd, candidate); err == nil && (iq.Raw || iq.URL || asset.IsExt(modpath.LowerExt(abs))) {
 			id, err := r.assetResolved(abs, iq)
 			if err != nil {
 				return "", false, err
@@ -383,7 +398,7 @@ func (r *Resolver) resolveWithCompiler(importer, spec string) (string, bool, err
 	// Later reads use this path as the module id, so it must not cross a
 	// reparse point the file system refuses to traverse.
 	raw := r.fs.realNative(filepath.FromSlash(resolved.ResolvedFileName.AsString()))
-	abs, err := modpath.AbsFile(raw)
+	abs, err := modpath.AbsFile(r.fs, r.cwd, raw)
 	if err != nil {
 		return "", false, fmt.Errorf("cannot resolve %q imported by %s: %w", spec, importer, err)
 	}
@@ -401,7 +416,7 @@ func (r *Resolver) preferModuleField(importer, spec string) (string, bool, error
 	if !ok || sub != "" {
 		return "", false, nil
 	}
-	dir, meta, ok := findPackageMeta(importer, name)
+	dir, meta, ok := findPackageMeta(r.fs, importer, name)
 	if !ok || meta.hasExports() || meta.Module == "" {
 		return "", false, nil
 	}
@@ -584,11 +599,11 @@ func (m packageMeta) hasExports() bool {
 	return len(body) > 0 && !bytes.Equal(body, []byte("null")) && !bytes.Equal(body, []byte("false"))
 }
 
-func findPackageMeta(importer, name string) (string, packageMeta, bool) {
+func findPackageMeta(fs vfs.FS, importer, name string) (string, packageMeta, bool) {
 	dir := filepath.Dir(importer)
 	for {
 		pkgJSON := filepath.Join(dir, "node_modules", filepath.FromSlash(name), "package.json")
-		raw, err := os.ReadFile(pkgJSON)
+		raw, err := modpath.ReadFile(fs, pkgJSON)
 		if err == nil {
 			var meta packageMeta
 			if json.Unmarshal(raw, &meta) != nil {
