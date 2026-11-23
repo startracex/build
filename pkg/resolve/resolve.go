@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 
@@ -270,7 +269,7 @@ func (r *Resolver) resolveSpec(importer, spec string, allowModuleField bool) (st
 		if !filepath.IsAbs(candidate) {
 			candidate = filepath.Join(filepath.Dir(importer), filepath.FromSlash(specPath))
 		}
-		if abs, err := modpath.AbsFile(candidate); err == nil && (iq.Raw || iq.URL || asset.IsExt(filepath.Ext(abs))) {
+		if abs, err := modpath.AbsFile(candidate); err == nil && (iq.Raw || iq.URL || asset.IsExt(modpath.LowerExt(abs))) {
 			id, err := r.assetResolved(abs, iq)
 			if err != nil {
 				return "", false, err
@@ -543,6 +542,5 @@ func findPackageMeta(importer, name string) (string, packageMeta, bool) {
 }
 
 func unsupportedSpecifier(spec string) error {
-	_ = path.Ext(spec)
 	return nil
 }

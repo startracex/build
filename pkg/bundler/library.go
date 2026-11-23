@@ -42,8 +42,8 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			outPath = filepath.Join(b.opts.OutDir, filepath.FromSlash(jsRel))
 		}
 		if templated {
-			name := strings.TrimSuffix(filepath.Base(jsRel), filepath.Ext(jsRel))
-			pathValue := strings.TrimSuffix(filepath.ToSlash(jsRel), filepath.Ext(jsRel))
+			name := modpath.BaseStem(jsRel)
+			pathValue := modpath.Stem(filepath.ToSlash(jsRel))
 			hash := ""
 			if hasHash {
 				hash = ContentHash(unit.code)
@@ -87,7 +87,7 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			if err != nil {
 				return nil, err
 			}
-			dtsPath := strings.TrimSuffix(jsPath, filepath.Ext(jsPath)) + ".d.ts"
+			dtsPath := modpath.ReplaceExt(jsPath, ".d.ts")
 			mapName := filepath.Base(dtsPath) + ".map"
 			if b.declMap && strings.TrimSpace(unit.dtsMap) != "" {
 				dts = strings.TrimRight(jsedit.StripSourceMappingComment(dts), "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
@@ -152,8 +152,8 @@ func (b *bundler) uniqueOutputPath(path string) string {
 		b.usedOutputPaths[path] = true
 		return path
 	}
-	ext := filepath.Ext(path)
-	stem := strings.TrimSuffix(path, ext)
+	ext := modpath.Ext(path)
+	stem := modpath.Stem(path)
 	for i := 2; ; i++ {
 		candidate := fmt.Sprintf("%s-%d%s", stem, i, ext)
 		if !b.usedOutputPaths[candidate] {

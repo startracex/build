@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/startracex/build/pkg/modpath"
 )
 
 // Kind classifies how an import is treated at emit time.
@@ -73,7 +75,7 @@ func ModuleKey(abs string, kind Kind) string {
 
 // KindForPath picks an asset kind from query flags and file extension.
 func KindForPath(abs string, q Query) (Kind, bool) {
-	ext := strings.ToLower(filepath.Ext(abs))
+	ext := modpath.LowerExt(abs)
 	switch {
 	case q.Raw:
 		return Raw, true
@@ -187,8 +189,8 @@ func ManifestPath(outDir, outFile string) string {
 func hashedRel(rel string, data []byte) string {
 	sum := sha256.Sum256(data)
 	hash := hex.EncodeToString(sum[:])[:8]
-	ext := path.Ext(rel)
-	stem := strings.TrimSuffix(rel, ext)
+	ext := modpath.Ext(rel)
+	stem := modpath.Stem(rel)
 	if stem == "" {
 		stem = "asset"
 	}
@@ -197,10 +199,8 @@ func hashedRel(rel string, data []byte) string {
 
 // SupportedSource reports whether path can be loaded as source or asset.
 func SupportedSource(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".json":
+	if modpath.IsSourcePath(path) {
 		return true
-	default:
-		return IsExt(filepath.Ext(path))
 	}
+	return IsExt(modpath.LowerExt(path))
 }

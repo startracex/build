@@ -81,10 +81,9 @@ func DisplayRel(root, path string) string {
 
 // JavascriptOutputAbs maps a TypeScript (or JSON) source path to its .js output path.
 func JavascriptOutputAbs(abs string) string {
-	ext := strings.ToLower(filepath.Ext(abs))
-	switch ext {
+	switch LowerExt(abs) {
 	case ".ts", ".tsx", ".mts", ".cts", ".json":
-		return strings.TrimSuffix(abs, filepath.Ext(abs)) + ".js"
+		return ReplaceExt(abs, ".js")
 	default:
 		return abs
 	}
@@ -92,9 +91,9 @@ func JavascriptOutputAbs(abs string) string {
 
 // IsJavaScriptOutput reports whether path looks like emitted JavaScript.
 func IsJavaScriptOutput(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
+	switch LowerExt(path) {
 	case ".js", ".mjs", ".cjs":
-		return !strings.HasSuffix(strings.ToLower(path), ".d.ts")
+		return !IsDeclarationPath(path)
 	default:
 		return false
 	}
@@ -102,10 +101,5 @@ func IsJavaScriptOutput(path string) bool {
 
 // IsTypeScriptPath reports whether path is a TypeScript source file.
 func IsTypeScriptPath(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".ts", ".tsx", ".mts", ".cts":
-		return !strings.HasSuffix(strings.ToLower(path), ".d.ts")
-	default:
-		return false
-	}
+	return IsTypeScriptSource(path) && !IsDeclarationPath(path)
 }

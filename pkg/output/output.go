@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/startracex/build/pkg/modpath"
 )
 
 const (
@@ -25,14 +27,14 @@ const (
 // DeriveOutFile picks an extension for dual-format outfile emission.
 func DeriveOutFile(base string, format string) string {
 	dir := filepath.Dir(base)
-	stem := strings.TrimSuffix(filepath.Base(base), filepath.Ext(base))
+	stem := modpath.BaseStem(base)
 	switch format {
 	case FormatCJS:
 		return filepath.Join(dir, stem+".cjs")
 	case FormatIIFE, FormatUMD:
 		return filepath.Join(dir, stem+".js")
 	default:
-		ext := strings.ToLower(filepath.Ext(base))
+		ext := modpath.LowerExt(base)
 		if ext == ".cjs" || ext == ".js" {
 			return filepath.Join(dir, stem+".mjs")
 		}

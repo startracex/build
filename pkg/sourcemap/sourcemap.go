@@ -109,12 +109,10 @@ func sourceComment(line string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	switch strings.ToLower(filepath.Ext(name)) {
-	case ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".mts", ".cts":
+	if modpath.IsSourcePath(name) {
 		return filepath.ToSlash(name), true
-	default:
-		return "", false
 	}
+	return "", false
 }
 
 func readIfExists(path string) string {

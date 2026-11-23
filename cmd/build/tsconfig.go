@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/startracex/build/pkg/bundler"
+	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/resolve"
 	"github.com/startracex/tsgo/pkg/ast"
 	"github.com/startracex/tsgo/pkg/bundled"
@@ -228,12 +229,10 @@ func configFiles(parsed *tsoptions.ParsedCommandLine) ([]string, error) {
 	var files []string
 	for _, name := range parsed.FileNames() {
 		path := filepath.FromSlash(name.AsString())
-		lower := strings.ToLower(path)
-		if strings.HasSuffix(lower, ".d.ts") {
+		if modpath.IsDeclarationPath(path) {
 			continue
 		}
-		switch strings.ToLower(filepath.Ext(path)) {
-		case ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".json":
+		if modpath.IsSourcePath(path) {
 			files = append(files, path)
 		}
 	}

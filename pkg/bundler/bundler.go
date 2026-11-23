@@ -44,6 +44,7 @@ import (
 	"github.com/startracex/build/pkg/asset"
 	"github.com/startracex/build/pkg/cache"
 	"github.com/startracex/build/pkg/jsedit"
+	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/plugin"
 	"github.com/startracex/build/pkg/resolve"
 	"github.com/startracex/tsgo/pkg/ast"
@@ -400,17 +401,17 @@ func (b *bundler) load(path string) error {
 		sourceText = src
 	}
 	parsePath := path
-	if loadedFromPlugin && filepath.Ext(path) == "" {
+	if loadedFromPlugin && modpath.Ext(path) == "" {
 		parsePath = path + ".js"
 	}
 
-	if strings.EqualFold(filepath.Ext(parsePath), ".json") {
+	if modpath.IsJSONPath(parsePath) {
 		if !json.Valid([]byte(src)) {
 			return fmt.Errorf("%s: invalid JSON", path)
 		}
 		payload := strings.TrimSpace(src)
 		if b.outMode != ModeLib || b.format == FormatESM {
-			name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+			name := modpath.BaseStem(path)
 			if !jsedit.IsIdentifierName(name) {
 				name = "data"
 			}
@@ -745,12 +746,7 @@ func (b *bundler) compilerOptionsKey() string {
 }
 
 func isJavaScriptSource(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".js", ".jsx", ".mjs", ".cjs":
-		return true
-	default:
-		return false
-	}
+	return modpath.IsJavaScriptSource(path)
 }
 
 func errorFromDiagnosticsFiltered(path, src string, diags []*ast.Diagnostic, keep func(*ast.Diagnostic) bool) error {

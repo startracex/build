@@ -18,7 +18,7 @@ func parseTypeScript(src, path string) *ast.SourceFile {
 		rooted = tspath.RootedFilePathFromNormalized("/file.ts")
 	}
 	kind := core.ScriptKindTS
-	if strings.HasSuffix(strings.ToLower(path), ".tsx") {
+	if modpath.HasExt(path, ".tsx") {
 		kind = core.ScriptKindTSX
 	}
 	return parser.ParseSourceFile(ast.SourceFileParseOptions{

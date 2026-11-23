@@ -76,7 +76,7 @@ func (b *bundler) appResult(entry, js, linked string, emitFmt Format) (*Result, 
 		jsName = "bundle.js"
 	}
 	if b.opts.NameTemplate != "" {
-		name := strings.TrimSuffix(filepath.Base(entry), filepath.Ext(entry))
+		name := modpath.BaseStem(entry)
 		hash := ""
 		if HasHashPlaceholder(b.opts.NameTemplate) {
 			hash = ContentHash(js)

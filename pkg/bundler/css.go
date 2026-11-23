@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/startracex/build/pkg/asset"
+	"github.com/startracex/build/pkg/modpath"
 )
 
 // emitEntryCSS writes one concatenated stylesheet beside the entry JS output.
@@ -25,7 +26,7 @@ func (b *bundler) emitEntryCSS(result *Result, jsOut, entryAbs string) {
 			cssPath = base
 		}
 	}
-	cssPath = strings.TrimSuffix(cssPath, filepath.Ext(cssPath)) + ".css"
+	cssPath = modpath.ReplaceExt(cssPath, ".css")
 	result.Files = append(result.Files, Output{Path: cssPath, Data: css})
 	if result.Manifest == nil {
 		result.Manifest = map[string]string{}

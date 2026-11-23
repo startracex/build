@@ -3,7 +3,6 @@ package bundler
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -342,7 +341,7 @@ func (b *bundler) manualChunkName(moduleID string) string {
 }
 
 func chunkName(moduleID string) string {
-	base := strings.TrimSuffix(path.Base(moduleID), path.Ext(moduleID))
+	base := modpath.BaseStem(moduleID)
 	base = strings.Map(func(r rune) rune {
 		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' {
 			return r

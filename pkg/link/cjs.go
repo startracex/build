@@ -2,11 +2,11 @@ package link
 
 import (
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/startracex/build/pkg/jsedit"
+	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/tsgo/pkg/ast"
 )
 
@@ -535,7 +535,7 @@ func (m *esModule) renderExpr(n *ast.Node) string {
 }
 
 func cjsFactoryPreferredName(id string) string {
-	base := strings.TrimSuffix(filepath.Base(filepath.FromSlash(id)), filepath.Ext(id))
+	base := modpath.BaseStem(id)
 	base = strings.Map(func(r rune) rune {
 		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' {
 			return r

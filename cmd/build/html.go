@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/startracex/build/pkg/bundler"
+	"github.com/startracex/build/pkg/modpath"
 	"golang.org/x/net/html"
 )
 
@@ -21,7 +22,7 @@ func prepareHTMLEntries(entries []string) ([]*htmlDocument, []string, error) {
 	var docs []*htmlDocument
 	var modules []string
 	for _, entry := range entries {
-		if !strings.EqualFold(filepath.Ext(entry), ".html") {
+		if !modpath.IsHTMLPath(entry) {
 			modules = append(modules, entry)
 			continue
 		}
