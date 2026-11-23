@@ -18,7 +18,6 @@ func AbsFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	abs = filepath.Clean(abs)
 	info, err := os.Stat(abs)
 	if err != nil {
 		return "", err

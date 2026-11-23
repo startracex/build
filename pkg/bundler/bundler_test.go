@@ -299,7 +299,7 @@ export const sum = fromFile + virtualVal;
 			return "", false, false, nil
 		},
 		Load: func(_ plugin.HookCtx, id string) (string, bool, error) {
-			if filepath.ToSlash(id) == filepath.ToSlash(modpath.ModuleID(virtualID)) {
+			if filepath.ToSlash(id) == modpath.ModuleID(virtualID) {
 				return "export const virtualVal = 7;\n", true, nil
 			}
 			return "", false, nil
