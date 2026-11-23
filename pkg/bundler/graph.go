@@ -110,20 +110,22 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 }
 
 func validateBuildOutputs(opts Options, outputs []OutputOptions, outMode Mode, roots []string) error {
-	multiApp := outMode == ModeApp && len(roots) > 1
-	needSplit := outMode == ModeApp && (opts.Splitting || multiApp)
 	for _, out := range outputs {
 		if err := output.ValidateOutputPaths(out.OutFile, out.OutDir); err != nil {
 			return err
 		}
-		if needSplit && out.OutDir == "" {
-			return fmt.Errorf("multi-entry app and --splitting require --outdir")
-		}
-		if outMode == ModeApp && !needSplit && len(roots) != 1 {
-			return fmt.Errorf("single-file output requires one entry")
-		}
-		if outMode == ModeApp && multiApp && (out.Format == FormatIIFE || out.Format == FormatUMD) {
-			return fmt.Errorf("iife/umd output supports a single entry only")
+		if outMode == ModeApp {
+			switch {
+			case out.OutFile != "":
+				if len(roots) != 1 {
+					return fmt.Errorf("single-file output requires one entry")
+				}
+				if opts.Splitting {
+					return fmt.Errorf("code splitting requires --outdir")
+				}
+			case len(roots) > 1 && (out.Format == FormatIIFE || out.Format == FormatUMD):
+				return fmt.Errorf("iife/umd output supports a single entry only")
+			}
 		}
 		if (out.Format == FormatIIFE || out.Format == FormatUMD) && strings.TrimSpace(out.Name) == "" {
 			return fmt.Errorf("iife/umd output requires --global-name")
@@ -143,16 +145,14 @@ func (b *bundler) emitForFormat(opts Options, out OutputOptions, roots []string)
 		b.format = prevFormat
 	}()
 
-	multiApp := b.outMode == ModeApp && len(roots) > 1
-	needSplit := b.outMode == ModeApp && (opts.Splitting || multiApp)
 	entry := roots[0]
 
 	var result *Result
 	var err error
 	if b.outMode == ModeLib {
 		result, err = b.emitLibrary(entry)
-	} else if needSplit {
-		result, err = b.emitSplit(roots)
+	} else if b.opts.OutDir != "" {
+		result, err = b.emitSplit(roots, opts.Splitting)
 	} else {
 		linkFmt := b.format
 		if linkFmt == FormatIIFE || linkFmt == FormatUMD {

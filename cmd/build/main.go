@@ -33,6 +33,7 @@ func run(args []string, stderr, stdout io.Writer) error {
 		Usage: "Bundle JavaScript and TypeScript",
 		Description: "With no output path, build reads tsconfig.json and emits one file per module.\n" +
 			"   --outfile writes bundles for a single entry; --outdir writes per-module or split output.\n" +
+			"   --mode app|lib selects the layout; it is inferred from the output path when omitted.\n" +
 			"   Output paths and --format are repeatable and aligned from the right.",
 		Flags: []cli.Flag{
 			&cli.StringSliceFlag{Name: "outfile", Aliases: []string{"o"}, Usage: "single-file bundle path (repeatable)"},
@@ -49,8 +50,9 @@ func run(args []string, stderr, stdout io.Writer) error {
 			&cli.BoolFlag{Name: "map", Usage: "write source maps; with --dts also writes .d.ts.map"},
 			&cli.BoolFlag{Name: "dts", Usage: "write .d.ts files for per-module output"},
 			&cli.StringSliceFlag{Name: "external", Usage: "package left unbundled (repeatable)"},
-			&cli.BoolFlag{Name: "bundle-node-modules", Usage: "bundle bare package imports in --outdir output"},
-			&cli.BoolFlag{Name: "splitting", Usage: "emit import() targets as chunks (requires --outdir)"},
+			&cli.StringFlag{Name: "mode", Usage: "output layout: app (one bundle per entry) or lib (one file per module)"},
+			&cli.BoolFlag{Name: "bundle", Aliases: []string{"bundle-node-modules"}, Usage: "bundle bare package imports in library output"},
+			&cli.BoolFlag{Name: "splitting", Usage: "emit import() targets as chunks (requires --outdir and app mode)"},
 			&cli.StringFlag{Name: "cache-dir", Usage: "directory for transpile cache"},
 			&cli.BoolFlag{Name: "manifest", Usage: "write manifest.json of emitted assets"},
 			&cli.StringFlag{Name: "public-path", Usage: "URL prefix for emitted assets"},
@@ -63,12 +65,48 @@ func run(args []string, stderr, stdout io.Writer) error {
 	return app.Run(append([]string{"build"}, args...))
 }
 
+// resolveMode reads the explicit --mode value. An empty value keeps the
+// layout derived from the output paths.
+func resolveMode(value string) (bundler.Mode, error) {
+	switch value {
+	case "":
+		return "", nil
+	case string(bundler.ModeApp):
+		return bundler.ModeApp, nil
+	case string(bundler.ModeLib):
+		return bundler.ModeLib, nil
+	default:
+		return "", fmt.Errorf("unsupported mode %q (use %s or %s)", value, bundler.ModeApp, bundler.ModeLib)
+	}
+}
+
+// warnIgnoredFlags reports flags that the selected layout makes pointless.
+func warnIgnoredFlags(c *cli.Context, opts *bundler.Options, declaration bool) {
+	if opts.Mode != bundler.ModeApp {
+		return
+	}
+	if opts.BundleNodeModules {
+		fmt.Fprintln(c.App.ErrWriter, "build: warning: --bundle has no effect in app mode, package imports are bundled already")
+	}
+	switch {
+	case c.IsSet("dts"):
+		fmt.Fprintln(c.App.ErrWriter, "build: warning: --dts has no effect in app mode, app output has no declarations")
+	case declaration:
+		fmt.Fprintln(c.App.ErrWriter, "build: warning: tsconfig declaration is ignored in app mode, app output has no declarations")
+	}
+}
+
 func action(c *cli.Context) error {
 	outfiles := c.StringSlice("outfile")
 	outdirs := c.StringSlice("outdir")
 	if len(outfiles) > 0 && len(outdirs) > 0 {
 		return errors.New("--outfile and --outdir cannot both be set")
 	}
+	explicitMode, err := resolveMode(c.String("mode"))
+	if err != nil {
+		return err
+	}
+	splitting := c.Bool("splitting")
 	entries, err := expandEntries(c.Args().Slice())
 	if err != nil {
 		return err
@@ -85,13 +123,13 @@ func action(c *cli.Context) error {
 	base := bundler.Options{
 		JSX:               bundler.JSX(flagOr(c, "jsx", string(bundler.JSXReact))),
 		External:          c.StringSlice("external"),
-		BundleNodeModules: c.Bool("bundle-node-modules"),
+		BundleNodeModules: c.Bool("bundle"),
 		Conditions:        c.StringSlice("conditions"),
 		Alias:             alias,
 		Define:            define,
 		Drop:              c.StringSlice("drop"),
 		GlobalName:        c.String("global-name"),
-		Splitting:         c.Bool("splitting"),
+		Splitting:         splitting,
 		CacheDir:          c.String("cache-dir"),
 		Manifest:          c.Bool("manifest"),
 		PublicPath:        c.String("public-path"),
@@ -150,22 +188,44 @@ func action(c *cli.Context) error {
 				return errors.New("duplicate --outfile paths")
 			}
 		}
-		if entryCount == 1 {
+		switch {
+		case explicitMode == bundler.ModeApp:
+			if entryCount != 1 {
+				return errors.New("--mode app with --outfile needs a single entry; use --outdir for several entries")
+			}
 			base.Mode = bundler.ModeApp
-		} else {
+		case explicitMode == bundler.ModeLib:
+			return errors.New("--mode lib needs --outdir; --outfile writes a single bundle")
+		case entryCount == 1:
+			base.Mode = bundler.ModeApp
+		default:
 			base.Mode = bundler.ModeLib
+		}
+		if splitting {
+			return errors.New("--splitting needs --outdir")
 		}
 		plan, err := planOutputs(outputFile, outfiles, formatList(explicitFormats, formatSet, base.Format), base.Format, "", base.GlobalName)
 		if err != nil {
 			return err
 		}
 		applyOutputPlan(&base, plan)
+		warnIgnoredFlags(c, &base, declaration)
 		return writeBuild(c, ctx, base, htmlDocs)
 	}
 
-	base.Mode = bundler.ModeLib
-	if c.Bool("splitting") {
+	switch explicitMode {
+	case bundler.ModeApp:
 		base.Mode = bundler.ModeApp
+	case bundler.ModeLib:
+		base.Mode = bundler.ModeLib
+		if splitting {
+			return errors.New("--splitting needs app mode")
+		}
+	default:
+		base.Mode = bundler.ModeLib
+		if splitting {
+			base.Mode = bundler.ModeApp
+		}
 	}
 	if base.EntryFileNames != "" && len(outdirs) == 0 && base.OutDir == "" {
 		return errors.New("--entry-file-names requires --outdir")
@@ -178,6 +238,7 @@ func action(c *cli.Context) error {
 	if len(base.Entries) == 0 && base.Entry == "" {
 		return errors.New("tsconfig.json not found")
 	}
+	warnIgnoredFlags(c, &base, declaration)
 	return writeBuild(c, ctx, base, htmlDocs)
 }
 

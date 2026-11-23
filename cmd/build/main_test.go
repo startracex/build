@@ -1338,3 +1338,173 @@ func TestCLITSConfigModuleResolution(t *testing.T) {
 		t.Fatalf("bundler resolution should not match the node condition: %v", err)
 	}
 }
+
+func TestCLIModeFlag(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(src, "index.ts"), "import { add } from \"./math.js\";\nexport const sum = add(2, 3);\n")
+	writeFile(t, filepath.Join(src, "math.ts"), "export function add(a: number, b: number): number { return a + b; }\n")
+	t.Chdir(dir)
+
+	if err := run([]string{"--mode", "nope", "--outdir", "dist", "src/index.ts"}, nil, nil); err == nil ||
+		!strings.Contains(err.Error(), "unsupported mode") {
+		t.Fatalf("error = %v", err)
+	}
+
+	libOut := filepath.Join(dir, "lib")
+	if err := run([]string{"--mode", "lib", "--outdir", libOut, "src/index.ts"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	libIndex := findOutput(t, libOut, "index.js")
+	body, err := os.ReadFile(libIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `from "./math.js"`) {
+		t.Fatalf("lib mode should keep one file per module:\n%s", body)
+	}
+
+	appOut := filepath.Join(dir, "app")
+	if err := run([]string{"--mode", "app", "--outdir", appOut, "src/index.ts"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err = os.ReadFile(findOutput(t, appOut, "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), `from "./math.js"`) {
+		t.Fatalf("app mode should link the module into the entry bundle:\n%s", body)
+	}
+	if !strings.Contains(string(body), "return a + b") {
+		t.Fatalf("app mode bundle is missing the linked module:\n%s", body)
+	}
+}
+
+func TestCLIModeConflicts(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), "export const n: number = 1;\n")
+	t.Chdir(dir)
+
+	if err := run([]string{"--mode", "lib", "--outfile", "out.js", "index.ts"}, nil, nil); err == nil ||
+		!strings.Contains(err.Error(), "--mode lib needs --outdir") {
+		t.Fatalf("error = %v", err)
+	}
+	if err := run([]string{"--mode", "lib", "--splitting", "--outdir", "dist", "index.ts"}, nil, nil); err == nil ||
+		!strings.Contains(err.Error(), "--splitting needs app mode") {
+		t.Fatalf("error = %v", err)
+	}
+	if err := run([]string{"--outfile", "out.js", "--splitting", "index.ts"}, nil, nil); err == nil ||
+		!strings.Contains(err.Error(), "--splitting needs --outdir") {
+		t.Fatalf("error = %v", err)
+	}
+	if err := run([]string{"--mode", "app", "--outfile", "out.js", "index.ts", "other.ts"}, nil, nil); err == nil ||
+		!strings.Contains(err.Error(), "single entry") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestCLIBundleFlagAndLegacyAlias(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), "import { secret } from \"pkg\";\nexport const value = secret;\n")
+	pkgDir := filepath.Join(dir, "node_modules", "pkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(pkgDir, "package.json"), `{"name":"pkg","type":"module","main":"index.js"}`)
+	writeFile(t, filepath.Join(pkgDir, "index.js"), "export const secret = \"BUNDLED_SECRET\";\n")
+	t.Chdir(dir)
+
+	for _, flag := range []string{"--bundle", "--bundle-node-modules"} {
+		out := filepath.Join(dir, strings.TrimPrefix(flag, "--"))
+		if err := run([]string{"--outdir", out, flag, "index.ts"}, nil, nil); err != nil {
+			t.Fatalf("%s: %v", flag, err)
+		}
+		body, err := os.ReadFile(filepath.Join(out, "index.js"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(body), `from "pkg"`) {
+			t.Fatalf("%s should bundle the package:\n%s", flag, body)
+		}
+	}
+}
+
+func TestCLIAppModeWarnsAboutIgnoredFlags(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), "export const n: number = 1;\n")
+	t.Chdir(dir)
+
+	var stderr strings.Builder
+	if err := run([]string{"--mode", "app", "--outfile", filepath.Join(dir, "out.js"), "--bundle", "--dts", "index.ts"}, &stderr, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr.String(), "--bundle has no effect in app mode") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--dts has no effect in app mode") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestCLIAppModeSplittingChunks(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(src, "index.ts"), "export const load = () => import(\"./lazy.js\");\n")
+	writeFile(t, filepath.Join(src, "lazy.ts"), "export const value = 1;\n")
+	t.Chdir(dir)
+
+	out := filepath.Join(dir, "dist")
+	if err := run([]string{"--mode", "app", "--outdir", out, "--splitting", "src/index.ts"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(out, "chunks"))
+	if err != nil {
+		t.Fatalf("chunks directory missing: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("no chunk emitted for the dynamic import")
+	}
+	body, err := os.ReadFile(filepath.Join(out, "src", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `import("./chunks/`) {
+		t.Fatalf("dynamic import was not rewritten to a chunk:\n%s", body)
+	}
+}
+
+func TestCLIAppModeSharedChunk(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(src, "shared.ts"), "export const shared = 1;\n")
+	writeFile(t, filepath.Join(src, "a.ts"), "import { shared } from \"./shared.js\";\nexport const a = shared;\n")
+	writeFile(t, filepath.Join(src, "b.ts"), "import { shared } from \"./shared.js\";\nexport const b = shared + 1;\n")
+	t.Chdir(dir)
+
+	out := filepath.Join(dir, "dist")
+	if err := run([]string{"--mode", "app", "--outdir", out, "src/a.ts", "src/b.ts"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(out, "chunks"))
+	if err != nil {
+		t.Fatalf("chunks directory missing: %v", err)
+	}
+	var shared bool
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "shared-") {
+			shared = true
+		}
+	}
+	if !shared {
+		t.Fatalf("no shared chunk emitted: %#v", entries)
+	}
+}

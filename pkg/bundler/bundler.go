@@ -61,7 +61,8 @@ import (
 type Mode string
 
 const (
-	// ModeApp writes one JavaScript file for the whole program.
+	// ModeApp writes one bundle per entry. Package imports are inlined, and no
+	// declaration files are emitted.
 	ModeApp Mode = "app"
 	// ModeLib writes one JavaScript file per local module, and leaves bare
 	// package imports external. This is the multi-file library layout.
@@ -113,7 +114,8 @@ type Options struct {
 	Format Format
 	// JSX selects the JSX transform. Empty means JSXReact.
 	JSX JSX
-	// Mode selects app (one file) or lib (one file per module). Empty means app.
+	// Mode selects app (one bundle per entry) or lib (one file per module).
+	// It must be set; there is no default layout.
 	Mode Mode
 	// OutFile is the JavaScript path used by app mode. The declaration and
 	// source map are written beside it.

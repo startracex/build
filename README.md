@@ -39,7 +39,7 @@ build -o dist/index.js --format esm --format cjs src/index.ts
 build --format iife --global-name App -o dist/app.js src/index.ts
 ```
 
-`[name]` is the entry or module base name, `[path]` is the module path relative to `rootDir` (or the common source directory) without extension, and `[format]` is the output format. `[hash]` is a SHA-256 digest of the emitted content; use `[hash:N]` to keep the first `N` characters (default `8`). When two modules render to the same path, the later one gets a `-2`, `-3`, … suffix before the extension. Relative imports are rewritten to the final filenames, including renamed ones. A templated `-o` allows multiple entries and emits one file per entry (library mode):
+`[name]` is the entry or module base name, `[path]` is the module path relative to `rootDir` (or the common source directory) without extension, and `[format]` is the output format. `[hash]` is a SHA-256 digest of the emitted content; use `[hash:N]` to keep the first `N` characters (default `8`). When two modules render to the same path, the later one gets a `-2`, `-3`, … suffix before the extension. Relative imports are rewritten to the final filenames, including renamed ones. A templated `-o` allows multiple entries and emits one file per module (library mode):
 
 ```bash
 build -o 'dist/[name].cjs' --format cjs src/
@@ -89,13 +89,17 @@ build --outdir dist/a --outdir dist/b --format cjs --format esm --format cjs src
 ### Library / multi-entry / split
 
 ```bash
+# library (default): one file per module
 build --outdir dist src/index.ts
 build --outdir dist --format esm --format cjs "src/**/*.ts"
 build --outdir dist a.ts b.ts
-# multi-entry app: shared modules → chunks/shared-*.js
-build --outdir dist --splitting src/index.ts
-# dynamic import() → chunks/*.js
+# app: one bundle per entry, modules shared by several entries → chunks/shared-*.js
+build --mode app --outdir dist src/index.ts a.ts b.ts
+# app + splitting: import() targets → chunks/*.js
+build --mode app --outdir dist --splitting src/index.ts
 ```
+
+`--mode` picks the output layout: `app` writes one bundle per entry and inlines package imports, `lib` writes one file per module and leaves package imports external. It is inferred from the output path when omitted: `--outfile` with a single entry is `app`, everything else is `lib`. `--splitting` requires `--outdir` and app mode; it only controls whether `import()` targets become their own chunk.
 
 Passing files on the command line without `-p` ignores `tsconfig.json`. With `-p`, explicit files are used as the entries while compiler options are read from that `tsconfig.json`.
 
@@ -119,7 +123,7 @@ The compiler options that change the output are read from `tsconfig.json`. They 
 
 | Flag | Meaning |
 | --- | --- |
-| `-o`, `--outfile` | Single-file bundle path (repeatable). Supports `[name]`, `[path]`, `[format]`, `[hash]`, and `[hash:N]` placeholders; with a placeholder, multiple entries emit one file per entry. |
+| `-o`, `--outfile` | Single-file bundle path (repeatable). Supports `[name]`, `[path]`, `[format]`, `[hash]`, and `[hash:N]` placeholders; with a placeholder, several modules emit one file per module. |
 | `--outdir` | Directory for per-module or split output (repeatable). |
 | `--entry-file-names` | Filename pattern for `--outdir` outputs: `[name]`, `[path]`, `[format]`, `[hash]`, `[hash:N]`. Ignored with `--outfile`. |
 | arguments | Entry files (including `.html`), directories, or globs. Directories are expanded to supported source files (excluding `node_modules` and `.d.ts`). |
@@ -128,14 +132,15 @@ The compiler options that change the output are read from `tsconfig.json`. They 
 | `--global-name` | Required for `iife` / `umd`. |
 | `--jsx` | `react`, `react-jsx`, `react-jsxdev`, `preserve`, or `react-native`. `preserve` and `react-native` keep JSX syntax in the output. |
 | `--external` | Leave a package unbundled (repeatable). |
-| `--bundle-node-modules` | Bundle bare package imports in `--outdir` output instead of leaving them external. |
+| `--mode` | Output layout: `app` (one bundle per entry, packages inlined, no `.d.ts`) or `lib` (one file per module, packages external by default). Inferred from the output path when omitted. |
+| `--bundle` | Bundle bare package imports in library output instead of leaving them external (alias `--bundle-node-modules`). |
 | `--conditions` | Extra `package.json` `"exports"` conditions (repeatable). |
 | `--alias` | Specifier prefix mapping `from=to` (repeatable). |
 | `--define` | Replace a free identifier `KEY=VAL` (repeatable); folds `if (false)` / `if (true)` after replace. |
 | `--drop` | `console` and/or `debugger` (repeatable). |
 | `--map` | Write source maps (alias `--sourcemap`); with `--dts` also writes `.d.ts.map`. |
 | `--dts` | Write `.d.ts` for per-module output. |
-| `--splitting` | Emit `import()` targets as chunks (requires `--outdir`). |
+| `--splitting` | Emit `import()` targets as separate chunks (requires `--outdir` and app mode). |
 | `--cache-dir` | Cache transpile results (key includes plugins/define/drop). |
 | `--manifest` | Write `manifest.json` for emitted assets. |
 | `--public-path` | URL prefix for `?url` / file assets. |
@@ -152,8 +157,8 @@ The compiler options that change the output are read from `tsconfig.json`. They 
 ### App multi-entry and splitting
 
 - Single entry + `--outfile`: one linked file (IIFE/UMD need `--global-name`).
-- Multiple entries or `--splitting` require `--outdir`. Shared modules go to `chunks/shared-*.js`; `import()` targets to `chunks/*.js`.
-- Library mode (`--outdir`) leaves bare package imports external by default; `--bundle-node-modules` emits package files as regular modules instead.
+- App mode + `--outdir`: one bundle per entry; modules shared by several entries go to `chunks/shared-*.js`, and `--splitting` moves `import()` targets to `chunks/*.js`.
+- Library mode (`--outdir`) leaves bare package imports external by default; `--bundle` emits package files as regular modules instead.
 - `Options.ManualChunks` can force modules into named chunks by path substring.
 - IIFE/UMD: single entry only.
 
@@ -183,6 +188,7 @@ Order: **transpile → Transform → define/drop (with branch fold) → link/wra
 
 ```go
 result, err := bundler.Build(ctx, bundler.Options{
+  Mode:  bundler.ModeApp,
   Entry: "src/index.ts",
   Outputs: []bundler.OutputOptions{
     {Format: bundler.FormatESM, OutFile: "dist/index.mjs"},
@@ -193,6 +199,8 @@ result, err := bundler.Build(ctx, bundler.Options{
   Drop:   []string{"console"},
 })
 ```
+
+`Options.Mode` is required: `bundler.ModeApp` writes one bundle per entry, `bundler.ModeLib` writes one file per module and leaves bare package imports external.
 
 Public entry: `github.com/startracex/build/pkg/bundler`. Sibling packages under `pkg/`: `plugin`, `resolve`, `asset`, `link`, `treeshake`, `define`, `cache`, `wrap`, `sourcemap`, `dts`, `modpath`, `jsedit`, `output`.
 

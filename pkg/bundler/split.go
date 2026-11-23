@@ -17,10 +17,22 @@ import (
 
 // emitSplit builds entry bundles plus shared/dynamic chunks for a multi-entry
 // or --splitting app graph.
-func (b *bundler) emitSplit(entries []string) (*Result, error) {
+//
+// With splitDynamic the target of every import() becomes its own chunk. Without
+// it the target stays inside the entry bundle and is treated as an ordinary
+// dependency of the importing entry.
+func (b *bundler) emitSplit(entries []string, splitDynamic bool) (*Result, error) {
 	b.chunkPaths = map[string]string{}
 	graph := b.staticDeps()
 	asyncEdges := b.dynamicImportEdges()
+	if !splitDynamic {
+		for id, targets := range asyncEdges {
+			for t := range targets {
+				graph[id] = append(graph[id], t)
+			}
+		}
+		asyncEdges = nil
+	}
 
 	entryIDs := make([]string, 0, len(entries))
 	entrySync := map[string]map[string]bool{}

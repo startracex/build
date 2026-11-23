@@ -15,7 +15,7 @@ import (
 
 func normalizeMode(mode Mode) (Mode, error) {
 	switch mode {
-	case "", ModeApp:
+	case ModeApp:
 		return ModeApp, nil
 	case ModeLib:
 		return ModeLib, nil
