@@ -1,6 +1,7 @@
 package link
 
 import (
+	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/tsgo/pkg/ast"
 )
 
@@ -139,8 +140,8 @@ func objectThisProps(init *ast.Node) map[string]bool {
 }
 
 // objectPropStripEdits removes unused properties from a non-escaping object binding.
-func (m *esModule) objectPropStripEdits(stmt *ast.Node) []edit {
-	var edits []edit
+func (m *esModule) objectPropStripEdits(stmt *ast.Node) []jsedit.Edit {
+	var edits []jsedit.Edit
 	for _, loc := range m.locals {
 		if loc.stmt != stmt || loc.escapes || len(loc.props) == 0 {
 			continue
@@ -171,7 +172,7 @@ func (m *esModule) objectPropStripEdits(stmt *ast.Node) []edit {
 				prevEnd := nodes[i-1].End()
 				start = prevEnd
 			}
-			edits = append(edits, edit{start: start, end: end, text: ""})
+			edits = append(edits, jsedit.Edit{Start: start, End: end})
 		}
 	}
 	return edits

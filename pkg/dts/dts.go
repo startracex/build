@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/startracex/build/pkg/compileropts"
-	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/resolve"
 	"github.com/startracex/tsgo/pkg/ast"
@@ -156,11 +155,6 @@ func Key(path string) string {
 		id = strings.ToLower(id)
 	}
 	return id
-}
-
-// StripMapComment removes sourceMappingURL comments from declaration text.
-func StripMapComment(src string) string {
-	return jsedit.StripSourceMappingComment(src)
 }
 
 // ErrorFromDiagnostics formats TypeScript diagnostics as an error.

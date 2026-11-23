@@ -60,7 +60,7 @@ func ApplyDefineDrop(src string, defines map[string]string, drop []string) (stri
 	cur := src
 	if len(rules) > 0 || dropConsole || dropDebugger {
 		if edits := rewrite(cur, rules, dropConsole, dropDebugger); len(edits) > 0 {
-			next, err := applyEdits(cur, edits)
+			next, err := jsedit.ApplyEdits(cur, edits)
 			if err != nil {
 				return src, nil, err
 			}
@@ -73,7 +73,7 @@ func ApplyDefineDrop(src string, defines map[string]string, drop []string) (stri
 		if len(edits) == 0 {
 			break
 		}
-		next, err := applyEdits(cur, edits)
+		next, err := jsedit.ApplyEdits(cur, edits)
 		if err != nil {
 			return src, nil, err
 		}
@@ -92,14 +92,6 @@ func Validate(defines map[string]string, drop []string) error {
 	}
 	_, _, err := compileDrop(drop)
 	return err
-}
-
-func applyEdits(src string, edits []jsedit.Edit) (string, error) {
-	out, err := jsedit.ApplyEdits(src, edits)
-	if err != nil {
-		return "", fmt.Errorf("define: %w", err)
-	}
-	return out, nil
 }
 
 func compile(defines map[string]string) (map[string]rule, error) {

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/startracex/build/pkg/dts"
+	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/resolve"
 )
@@ -37,7 +38,7 @@ func (b *bundler) attachDeclarations() error {
 	for id, unit := range b.units {
 		abs := filepath.FromSlash(id)
 		if got, ok := checked[dts.Key(abs)]; ok && strings.TrimSpace(got.Text) != "" {
-			unit.dts = dts.StripMapComment(got.Text)
+			unit.dts = jsedit.StripSourceMappingComment(got.Text)
 			unit.dtsMap = got.SourceMap
 			continue
 		}

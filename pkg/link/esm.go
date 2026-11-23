@@ -1654,17 +1654,13 @@ func (m *esModule) renderBody(mods map[string]*esModule, helper string) string {
 		chunks = append(chunks, m.renderCJSBindings(mods, helper)...)
 	}
 	if !m.cjsWrapAll && m.file != nil && m.file.Statements != nil {
-		var edits []edit
+		var edits []jsedit.Edit
 		for _, stmt := range m.file.Statements.Nodes {
 			edits = append(edits, m.statementEdits(mods, stmt)...)
 		}
-		if text, err := applyEdits(m.src, edits); err == nil {
+		if text, err := jsedit.ApplyEdits(m.src, edits); err == nil {
 			if m.jsMap != "" && len(edits) > 0 {
-				jsEdits := make([]jsedit.Edit, len(edits))
-				for i, e := range edits {
-					jsEdits[i] = jsedit.Edit{Start: e.start, End: e.end, Text: e.text}
-				}
-				m.linkedMap = sourcemap.RemapEdits(m.jsMap, m.src, jsEdits)
+				m.linkedMap = sourcemap.RemapEdits(m.jsMap, m.src, edits)
 			} else if m.jsMap != "" {
 				m.linkedMap = m.jsMap
 			}
@@ -1735,28 +1731,28 @@ func propLine(name, binding string) string {
 	return "  get " + strconv.Quote(name) + "() { return " + binding + "; },"
 }
 
-func (m *esModule) statementEdits(mods map[string]*esModule, stmt *ast.Node) []edit {
+func (m *esModule) statementEdits(mods map[string]*esModule, stmt *ast.Node) []jsedit.Edit {
 	if stmt.Pos() < 0 || stmt.End() <= stmt.Pos() {
 		return nil
 	}
 	if !m.keepStmt(stmt) {
-		return []edit{{start: stmt.Pos(), end: stmt.End(), text: ""}}
+		return []jsedit.Edit{{Start: stmt.Pos(), End: stmt.End(), Text: ""}}
 	}
 	if stmt.Kind == ast.KindExportAssignment {
 		exp := stmt.AsExportAssignment()
 		if exp.Expression == nil || exp.Expression.Kind == ast.KindIdentifier {
-			return []edit{{start: stmt.Pos(), end: stmt.End(), text: ""}}
+			return []jsedit.Edit{{Start: stmt.Pos(), End: stmt.End(), Text: ""}}
 		}
 		loc := m.locals["default"]
 		if loc == nil || loc.final == "" {
-			return []edit{{start: stmt.Pos(), end: stmt.End(), text: ""}}
+			return []jsedit.Edit{{Start: stmt.Pos(), End: stmt.End(), Text: ""}}
 		}
 		expr := m.renameSpan(exp.Expression.Pos(), exp.Expression.End())
-		return []edit{{start: stmt.Pos(), end: stmt.End(), text: "const " + loc.final + " = " + expr + ";"}}
+		return []jsedit.Edit{{Start: stmt.Pos(), End: stmt.End(), Text: "const " + loc.final + " = " + expr + ";"}}
 	}
-	var edits []edit
+	var edits []jsedit.Edit
 	if start, end, ok := stripExportSpan(m.src, stmt); ok {
-		edits = append(edits, edit{start: start, end: end, text: ""})
+		edits = append(edits, jsedit.Edit{Start: start, End: end, Text: ""})
 	}
 	edits = append(edits, m.objectPropStripEdits(stmt)...)
 	m.walkRefs(stmt, nil, m.moduleScope(), func(r ref) {
@@ -1772,7 +1768,7 @@ func (m *esModule) statementEdits(mods map[string]*esModule, stmt *ast.Node) []e
 			} else if final == r.node.Text() {
 				return
 			}
-			edits = append(edits, edit{start: jsedit.TokenStart(m.src, r.node), end: r.node.End(), text: text})
+			edits = append(edits, jsedit.Edit{Start: jsedit.TokenStart(m.src, r.node), End: r.node.End(), Text: text})
 		case refLocalProp, refImportProp:
 			// x.prop keeps only the object reference here; the property is
 			// handled by the tree shaker.
@@ -1781,7 +1777,7 @@ func (m *esModule) statementEdits(mods map[string]*esModule, stmt *ast.Node) []e
 				return
 			}
 			if obj := objectIdent(r.node); obj != nil {
-				edits = append(edits, edit{start: jsedit.TokenStart(m.src, obj), end: obj.End(), text: final})
+				edits = append(edits, jsedit.Edit{Start: jsedit.TokenStart(m.src, obj), End: obj.End(), Text: final})
 			}
 		case refNSProp:
 			imp := m.imports[r.name]
@@ -1792,19 +1788,19 @@ func (m *esModule) statementEdits(mods map[string]*esModule, stmt *ast.Node) []e
 				if imp.final != "" && imp.final != r.name {
 					obj := objectIdent(r.node)
 					if obj != nil {
-						edits = append(edits, edit{start: jsedit.TokenStart(m.src, obj), end: obj.End(), text: imp.final})
+						edits = append(edits, jsedit.Edit{Start: jsedit.TokenStart(m.src, obj), End: obj.End(), Text: imp.final})
 					}
 				}
 				return
 			}
 			if final := m.propBinding(mods, imp, r.prop); final != "" {
-				edits = append(edits, edit{start: jsedit.TokenStart(m.src, r.node), end: r.node.End(), text: final})
+				edits = append(edits, jsedit.Edit{Start: jsedit.TokenStart(m.src, r.node), End: r.node.End(), Text: final})
 			}
 		case refDynamic:
 			if r.external || r.module == "" {
 				return
 			}
-			edits = append(edits, edit{start: jsedit.TokenStart(m.src, r.node), end: r.node.End(), text: dynamicNamespace(mods, r.module)})
+			edits = append(edits, jsedit.Edit{Start: jsedit.TokenStart(m.src, r.node), End: r.node.End(), Text: dynamicNamespace(mods, r.module)})
 		}
 	})
 	for _, loc := range m.locals {
@@ -1815,7 +1811,7 @@ func (m *esModule) statementEdits(mods map[string]*esModule, stmt *ast.Node) []e
 			if id.Text() == loc.final {
 				continue
 			}
-			edits = append(edits, edit{start: jsedit.TokenStart(m.src, id), end: id.End(), text: loc.final})
+			edits = append(edits, jsedit.Edit{Start: jsedit.TokenStart(m.src, id), End: id.End(), Text: loc.final})
 		}
 	}
 	return edits
@@ -1907,7 +1903,7 @@ func (m *esModule) propBinding(mods map[string]*esModule, imp *esImport, prop st
 }
 
 func (m *esModule) renameSpan(start, end int) string {
-	var edits []edit
+	var edits []jsedit.Edit
 	if m.file != nil {
 		m.walkRefs(m.file.AsNode(), nil, m.moduleScope(), func(r ref) {
 			if r.node == nil || r.node.Pos() < start || r.node.End() > end || r.kind != refName {
@@ -1915,11 +1911,11 @@ func (m *esModule) renameSpan(start, end int) string {
 			}
 			final, ok := m.outputName(r.name)
 			if ok && final != r.node.Text() {
-				edits = append(edits, edit{start: r.node.Pos() - start, end: r.node.End() - start, text: final})
+				edits = append(edits, jsedit.Edit{Start: r.node.Pos() - start, End: r.node.End() - start, Text: final})
 			}
 		})
 	}
-	text, err := applyEdits(m.src[start:end], edits)
+	text, err := jsedit.ApplyEdits(m.src[start:end], edits)
 	if err != nil {
 		return m.src[start:end]
 	}

@@ -511,7 +511,7 @@ func (m *esModule) renderExpr(n *ast.Node) string {
 	if start < 0 || end <= start || end > len(m.src) {
 		return ""
 	}
-	var edits []edit
+	var edits []jsedit.Edit
 	m.walkRefs(n, nil, m.moduleScope(), func(r ref) {
 		if r.kind != refName || r.node == nil {
 			return
@@ -521,13 +521,13 @@ func (m *esModule) renderExpr(n *ast.Node) string {
 			return
 		}
 		tok := jsedit.TokenStart(m.src, r.node)
-		edits = append(edits, edit{start: tok - start, end: r.node.End() - start, text: final})
+		edits = append(edits, jsedit.Edit{Start: tok - start, End: r.node.End() - start, Text: final})
 	})
 	chunk := m.src[start:end]
 	if len(edits) == 0 {
 		return strings.TrimSpace(chunk)
 	}
-	out, err := applyEdits(chunk, edits)
+	out, err := jsedit.ApplyEdits(chunk, edits)
 	if err != nil {
 		return strings.TrimSpace(chunk)
 	}
