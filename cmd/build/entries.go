@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -19,39 +21,124 @@ func expandEntries(patterns []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var literals, globs []string
+	caseInsensitive := runtime.GOOS == "windows"
+	var literals, globs, excludes []string
 	for _, pattern := range patterns {
 		body := strings.TrimPrefix(pattern, "!")
-		if strings.HasPrefix(pattern, "!") || containsGlob(body) {
+		if strings.HasPrefix(pattern, "!") {
+			globs = append(globs, pattern)
+			excludes = append(excludes, body)
+			continue
+		}
+		if containsGlob(body) {
 			globs = append(globs, pattern)
 			continue
 		}
 		literals = append(literals, pattern)
 	}
-	out := append([]string{}, literals...)
+
+	excludeRes := make([]*regexp.Regexp, 0, len(excludes))
+	for _, pattern := range excludes {
+		pattern = filepath.ToSlash(filepath.Clean(pattern))
+		excludeRes = append(excludeRes, glob.GlobToRegExp(pattern, true, caseInsensitive))
+	}
+
+	var out []string
+	for _, literal := range literals {
+		files, err := expandDirectory(literal, dir, excludeRes)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, files...)
+	}
 	if len(globs) > 0 {
 		matched, err := glob.MatchFiles(globs, glob.Options{
 			Dir:             dir,
 			Absolute:        true,
 			FileOnly:        true,
 			GlobStar:        true,
-			CaseInsensitive: runtime.GOOS == "windows",
+			CaseInsensitive: caseInsensitive,
 		})
 		if err != nil {
 			return nil, err
 		}
 		for _, file := range matched {
-			slash := filepath.ToSlash(file)
-			if strings.Contains(slash, "/node_modules/") || strings.HasSuffix(strings.ToLower(slash), ".d.ts") {
-				continue
+			if entryFile(file) {
+				out = append(out, file)
 			}
-			out = append(out, file)
 		}
-		if len(matched) == 0 {
+		if len(matched) == 0 && len(excludes) < len(globs) {
 			return nil, fmt.Errorf("no files matched %s", strings.Join(globs, ", "))
 		}
 	}
 	return uniqueFiles(out)
+}
+
+// expandDirectory turns a directory argument into its entry files. Non-existent
+// paths and regular files are returned unchanged so the bundler reports them.
+func expandDirectory(path, cwd string, excludes []*regexp.Regexp) ([]string, error) {
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return []string{path}, nil
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	err = filepath.WalkDir(absPath, func(current string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if current == absPath {
+				return nil
+			}
+			name := d.Name()
+			if name == "node_modules" || strings.HasPrefix(name, ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !entryFile(current) {
+			return nil
+		}
+		rel, err := filepath.Rel(cwd, current)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		for _, re := range excludes {
+			if re.MatchString(rel) {
+				return nil
+			}
+		}
+		files = append(files, current)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no source files found in %s", path)
+	}
+	return files, nil
+}
+
+func entryFile(path string) bool {
+	lower := strings.ToLower(path)
+	if strings.HasSuffix(lower, ".d.ts") {
+		return false
+	}
+	if strings.Contains(filepath.ToSlash(path), "/node_modules/") {
+		return false
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".json":
+		return true
+	default:
+		return false
+	}
 }
 
 func uniqueFiles(paths []string) ([]string, error) {

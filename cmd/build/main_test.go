@@ -262,6 +262,27 @@ func TestCLIExplicitEmitFlagsOverrideTSConfig(t *testing.T) {
 	}
 }
 
+func TestCLIDirectoryInput(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "index.ts"), []byte("import { add } from \"./math.js\";\nexport const sum = add(2, 3);\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "math.ts"), []byte("export function add(a: number, b: number): number { return a + b; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	out := filepath.Join(dir, "dist")
+	if err := run([]string{"--outdir", out, "--format", "cjs", "src"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	findOutput(t, out, "index.js")
+	findOutput(t, out, "math.js")
+}
+
 func TestCLIRightAlignedOutputs(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")
