@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/startracex/build/pkg/asset"
 	"github.com/startracex/build/pkg/bundler"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/resolve"
@@ -229,10 +230,10 @@ func configFiles(parsed *tsoptions.ParsedCommandLine) ([]string, error) {
 	var files []string
 	for _, name := range parsed.FileNames() {
 		path := filepath.FromSlash(name.AsString())
-		if modpath.IsDeclarationPath(path) {
+		if modpath.IsDeclaration(path) {
 			continue
 		}
-		if modpath.IsSourcePath(path) {
+		if asset.IsSource(path) {
 			files = append(files, path)
 		}
 	}

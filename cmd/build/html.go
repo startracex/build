@@ -22,7 +22,7 @@ func prepareHTMLEntries(entries []string) ([]*htmlDocument, []string, error) {
 	var docs []*htmlDocument
 	var modules []string
 	for _, entry := range entries {
-		if !modpath.IsHTMLPath(entry) {
+		if modpath.LowerExt(entry) != ".html" {
 			modules = append(modules, entry)
 			continue
 		}

@@ -3,11 +3,9 @@ package modpath
 import (
 	"path/filepath"
 	"strings"
-)
 
-// SourceExtensions lists the extensions that can be loaded as source or as an
-// asset: TypeScript, JavaScript and JSON.
-var SourceExtensions = []string{".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".json"}
+	"github.com/startracex/tsgo/pkg/tspath"
+)
 
 // Ext returns the extension of path, including the leading dot. It returns an
 // empty string when path has no extension.
@@ -54,10 +52,11 @@ func HasAnyExt(path string, exts ...string) bool {
 	return false
 }
 
-// IsTypeScriptSource reports whether path names a TypeScript source file.
+// IsTypeScriptSource reports whether path names a TypeScript file, including
+// declaration files.
 func IsTypeScriptSource(path string) bool {
 	switch LowerExt(path) {
-	case ".ts", ".tsx", ".mts", ".cts":
+	case tspath.ExtensionTs, tspath.ExtensionTsx, tspath.ExtensionMts, tspath.ExtensionCts:
 		return true
 	default:
 		return false
@@ -67,30 +66,34 @@ func IsTypeScriptSource(path string) bool {
 // IsJavaScriptSource reports whether path names a JavaScript source file.
 func IsJavaScriptSource(path string) bool {
 	switch LowerExt(path) {
-	case ".js", ".jsx", ".mjs", ".cjs":
+	case tspath.ExtensionJs, tspath.ExtensionJsx, tspath.ExtensionMjs, tspath.ExtensionCjs:
 		return true
 	default:
 		return false
 	}
 }
 
-// IsSourcePath reports whether path names a file that can be loaded as source
-// or as an asset.
-func IsSourcePath(path string) bool {
-	return HasAnyExt(path, SourceExtensions...)
+// IsDeclaration reports whether path names a TypeScript declaration file:
+// .d.ts, .d.mts or .d.cts.
+func IsDeclaration(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.HasSuffix(lower, tspath.ExtensionDts) ||
+		strings.HasSuffix(lower, tspath.ExtensionDmts) ||
+		strings.HasSuffix(lower, tspath.ExtensionDcts)
 }
 
-// IsDeclarationPath reports whether path names a TypeScript declaration file.
-func IsDeclarationPath(path string) bool {
-	return HasExt(path, ".d.ts")
+// IsTypeScript reports whether path names a TypeScript file the build can
+// compile: a TypeScript source file that is not a declaration file.
+func IsTypeScript(path string) bool {
+	return IsTypeScriptSource(path) && !IsDeclaration(path)
 }
 
-// IsJSONPath reports whether path names a JSON file.
-func IsJSONPath(path string) bool {
-	return LowerExt(path) == ".json"
-}
-
-// IsHTMLPath reports whether path names an HTML file.
-func IsHTMLPath(path string) bool {
-	return LowerExt(path) == ".html"
+// IsJavaScriptOutput reports whether path names emitted JavaScript.
+func IsJavaScriptOutput(path string) bool {
+	switch LowerExt(path) {
+	case tspath.ExtensionJs, tspath.ExtensionMjs, tspath.ExtensionCjs:
+		return !IsDeclaration(path)
+	default:
+		return false
+	}
 }

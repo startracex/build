@@ -19,7 +19,7 @@ func (b *bundler) attachDeclarations() error {
 	var absPaths []string
 	for id := range b.units {
 		abs := filepath.FromSlash(id)
-		if modpath.IsTypeScriptPath(abs) {
+		if modpath.IsTypeScript(abs) {
 			absPaths = append(absPaths, abs)
 		}
 	}
@@ -41,7 +41,7 @@ func (b *bundler) attachDeclarations() error {
 			unit.dtsMap = got.SourceMap
 			continue
 		}
-		if !modpath.IsTypeScriptPath(abs) || strings.TrimSpace(unit.dts) != "" {
+		if !modpath.IsTypeScript(abs) || strings.TrimSpace(unit.dts) != "" {
 			continue
 		}
 		text, err := b.declarationText(abs, unit.source)

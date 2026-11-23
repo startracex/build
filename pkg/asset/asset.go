@@ -197,9 +197,17 @@ func hashedRel(rel string, data []byte) string {
 	return stem + "-" + hash + ext
 }
 
+// SourceExtensions lists the extensions the build accepts as input.
+var SourceExtensions = []string{".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".json"}
+
+// IsSource reports whether path names a file the build accepts as input.
+func IsSource(path string) bool {
+	return modpath.HasAnyExt(path, SourceExtensions...)
+}
+
 // SupportedSource reports whether path can be loaded as source or asset.
 func SupportedSource(path string) bool {
-	if modpath.IsSourcePath(path) {
+	if IsSource(path) {
 		return true
 	}
 	return IsExt(modpath.LowerExt(path))

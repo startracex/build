@@ -405,7 +405,7 @@ func (b *bundler) load(path string) error {
 		parsePath = path + ".js"
 	}
 
-	if modpath.IsJSONPath(parsePath) {
+	if modpath.LowerExt(path) == ".json" {
 		if !json.Valid([]byte(src)) {
 			return fmt.Errorf("%s: invalid JSON", path)
 		}

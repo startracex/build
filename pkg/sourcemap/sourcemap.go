@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/startracex/build/pkg/asset"
 	"github.com/startracex/build/pkg/modpath"
 )
 
@@ -109,7 +110,7 @@ func sourceComment(line string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	if modpath.IsSourcePath(name) {
+	if asset.IsSource(name) {
 		return filepath.ToSlash(name), true
 	}
 	return "", false

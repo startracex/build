@@ -48,7 +48,7 @@ type Config struct {
 	// 5 resolved bare specifiers against it, so a tsconfig that still uses it
 	// keeps working. It is kept apart from the mappings the user wrote so
 	// library mode still treats bare package imports as external.
-	BaseURL BaseURLFallback
+	BaseURL     BaseURLFallback
 	ResolveHook func(importer, spec string) (path string, external bool, ok bool, err error)
 	OnAsset     func(abs string, q asset.Query) error
 }
@@ -416,11 +416,11 @@ func (r *Resolver) matchesPathsAlias(spec string) bool {
 // matchPathPattern reports whether spec matches a tsconfig "paths" pattern.
 // A pattern holds at most one "*" wildcard.
 func matchPathPattern(pattern, spec string) bool {
-	star := strings.IndexByte(pattern, '*')
-	if star < 0 {
+	before, after, ok := strings.Cut(pattern, "*")
+	if !ok {
 		return pattern == spec
 	}
-	prefix, suffix := pattern[:star], pattern[star+1:]
+	prefix, suffix := before, after
 	if !strings.HasPrefix(spec, prefix) || !strings.HasSuffix(spec, suffix) {
 		return false
 	}

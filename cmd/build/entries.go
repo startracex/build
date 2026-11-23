@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/startracex/build/pkg/asset"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/wangpkg/pkg/glob"
 )
@@ -127,13 +128,13 @@ func expandDirectory(path, cwd string, excludes []*regexp.Regexp) ([]string, err
 }
 
 func entryFile(path string) bool {
-	if modpath.IsDeclarationPath(path) {
+	if modpath.IsDeclaration(path) {
 		return false
 	}
 	if strings.Contains(filepath.ToSlash(path), "/node_modules/") {
 		return false
 	}
-	return modpath.IsSourcePath(path) || modpath.IsHTMLPath(path)
+	return asset.IsSource(path) || modpath.LowerExt(path) == ".html"
 }
 
 func uniqueFiles(paths []string) ([]string, error) {

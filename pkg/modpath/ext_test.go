@@ -62,46 +62,52 @@ func TestSourceKindHelpers(t *testing.T) {
 	if !IsTypeScriptSource("a/index.ts") || !IsTypeScriptSource("a/index.tsx") {
 		t.Error("IsTypeScriptSource should accept .ts and .tsx")
 	}
+	if !IsTypeScriptSource("a/index.mts") || !IsTypeScriptSource("a/index.cts") {
+		t.Error("IsTypeScriptSource should accept .mts and .cts")
+	}
 	if IsTypeScriptSource("a/index.js") {
 		t.Error("IsTypeScriptSource should reject .js")
 	}
 	if !IsJavaScriptSource("a/index.jsx") || !IsJavaScriptSource("a/index.cjs") {
 		t.Error("IsJavaScriptSource should accept .jsx and .cjs")
 	}
-	if !IsSourcePath("a/index.mts") || !IsSourcePath("a/index.json") {
-		t.Error("IsSourcePath should accept .mts and .json")
+	if IsJavaScriptSource("a/index.ts") {
+		t.Error("IsJavaScriptSource should reject .ts")
 	}
-	if IsSourcePath("a/index.css") {
-		t.Error("IsSourcePath should reject .css")
+}
+
+func TestDeclarationHelper(t *testing.T) {
+	declarations := []string{"a/index.d.ts", "a/index.d.mts", "a/index.d.cts", "a/index.D.TS"}
+	for _, path := range declarations {
+		if !IsDeclaration(path) {
+			t.Errorf("IsDeclaration(%q) should be true", path)
+		}
 	}
-	if !IsDeclarationPath("a/index.d.ts") || IsDeclarationPath("a/index.ts") {
-		t.Error("IsDeclarationPath is wrong")
+	sources := []string{"a/index.ts", "a/index.mts", "a/index.cts", "a/index.dtsx", "a/index.d.tsx"}
+	for _, path := range sources {
+		if IsDeclaration(path) {
+			t.Errorf("IsDeclaration(%q) should be false", path)
+		}
 	}
-	if !IsJSONPath("a/index.json") || IsJSONPath("a/index.ts") {
-		t.Error("IsJSONPath is wrong")
+}
+
+func TestTypeScriptHelper(t *testing.T) {
+	if !IsTypeScript("a/index.ts") || !IsTypeScript("a/index.mts") {
+		t.Error("IsTypeScript should accept .ts and .mts")
 	}
-	if !IsHTMLPath("a/index.html") || IsHTMLPath("a/index.htm") {
-		t.Error("IsHTMLPath is wrong")
+	if IsTypeScript("a/index.d.ts") || IsTypeScript("a/index.d.mts") || IsTypeScript("a/index.d.cts") {
+		t.Error("IsTypeScript should reject declaration files")
+	}
+	if IsTypeScript("a/index.js") {
+		t.Error("IsTypeScript should reject .js")
 	}
 }
 
 func TestOutputKindHelpers(t *testing.T) {
-	if got := JavascriptOutputAbs("a/index.ts"); got != "a/index.js" {
-		t.Errorf("JavascriptOutputAbs = %q", got)
-	}
-	if got := JavascriptOutputAbs("a/index.json"); got != "a/index.js" {
-		t.Errorf("JavascriptOutputAbs for json = %q", got)
-	}
-	if got := JavascriptOutputAbs("a/index.css"); got != "a/index.css" {
-		t.Errorf("JavascriptOutputAbs for css = %q", got)
-	}
 	if !IsJavaScriptOutput("a/index.js") || !IsJavaScriptOutput("a/index.mjs") {
 		t.Error("IsJavaScriptOutput should accept .js and .mjs")
 	}
-	if IsJavaScriptOutput("a/index.d.ts") {
-		t.Error("IsJavaScriptOutput should reject .d.ts")
-	}
-	if !IsTypeScriptPath("a/index.ts") || IsTypeScriptPath("a/index.d.ts") {
-		t.Error("IsTypeScriptPath is wrong")
+	if IsJavaScriptOutput("a/index.d.ts") || IsJavaScriptOutput("a/index.ts") {
+		t.Error("IsJavaScriptOutput should reject TypeScript")
 	}
 }

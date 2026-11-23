@@ -88,18 +88,3 @@ func JavascriptOutputAbs(abs string) string {
 		return abs
 	}
 }
-
-// IsJavaScriptOutput reports whether path looks like emitted JavaScript.
-func IsJavaScriptOutput(path string) bool {
-	switch LowerExt(path) {
-	case ".js", ".mjs", ".cjs":
-		return !IsDeclarationPath(path)
-	default:
-		return false
-	}
-}
-
-// IsTypeScriptPath reports whether path is a TypeScript source file.
-func IsTypeScriptPath(path string) bool {
-	return IsTypeScriptSource(path) && !IsDeclarationPath(path)
-}
