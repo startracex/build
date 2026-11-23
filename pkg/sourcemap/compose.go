@@ -2,6 +2,7 @@ package sourcemap
 
 import (
 	"encoding/json/v2"
+	"sort"
 	"strings"
 )
 
@@ -10,6 +11,95 @@ type ModuleMap struct {
 	Display  string // path as written in "// file" linker comments
 	Original string // original source content
 	JSMap    string // transpile source map JSON (may be empty)
+}
+
+// Compose chains two source maps. inner maps the current text back to an
+// intermediate text (for example a plugin transform), and outer maps that
+// intermediate text back to the original source (the transpile). The result maps
+// the current text straight to the original source, so the module keeps a usable
+// map after a plugin rewrites it.
+func Compose(outerJSON, innerJSON, fallbackContent string) string {
+	outer := decodeMap(outerJSON, fallbackContent)
+	inner := decodeMap(innerJSON, fallbackContent)
+	if outer == nil || inner == nil {
+		return innerJSON
+	}
+	maxLine := -1
+	for line := range inner.segs {
+		if line > maxLine {
+			maxLine = line
+		}
+	}
+	var points []mapPointCol
+	var sources []string
+	var contents []string
+	sourceIndex := map[int]int{}
+	for line := 0; line <= maxLine; line++ {
+		segs := append([]seg(nil), inner.segs[line]...)
+		sort.Slice(segs, func(i, j int) bool { return segs[i].genCol < segs[j].genCol })
+		for _, s := range segs {
+			if s.srcIdx < 0 || s.srcIdx >= len(inner.sources) {
+				continue
+			}
+			orig, ok := lookupSegment(outer, s.srcLine, s.srcCol)
+			if !ok || orig.srcIdx < 0 || orig.srcIdx >= len(outer.sources) {
+				continue
+			}
+			out, seen := sourceIndex[orig.srcIdx]
+			if !seen {
+				out = len(sources)
+				sourceIndex[orig.srcIdx] = out
+				sources = append(sources, outer.sources[orig.srcIdx])
+				contents = append(contents, outer.content[orig.srcIdx])
+			}
+			points = append(points, mapPointCol{
+				genLine: line,
+				genCol:  s.genCol,
+				source:  out,
+				srcLine: orig.srcLine,
+				srcCol:  orig.srcCol + s.srcCol - orig.genCol,
+			})
+		}
+	}
+	if len(points) == 0 {
+		return innerJSON
+	}
+	content := make([]*string, len(contents))
+	for i := range contents {
+		text := contents[i]
+		content[i] = &text
+	}
+	raw := map[string]any{
+		"version":        3,
+		"sources":        sources,
+		"names":          []string{},
+		"mappings":       encodeMappingsCol(points),
+		"sourcesContent": content,
+	}
+	buf, err := marshalMap(raw)
+	if err != nil {
+		return innerJSON
+	}
+	return string(buf)
+}
+
+// lookupSegment returns the outer segment that covers generated position
+// line:col: the last segment on that line starting at or before the column.
+func lookupSegment(m *decodedMap, line, col int) (seg, bool) {
+	segs := append([]seg(nil), m.segs[line]...)
+	if len(segs) == 0 {
+		return seg{}, false
+	}
+	sort.Slice(segs, func(i, j int) bool { return segs[i].genCol < segs[j].genCol })
+	var best seg
+	found := false
+	for _, s := range segs {
+		if s.genCol > col {
+			break
+		}
+		best, found = s, true
+	}
+	return best, found
 }
 
 // ComposeLinked builds a source map for linked output by combining per-module

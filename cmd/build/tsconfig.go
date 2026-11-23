@@ -98,6 +98,13 @@ func findTSConfig() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return findTSConfigIn(dir)
+}
+
+// findTSConfigIn walks from dir through each ancestor. The service uses it so a
+// request's working directory never has to become the process working
+// directory.
+func findTSConfigIn(dir string) (string, error) {
 	for {
 		candidate := filepath.Join(dir, "tsconfig.json")
 		info, statErr := os.Stat(candidate)

@@ -50,6 +50,7 @@ import (
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/plugin"
 	"github.com/startracex/build/pkg/resolve"
+	"github.com/startracex/build/pkg/sourcemap"
 	"github.com/startracex/tsgo/pkg/ast"
 	"github.com/startracex/tsgo/pkg/binder"
 	"github.com/startracex/tsgo/pkg/core"
@@ -511,7 +512,6 @@ func (b *bundler) load(path string) error {
 	verbatim := false
 	if b.outMode == ModeLib && moduleKind == core.ModuleKindCommonJS {
 		// The module was converted to CommonJS, so the emitted text stands.
-		b.units[id] = &unit{code: js, source: sourceText, jsMap: jsMap, file: file}
 	} else {
 		emitted := jsedit.ParseEmittedJS(js)
 		if err := errorFromDiagnostics(path, js, emitted.Diagnostics()); err != nil {
@@ -522,13 +522,31 @@ func (b *bundler) load(path string) error {
 			// preserves hand-minified code, comments, and formatting.
 			js, jsMap, verbatim = body, "", true
 		}
-		extra, err := b.depsFromSpecifiers(path, specifiers(emitted))
-		if err != nil {
-			return err
-		}
-		deps = append(deps, extra...)
-		b.units[id] = &unit{code: js, source: sourceText, jsMap: jsMap, file: file, verbatim: verbatim}
 	}
+
+	// Plugins transform the emitted JavaScript. This runs before imports are
+	// collected, so an import a plugin adds is resolved and bundled like any
+	// other one. A plugin map is composed onto the transpile map so the module
+	// still points at its source.
+	js, jsMap, transformed, err := b.runTransform(id, sourceText, js, jsMap)
+	if err != nil {
+		return err
+	}
+	if transformed {
+		// The text no longer matches the parsed AST or the source text.
+		verbatim = false
+		file = nil
+	}
+	specs, err := b.specifiersFromCode(path, js, transformed)
+	if err != nil {
+		return err
+	}
+	extra, err := b.depsFromSpecifiers(path, specs)
+	if err != nil {
+		return err
+	}
+	deps = append(deps, extra...)
+	b.units[id] = &unit{code: js, source: sourceText, jsMap: jsMap, file: file, verbatim: verbatim}
 
 	seen := map[string]bool{}
 	for _, dep := range deps {
@@ -628,6 +646,46 @@ func manifestOutput(opts Options, manifest map[string]string) []Output {
 	}
 	path := asset.ManifestPath(opts.OutDir, opts.OutFile)
 	return []Output{{Path: path, Data: buf.String() + "\n"}}
+}
+
+// runTransform runs the plugin transform hooks on an emitted module. It reports
+// whether the text changed and returns the map that describes the new text: a
+// plugin map is composed onto the transpile map, and without one the transpile
+// map stays as the best information available.
+func (b *bundler) runTransform(id, sourceText, code, mapData string) (string, string, bool, error) {
+	if len(b.opts.Plugins) == 0 {
+		return code, mapData, false, nil
+	}
+	hookCtx := plugin.HookCtx{Context: b.ctx}
+	out, outMap, err := plugin.RunTransform(b.opts.Plugins, hookCtx, code, id)
+	if err != nil {
+		return "", "", false, err
+	}
+	if out == code && outMap == "" {
+		return code, mapData, false, nil
+	}
+	if strings.TrimSpace(outMap) != "" {
+		if strings.TrimSpace(mapData) != "" {
+			mapData = sourcemap.Compose(mapData, outMap, sourceText)
+		} else {
+			// A verbatim module has no transpile map; the plugin map already
+			// points at the source text, so it only needs the file name.
+			mapData = sourcemap.RetargetSourceMap(outMap, "", id, sourceText)
+		}
+	}
+	return out, mapData, out != code, nil
+}
+
+// specifiersFromCode lists the imports of an emitted module. Plugin output is
+// validated, because a syntax error there must not silently drop imports.
+func (b *bundler) specifiersFromCode(path, code string, strict bool) ([]string, error) {
+	parsed := jsedit.ParseEmittedJS(code)
+	if strict {
+		if err := errorFromDiagnostics(path, code, parsed.Diagnostics()); err != nil {
+			return nil, fmt.Errorf("parse plugin output: %w", err)
+		}
+	}
+	return specifiers(parsed), nil
 }
 
 func (b *bundler) depsFromSpecifiers(importer string, specs []string) ([]string, error) {

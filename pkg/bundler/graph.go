@@ -12,7 +12,6 @@ import (
 	"github.com/startracex/build/pkg/define"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/output"
-	"github.com/startracex/build/pkg/plugin"
 	"github.com/startracex/build/pkg/resolve"
 	"github.com/startracex/build/pkg/sourcemap"
 	"github.com/startracex/build/pkg/wrap"
@@ -122,16 +121,13 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 			return nil, nil, err
 		}
 	}
-	hookCtx := plugin.HookCtx{Context: ctx}
+	// Plugin transforms already ran per module while loading, so imports they
+	// add are part of the graph. Only the define/drop rewrite is left.
 	for id, unit := range b.units {
 		if unit.asset {
 			continue
 		}
-		code, _, err := plugin.RunTransform(opts.Plugins, hookCtx, unit.code, id)
-		if err != nil {
-			return nil, nil, err
-		}
-		rewritten, stages, err := define.ApplyDefineDrop(code, opts.Define, opts.Drop)
+		rewritten, stages, err := define.ApplyDefineDrop(unit.code, opts.Define, opts.Drop)
 		if err != nil {
 			return nil, nil, err
 		}
