@@ -2,13 +2,38 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
 
+env:
+  GOPROXY: direct
+
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: go build
+        run: go build ./...
+      - name: go mod tidy
+        run: go mod tidy -diff
+
   test:
     runs-on: ubuntu-latest
-    env:
-      GOPROXY: direct
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
