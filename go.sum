@@ -14,6 +14,8 @@ github.com/russross/blackfriday/v2 v2.1.0 h1:JIOH55/0cWyOuilr9/qlrm0BSXldqnqwMsf
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
 github.com/startracex/tsgo v0.0.0-20261121092858-9b00c4f6e080 h1:1Fm3uy5o6gbgnMjaVwebMV2UxAPy+eD82jF+6+U8RUk=
 github.com/startracex/tsgo v0.0.0-20261121092858-9b00c4f6e080/go.mod h1:SccB0XUjbfA2VDq+gUcQwezalSytgIQP6XHnZ9ZAtDQ=
+github.com/startracex/wangpkg v0.1.0 h1:FWFHfZG3LNZhVidw63Lu7uTPhOEmb3yS3ZcHCiY+QeM=
+github.com/startracex/wangpkg v0.1.0/go.mod h1:o317R/ZZbuFq7UcjJYMZRct+TxFHrqO1xxkRvZaAZP8=
 github.com/urfave/cli/v2 v2.27.7 h1:bH59vdhbjLv3LAvIu6gd0usJHgoTTPhCFib8qqOwXYU=
 github.com/urfave/cli/v2 v2.27.7/go.mod h1:CyNAG/xg+iAOg0N4MPGZqVmv2rCoP267496AOXUZjA4=
 github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 h1:gEOO8jv9F4OT7lGCjxCBTO/36wtF6j2nSip77qHd4x4=

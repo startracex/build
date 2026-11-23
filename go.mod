@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	github.com/startracex/tsgo v0.0.0-20261121092858-9b00c4f6e080
-	github.com/startracex/wangpkg v0.0.0
+	github.com/startracex/wangpkg v0.1.0
 	github.com/urfave/cli/v2 v2.27.7
 	golang.org/x/net v0.63.0
 )
@@ -21,5 +21,3 @@ require (
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
 )
-
-replace github.com/startracex/wangpkg => ../wangpkg
