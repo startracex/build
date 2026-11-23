@@ -1,7 +1,8 @@
 package sourcemap
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,19 @@ import (
 	"github.com/startracex/build/pkg/asset"
 	"github.com/startracex/build/pkg/modpath"
 )
+
+// marshalMap encodes a source map object with the settings the v1 encoder used:
+// sorted keys, '<', '>', '&', U+2028 and U+2029 escaped, and invalid UTF-8
+// replaced with U+FFFD. Source maps embed file contents, so keeping the same
+// escaping leaves the output byte-stable for the same input.
+func marshalMap(v any) ([]byte, error) {
+	return json.Marshal(v,
+		json.Deterministic(true),
+		jsontext.EscapeForHTML(true),
+		jsontext.EscapeForJS(true),
+		jsontext.AllowInvalidUTF8(true),
+	)
+}
 
 // AppSourceMap builds a line-level source map from linker source comments.
 func AppSourceMap(js, file string) string {
@@ -52,7 +66,7 @@ func AppSourceMap(js, file string) string {
 		"mappings":       encodeMappings(points),
 		"sourcesContent": content,
 	}
-	buf, err := json.Marshal(raw)
+	buf, err := marshalMap(raw)
 	if err != nil {
 		return "{}"
 	}
@@ -159,7 +173,7 @@ func RetargetSourceMap(mapText, fileName, sourceName, sourceContent string) stri
 	raw["file"] = fileName
 	raw["sources"] = []string{sourceName}
 	raw["sourcesContent"] = []string{sourceContent}
-	buf, err := json.Marshal(raw)
+	buf, err := marshalMap(raw)
 	if err != nil {
 		return mapText
 	}
@@ -182,7 +196,7 @@ func IdentitySourceMap(file, sourceName, sourceContent string) string {
 		"mappings":       encodeMappingsCol(points),
 		"sourcesContent": []string{sourceContent},
 	}
-	buf, err := json.Marshal(raw)
+	buf, err := marshalMap(raw)
 	if err != nil {
 		return "{}"
 	}
@@ -208,7 +222,7 @@ func RelativizeDeclarationMap(mapText, fileName, root string) string {
 		}
 	}
 	raw["sources"] = sources
-	buf, err := json.Marshal(raw)
+	buf, err := marshalMap(raw)
 	if err != nil {
 		return mapText
 	}

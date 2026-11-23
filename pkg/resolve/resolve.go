@@ -2,7 +2,8 @@ package resolve
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -574,8 +575,8 @@ func packageSpecifier(spec string) (name, sub string, ok bool) {
 }
 
 type packageMeta struct {
-	Exports json.RawMessage `json:"exports"`
-	Module  string          `json:"module"`
+	Exports jsontext.Value `json:"exports"`
+	Module  string         `json:"module"`
 }
 
 func (m packageMeta) hasExports() bool {

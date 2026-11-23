@@ -35,7 +35,8 @@ package bundler
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"os"
@@ -423,7 +424,7 @@ func (b *bundler) load(path string) error {
 	}
 
 	if modpath.LowerExt(path) == ".json" {
-		if !json.Valid([]byte(src)) {
+		if !jsontext.Value(src).IsValid() {
 			return fmt.Errorf("%s: invalid JSON", path)
 		}
 		payload := strings.TrimSpace(src)
@@ -621,9 +622,12 @@ func manifestOutput(opts Options, manifest map[string]string) []Output {
 	if len(manifest) == 0 {
 		manifest = map[string]string{}
 	}
-	raw, _ := json.MarshalIndent(manifest, "", "  ")
+	var buf bytes.Buffer
+	if err := json.MarshalWrite(&buf, manifest, json.Deterministic(true), jsontext.WithIndent("  ")); err != nil {
+		buf.Reset()
+	}
 	path := asset.ManifestPath(opts.OutDir, opts.OutFile)
-	return []Output{{Path: path, Data: string(raw) + "\n"}}
+	return []Output{{Path: path, Data: buf.String() + "\n"}}
 }
 
 func (b *bundler) depsFromSpecifiers(importer string, specs []string) ([]string, error) {

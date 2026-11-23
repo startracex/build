@@ -2,7 +2,8 @@ package bundler
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -86,7 +87,7 @@ console.log("drop-me");
 	if !strings.Contains(js, `"prod"`) || !strings.Contains(js, "SHARED") {
 		t.Fatalf("output lost code:\n%s", js)
 	}
-	if !json.Valid([]byte(mapData)) || mapData == "" {
+	if !jsontext.Value(mapData).IsValid() || mapData == "" {
 		t.Fatalf("split output has no usable source map:\n%s", mapData)
 	}
 }
@@ -104,7 +105,7 @@ func outputsOf(t *testing.T, result *Result) (code, mapData string) {
 	if code == "" || mapData == "" {
 		t.Fatalf("missing output: %#v", result.Files)
 	}
-	if !json.Valid([]byte(mapData)) {
+	if !jsontext.Value(mapData).IsValid() {
 		t.Fatalf("map is not JSON:\n%s", mapData)
 	}
 	return code, mapData

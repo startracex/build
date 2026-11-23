@@ -1,7 +1,7 @@
 package sourcemap
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 )
 
@@ -129,7 +129,7 @@ func ComposeLinked(js, fileName string, modules []ModuleMap) string {
 		"mappings":       encodeMappingsCol(points),
 		"sourcesContent": content,
 	}
-	buf, err := json.Marshal(raw)
+	buf, err := marshalMap(raw)
 	if err != nil {
 		return "{}"
 	}
@@ -277,7 +277,7 @@ func OffsetLines(mapJSON string, n int) string {
 	}
 	mappings, _ := raw["mappings"].(string)
 	raw["mappings"] = strings.Repeat(";", n) + mappings
-	buf, err := json.Marshal(raw)
+	buf, err := marshalMap(raw)
 	if err != nil {
 		return mapJSON
 	}
@@ -304,7 +304,7 @@ func DropLeadingLines(mapJSON string, n int) string {
 		kept = append(kept, p)
 	}
 	raw["mappings"] = encodeMappingsCol(kept)
-	buf, err := json.Marshal(raw)
+	buf, err := marshalMap(raw)
 	if err != nil {
 		return mapJSON
 	}

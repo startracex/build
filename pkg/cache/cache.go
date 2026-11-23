@@ -84,25 +84,28 @@ func TransformCacheKeyWrite(w io.Writer, pluginNames []string, define map[string
 	}{names, define, drops}, json.Deterministic(true))
 }
 
-// Get loads a cache entry when present.
+// Get loads a cache entry when present. The file is decoded as it is read, so a
+// large transpile result is not first copied into a byte slice.
 func (c *TranspileCache) Get(key string) (Entry, bool) {
 	if c == nil {
 		return Entry{}, false
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	raw, err := os.ReadFile(filepath.Join(c.dir, key+".json"))
+	f, err := os.Open(filepath.Join(c.dir, key+".json"))
 	if err != nil {
 		return Entry{}, false
 	}
+	defer f.Close()
 	var ent Entry
-	if json.Unmarshal(raw, &ent) != nil || ent.JS == "" {
+	if json.UnmarshalRead(f, &ent) != nil || ent.JS == "" {
 		return Entry{}, false
 	}
 	return ent, true
 }
 
-// Put stores a cache entry.
+// Put stores a cache entry. The entry is encoded straight to the file, so a
+// large transpile result is not first copied into a byte slice.
 func (c *TranspileCache) Put(key string, ent Entry) {
 	if c == nil {
 		return
@@ -110,9 +113,18 @@ func (c *TranspileCache) Put(key string, ent Entry) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	_ = os.MkdirAll(c.dir, 0o755)
-	raw, err := json.Marshal(ent)
+	path := filepath.Join(c.dir, key+".json")
+	// A partial entry does not decode and is treated as a miss, but removing it
+	// keeps the cache directory clean.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(filepath.Join(c.dir, key+".json"), raw, 0o644)
+	err = json.MarshalWrite(f, ent)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		_ = os.Remove(path)
+	}
 }

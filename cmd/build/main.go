@@ -316,12 +316,26 @@ func writeBuild(c *cli.Context, ctx context.Context, opts bundler.Options, docs 
 				return err
 			}
 		}
-		if err := os.WriteFile(file.Path, []byte(file.Data), 0o644); err != nil {
+		if err := writeFileString(file.Path, file.Data); err != nil {
 			return err
 		}
 		fmt.Fprintf(c.App.Writer, "wrote %s\n", file.Path)
 	}
 	return nil
+}
+
+// writeFileString writes an output without converting it to a byte slice, which
+// would copy the whole file.
+func writeFileString(path, data string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := io.WriteString(f, data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func containsGlob(pattern string) bool {

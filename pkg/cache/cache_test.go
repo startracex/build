@@ -25,7 +25,7 @@ func TestTransformCacheKeyIgnoresOrder(t *testing.T) {
 func TestTransformCacheKeyDeterministic(t *testing.T) {
 	define := map[string]string{"a": "1", "b": "2", "c": "3", "d": "4", "e": "5"}
 	first := TransformCacheKey([]string{"p", "q"}, define, []string{"debug"})
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		if got := TransformCacheKey([]string{"q", "p"}, define, []string{"debug"}); got != first {
 			t.Fatalf("same settings produced a different key: %q != %q", got, first)
 		}

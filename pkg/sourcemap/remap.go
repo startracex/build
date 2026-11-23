@@ -1,7 +1,7 @@
 package sourcemap
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 
 	"github.com/startracex/build/pkg/jsedit"
@@ -76,7 +76,7 @@ func RemapEdits(mapJSON, genSource string, edits []jsedit.Edit) string {
 	if raw.SourcesContent != nil {
 		out["sourcesContent"] = raw.SourcesContent
 	}
-	buf, err := json.Marshal(out)
+	buf, err := marshalMap(out)
 	if err != nil {
 		return mapJSON
 	}
@@ -101,7 +101,7 @@ func OffsetColumns(mapJSON string, n int) string {
 		}
 	}
 	raw["mappings"] = encodeMappingsCol(points)
-	buf, err := json.Marshal(raw)
+	buf, err := marshalMap(raw)
 	if err != nil {
 		return mapJSON
 	}

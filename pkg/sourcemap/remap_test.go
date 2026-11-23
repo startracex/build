@@ -1,7 +1,7 @@
 package sourcemap
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/startracex/build/pkg/jsedit"
