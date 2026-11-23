@@ -24,8 +24,8 @@ func expandEntries(patterns []string) ([]string, error) {
 	caseInsensitive := runtime.GOOS == "windows"
 	var literals, globs, excludes []string
 	for _, pattern := range patterns {
-		body := strings.TrimPrefix(pattern, "!")
-		if strings.HasPrefix(pattern, "!") {
+		body, excluded := strings.CutPrefix(pattern, "!")
+		if excluded {
 			globs = append(globs, pattern)
 			excludes = append(excludes, body)
 			continue

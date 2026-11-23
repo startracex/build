@@ -105,10 +105,10 @@ func LinesBeforeSourceComment(js string) int {
 
 func sourceComment(line string) (string, bool) {
 	trim := strings.TrimSpace(line)
-	if !strings.HasPrefix(trim, "// ") {
+	name, ok := strings.CutPrefix(trim, "// ")
+	if !ok {
 		return "", false
 	}
-	name := strings.TrimPrefix(trim, "// ")
 	switch strings.ToLower(filepath.Ext(name)) {
 	case ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".mts", ".cts":
 		return filepath.ToSlash(name), true

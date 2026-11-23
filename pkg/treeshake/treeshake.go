@@ -329,8 +329,7 @@ func matchSideEffectPattern(pattern, rel string) bool {
 	if matched, _ := path.Match(pattern, path.Base(rel)); matched {
 		return true
 	}
-	if strings.HasPrefix(pattern, "**/") {
-		rest := strings.TrimPrefix(pattern, "**/")
+	if rest, ok := strings.CutPrefix(pattern, "**/"); ok {
 		if matched, _ := path.Match(rest, path.Base(rel)); matched {
 			return true
 		}

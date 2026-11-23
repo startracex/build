@@ -233,8 +233,7 @@ func stripESMExportsLines(src string) string {
 			}
 			continue
 		}
-		if strings.HasPrefix(trim, "export default ") {
-			rest := strings.TrimPrefix(trim, "export default ")
+		if rest, ok := strings.CutPrefix(trim, "export default "); ok {
 			out = append(out, "exports.default = "+rest)
 			continue
 		}
