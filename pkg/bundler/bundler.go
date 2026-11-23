@@ -187,8 +187,9 @@ type Options struct {
 	// ManualChunks maps a module path substring to a chunk base name under
 	// chunks/ (e.g. "node_modules/lodash" -> "vendor-lodash"). App mode only.
 	ManualChunks map[string]string
-	// CacheDir stores transpile results keyed by content hash. The cache writes
-	// to the OS file system, so a virtual FS build leaves it empty.
+	// CacheDir stores transpile results keyed by content hash. It is resolved
+	// against CWD and written through Options.FS, so a virtual build caches in
+	// its own tree; empty disables the cache.
 	CacheDir string
 	// Manifest writes a JSON map of source assets to emitted paths.
 	Manifest bool

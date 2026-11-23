@@ -7,8 +7,24 @@ import (
 	"testing"
 
 	"github.com/startracex/tsgo/pkg/tspath"
+	"github.com/startracex/tsgo/pkg/vfs"
 	"github.com/startracex/tsgo/pkg/vfs/vfstest"
 )
+
+// countingFS records reads of cache entries so a test can tell whether the
+// second build actually hit the cache.
+type countingFS struct {
+	vfs.FS
+	prefix     string
+	cacheReads int
+}
+
+func (f *countingFS) ReadFile(path tspath.RootedFilePath) (string, bool) {
+	if strings.HasPrefix(path.AsString(), f.prefix) {
+		f.cacheReads++
+	}
+	return f.FS.ReadFile(path)
+}
 
 // virtualRoot returns a rooted path the current platform accepts, so the same
 // in-memory tree works on Windows and on POSIX hosts.
@@ -74,5 +90,47 @@ func TestBuildVirtualFSRelativeEntry(t *testing.T) {
 	}
 	if !strings.Contains(result.JavaScript(), "value = 7") {
 		t.Fatalf("entry was not loaded:\n%s", result.JavaScript())
+	}
+}
+
+// TestBuildVirtualFSCache checks that a transpile cache set on a virtual build
+// writes into the injected FS and is read back by the next build.
+func TestBuildVirtualFSCache(t *testing.T) {
+	root := virtualRoot("virtual-cache")
+	fsys := &countingFS{
+		FS: vfstest.FromMap(map[string]string{
+			root + "/src/index.ts": `export const value = 7;
+`,
+		}, tspath.CaseSensitive),
+		prefix: root + "/cache/",
+	}
+	opts := Options{
+		Mode:     ModeApp,
+		Entry:    root + "/src/index.ts",
+		OutFile:  root + "/dist/out.js",
+		FS:       fsys,
+		CWD:      root,
+		CacheDir: root + "/cache",
+	}
+	ctx := context.Background()
+
+	first, err := Build(ctx, opts)
+	if err != nil {
+		t.Fatalf("first build: %v", err)
+	}
+	if !strings.Contains(first.JavaScript(), "value = 7") {
+		t.Fatalf("first bundle:\n%s", first.JavaScript())
+	}
+	readsAfterFirst := fsys.cacheReads
+
+	second, err := Build(ctx, opts)
+	if err != nil {
+		t.Fatalf("second build: %v", err)
+	}
+	if fsys.cacheReads <= readsAfterFirst {
+		t.Fatalf("second build did not read the cache (reads %d -> %d)", readsAfterFirst, fsys.cacheReads)
+	}
+	if !strings.Contains(second.JavaScript(), "value = 7") {
+		t.Fatalf("second bundle:\n%s", second.JavaScript())
 	}
 }

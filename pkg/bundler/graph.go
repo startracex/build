@@ -17,6 +17,7 @@ import (
 	"github.com/startracex/build/pkg/sourcemap"
 	"github.com/startracex/build/pkg/wrap"
 	"github.com/startracex/tsgo/pkg/core"
+	"github.com/startracex/tsgo/pkg/vfs"
 )
 
 func preferredLoadFormat(outputs []OutputOptions) Format {
@@ -40,6 +41,21 @@ func resolutionPlatform(platform resolve.Platform, mode Mode, format Format) res
 		return resolve.PlatformBrowser
 	}
 	return resolve.PlatformNeutral
+}
+
+// newTranspileCache builds the optional transpile cache. The directory is
+// resolved against the build root, so a virtual file system keeps its entries in
+// the same tree as the sources, and the OS file system gets the same absolute
+// directory it would have reached through the process working directory.
+func newTranspileCache(fs vfs.FS, cwd, dir string) *cache.TranspileCache {
+	if dir == "" {
+		return nil
+	}
+	abs, err := modpath.AbsPath(cwd, dir)
+	if err != nil {
+		return nil
+	}
+	return cache.NewTranspileCache(fs, abs)
 }
 
 // transformKeyFor fingerprints the plugin names and define/drop values that
@@ -88,6 +104,7 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 	if loadFormat == FormatCJS {
 		resolution = core.ModuleKindCommonJS
 	}
+	transpileCache := newTranspileCache(opts.FS, cwd, opts.CacheDir)
 	b := &bundler{
 		ctx:          ctx,
 		opts:         opts,
@@ -105,7 +122,7 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		sourceMap:    opts.sourceMap(),
 		target:       opts.emitTarget(),
 		compilerOpts: opts.CompilerOptions,
-		cache:        cache.NewTranspileCache(opts.CacheDir),
+		cache:        transpileCache,
 	}
 	if b.cache != nil {
 		// The transform settings are fixed for a build, so fingerprint them

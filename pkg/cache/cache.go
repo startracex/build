@@ -7,15 +7,20 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/startracex/build/pkg/filepath"
+	"github.com/startracex/tsgo/pkg/tspath"
+	"github.com/startracex/tsgo/pkg/vfs"
 )
 
-// TranspileCache stores transpile results keyed by content hash on disk.
+// TranspileCache stores transpile results keyed by content hash. The entries
+// live under dir, on fs when one is set and on the OS file system otherwise.
 type TranspileCache struct {
 	dir string
+	fs  vfs.FS
 	mu  sync.Mutex
 }
 
@@ -25,12 +30,14 @@ type Entry struct {
 	Map string `json:"map,omitempty"`
 }
 
-// NewTranspileCache returns a disk cache, or nil when dir is empty.
-func NewTranspileCache(dir string) *TranspileCache {
+// NewTranspileCache returns a cache under dir, or nil when dir is empty. A nil
+// fs stores entries on the OS file system; an injected fs keeps them in the same
+// tree as the build, so a virtual or wasm build caches where it reads.
+func NewTranspileCache(fs vfs.FS, dir string) *TranspileCache {
 	if dir == "" {
 		return nil
 	}
-	return &TranspileCache{dir: dir}
+	return &TranspileCache{dir: dir, fs: fs}
 }
 
 // Key hashes path, source, one fingerprint of every option that changes the
@@ -92,7 +99,23 @@ func (c *TranspileCache) Get(key string) (Entry, bool) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	f, err := os.Open(filepath.Join(c.dir, key+".json"))
+	path := filepath.Join(c.dir, key+".json")
+	if c.fs != nil {
+		rooted, ok := tspath.TryRootedFilePathFromAbsolute(path)
+		if !ok {
+			return Entry{}, false
+		}
+		text, ok := c.fs.ReadFile(rooted)
+		if !ok {
+			return Entry{}, false
+		}
+		var ent Entry
+		if json.Unmarshal([]byte(text), &ent) != nil || ent.JS == "" {
+			return Entry{}, false
+		}
+		return ent, true
+	}
+	f, err := os.Open(filepath.Native(path))
 	if err != nil {
 		return Entry{}, false
 	}
@@ -112,11 +135,27 @@ func (c *TranspileCache) Put(key string, ent Entry) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	_ = os.MkdirAll(c.dir, 0o755)
 	path := filepath.Join(c.dir, key+".json")
+	if c.fs != nil {
+		// WriteFile creates the directory of the entry when the fs supports it.
+		rooted, ok := tspath.TryRootedFilePathFromAbsolute(path)
+		if !ok {
+			return
+		}
+		buf, err := json.Marshal(ent)
+		if err != nil {
+			return
+		}
+		if c.fs.WriteFile(rooted, string(buf)) != nil {
+			_ = c.fs.Remove(tspath.RootedPath(rooted))
+		}
+		return
+	}
+	_ = os.MkdirAll(c.dir, 0o755)
 	// A partial entry does not decode and is treated as a miss, but removing it
 	// keeps the cache directory clean.
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	native := filepath.Native(path)
+	f, err := os.OpenFile(native, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return
 	}
@@ -125,6 +164,6 @@ func (c *TranspileCache) Put(key string, ent Entry) {
 		err = closeErr
 	}
 	if err != nil {
-		_ = os.Remove(path)
+		_ = os.Remove(native)
 	}
 }
