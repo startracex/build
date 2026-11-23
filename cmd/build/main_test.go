@@ -400,6 +400,192 @@ func TestCLIEntryFileNamesWithOutdir(t *testing.T) {
 	}
 }
 
+func TestCLIBundleNodeModules(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.ts"), []byte("import { secret } from \"pkg\";\nexport const value = secret;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pkgDir := filepath.Join(dir, "node_modules", "pkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "package.json"), []byte(`{"name":"pkg","type":"module","main":"index.js"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "index.js"), []byte("export const secret = \"BUNDLED_SECRET\";\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	externalOut := filepath.Join(dir, "external")
+	if err := run([]string{"--outdir", externalOut, "index.ts"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(externalOut, "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "from \"pkg\"") {
+		t.Fatalf("expected package to stay external:\n%s", body)
+	}
+
+	bundledOut := filepath.Join(dir, "bundled")
+	if err := run([]string{"--outdir", bundledOut, "--bundle-node-modules", "index.ts"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err = os.ReadFile(filepath.Join(bundledOut, "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "from \"pkg\"") {
+		t.Fatalf("package should be bundled:\n%s", body)
+	}
+	if !strings.Contains(string(body), "node_modules/pkg/index.js") || strings.Contains(string(body), "../../") {
+		t.Fatalf("package import should point at the emitted file:\n%s", body)
+	}
+	if _, err := os.Stat(filepath.Join(bundledOut, "node_modules", "pkg", "index.js")); err != nil {
+		t.Fatalf("bundled package file missing: %v", err)
+	}
+}
+
+func TestCLIBundleNodeModulesCommonJSDefault(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.ts"), []byte("import value from \"pkg/cjs.js\";\nexport const n = value;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pkgDir := filepath.Join(dir, "node_modules", "pkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "package.json"), []byte(`{"name":"pkg","type":"module","exports":{"./cjs.js":"./cjs.js"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "cjs.js"), []byte("module.exports = { value: 1 };\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	out := filepath.Join(dir, "dist")
+	if err := run([]string{"--outdir", out, "--bundle-node-modules", "--entry-file-names", "[name].js", "index.ts"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	wrapped, err := os.ReadFile(filepath.Join(out, "cjs.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(wrapped), "export default __cjs_default") {
+		t.Fatalf("CommonJS module was not wrapped for ESM:\n%s", wrapped)
+	}
+	body, err := os.ReadFile(filepath.Join(out, "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `from "./cjs.js"`) {
+		t.Fatalf("import not rewritten to wrapped module:\n%s", body)
+	}
+}
+
+func TestCLIBundleNodeModulesMixedESMNotWrapped(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.ts"), []byte("import value from \"pkg\";\nexport const n = value;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pkgDir := filepath.Join(dir, "node_modules", "pkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "package.json"), []byte(`{"name":"pkg","type":"module","main":"index.js"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	source := "const typescript = { value: 1 };\nmodule.exports = typescript;\nexport { typescript as default };\n"
+	if err := os.WriteFile(filepath.Join(pkgDir, "index.js"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	out := filepath.Join(dir, "dist")
+	if err := run([]string{"--outdir", out, "--bundle-node-modules", "--entry-file-names", "[name].js", "index.ts"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(out, "index-2.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "__cjs_module") {
+		t.Fatalf("mixed ESM/CJS module should not be wrapped:\n%s", body)
+	}
+}
+
+func TestCLIBundleNodeModulesOutsideRoot(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "index.ts"), []byte("import { secret } from \"pkg\";\nexport const value = secret;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pkgDir := filepath.Join(dir, "node_modules", "pkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "package.json"), []byte(`{"name":"pkg","type":"module","main":"index.js"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "index.js"), []byte("export const secret = \"BUNDLED_SECRET\";\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config := `{"compilerOptions":{"module":"esnext","rootDir":"src"},"include":["src/**/*.ts"]}`
+	if err := os.WriteFile(filepath.Join(dir, "tsconfig.json"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	out := filepath.Join(dir, "dist")
+	if err := run([]string{"-p", ".", "--outdir", out, "--bundle-node-modules"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(out, "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "../../") || !strings.Contains(string(body), "node_modules/pkg/index.js") {
+		t.Fatalf("package import escaped output root or was not rewritten:\n%s", body)
+	}
+	if _, err := os.Stat(filepath.Join(out, "node_modules", "pkg", "index.js")); err != nil {
+		t.Fatalf("bundled package file missing: %v", err)
+	}
+}
+
+func TestCLIBundleNodeModulesJSDocTypedef(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.ts"), []byte("import { value } from \"pkg\";\nexport const n = value;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pkgDir := filepath.Join(dir, "node_modules", "pkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "package.json"), []byte(`{"name":"pkg","type":"module","main":"index.js"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	source := `/**
+ * @typedef {object} Renderer
+ * @property {(node: Node) => void} openNode
+ */
+/**
+ * @typedef {{scope?: string, language?: string}} Node
+ */
+export const value = 1;
+`
+	if err := os.WriteFile(filepath.Join(pkgDir, "index.js"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	out := filepath.Join(dir, "dist")
+	if err := run([]string{"--outdir", out, "--bundle-node-modules", "index.ts"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	findOutput(t, out, "index.js")
+}
+
 func TestCLIHTMLEntry(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")
@@ -443,6 +629,39 @@ func TestCLIHTMLEntry(t *testing.T) {
 	}
 	findOutput(t, out, "main.js")
 	findOutput(t, out, "util.js")
+}
+
+func TestCLIHTMLEntrySingleBundle(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	page := `<!doctype html><html><body><script type="module" src="./main.ts"></script></body></html>`
+	if err := os.WriteFile(filepath.Join(src, "index.html"), []byte(page), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "main.ts"), []byte("import { value } from \"./util.js\";\nexport const n = value;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "util.ts"), []byte("export const value = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	bundle := filepath.Join(dir, "dist", "index.js")
+	if err := run([]string{"-o", bundle, "src/index.html"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "dist", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `src="./index.js"`) {
+		t.Fatalf("script src not rewritten to single bundle:\n%s", body)
+	}
+	if _, err := os.Stat(bundle); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestCLIEntryFileNamesPathAndDuplicates(t *testing.T) {
@@ -527,6 +746,37 @@ func TestCLIJSXPreserve(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "<div") {
 		t.Fatalf("preserve JSX missing from CLI output:\n%s", body)
+	}
+}
+
+func TestCLIExperimentalDecoratorsFromTSConfig(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := "function dec(value: any): any { return value; }\n@dec\nexport class Foo {}\n"
+	if err := os.WriteFile(filepath.Join(src, "index.ts"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config := `{"compilerOptions":{"experimentalDecorators":true,"module":"esnext","rootDir":"src"},"include":["src/**/*.ts"]}`
+	if err := os.WriteFile(filepath.Join(dir, "tsconfig.json"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	out := filepath.Join(dir, "dist")
+	if err := run([]string{"-p", ".", "--outdir", out}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(out, "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "@dec") {
+		t.Fatalf("decorator was not transformed:\n%s", body)
+	}
+	if !strings.Contains(string(body), "__decorate") {
+		t.Fatalf("legacy decorator helper missing:\n%s", body)
 	}
 }
 

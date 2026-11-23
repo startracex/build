@@ -110,6 +110,7 @@ Passing files on the command line without `-p` ignores `tsconfig.json`. With `-p
 | `--global-name` | Required for `iife` / `umd`. |
 | `--jsx` | `react`, `react-jsx`, `react-jsxdev`, `preserve`, or `react-native`. `preserve` and `react-native` keep JSX syntax in the output. |
 | `--external` | Leave a package unbundled (repeatable). |
+| `--bundle-node-modules` | Bundle bare package imports in `--outdir` output instead of leaving them external. |
 | `--conditions` | Extra `package.json` `"exports"` conditions (repeatable). |
 | `--alias` | Specifier prefix mapping `from=to` (repeatable). |
 | `--define` | Replace a free identifier `KEY=VAL` (repeatable); folds `if (false)` / `if (true)` after replace. |
@@ -134,6 +135,7 @@ Passing files on the command line without `-p` ignores `tsconfig.json`. With `-p
 
 - Single entry + `--outfile`: one linked file (IIFE/UMD need `--global-name`).
 - Multiple entries or `--splitting` require `--outdir`. Shared modules go to `chunks/shared-*.js`; `import()` targets to `chunks/*.js`.
+- Library mode (`--outdir`) leaves bare package imports external by default; `--bundle-node-modules` emits package files as regular modules instead.
 - `Options.ManualChunks` can force modules into named chunks by path substring.
 - IIFE/UMD: single entry only.
 
@@ -157,7 +159,7 @@ Order: **transpile → Transform → define/drop (with branch fold) → link/wra
 
 ### Source maps
 
-`--map` (or its alias `--sourcemap`) composes per-module transpile maps with linker sections; IIFE/UMD wrap offsets are applied. Declaration source maps are written when `--dts` and `--map` are both explicitly enabled. When only one of them is passed, or neither is passed, `sourceMap`, `declaration`, and `declarationMap` keep their `tsconfig.json` values.
+`--map` composes per-module transpile maps with linker sections; IIFE/UMD wrap offsets are applied. Declaration source maps are written when `--dts` and `--map` are both explicitly enabled. When only one of them is passed, or neither is passed, `sourceMap`, `declaration`, and `declarationMap` keep their `tsconfig.json` values.
 
 ## Library API
 
@@ -193,7 +195,3 @@ Public entry: `github.com/startracex/build/pkg/bundler`. Sibling packages under 
 ```bash
 GOPROXY=direct go test ./...
 ```
-
-## License
-
-Apache-2.0, the same license as tsgo.

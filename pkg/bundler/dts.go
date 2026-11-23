@@ -41,14 +41,14 @@ func rewriteRelativeSpecifiers(src, fromAbs string, b *bundler, typescript bool)
 	for _, stmt := range file.Statements.Nodes {
 		for _, specNode := range specifierNodes(stmt) {
 			spec := specifierText(specNode)
-			if spec == "" || (!strings.HasPrefix(spec, ".") && !strings.HasPrefix(spec, "/")) {
+			if spec == "" {
 				continue
 			}
 			resolved, external, err := b.resolve(fromAbs, spec)
 			if err != nil || external {
 				continue
 			}
-			next := b.outputSpecifier(fromAbs, resolved, typescript)
+			next := b.outputSpecifier(fromAbs, resolved)
 			edits = append(edits, edit{
 				start: jsedit.TokenStart(src, specNode),
 				end:   specNode.End(),
@@ -57,7 +57,7 @@ func rewriteRelativeSpecifiers(src, fromAbs string, b *bundler, typescript bool)
 		}
 		jsedit.WalkImportCalls(stmt, func(arg *ast.Node) {
 			spec := arg.Text()
-			if spec == "" || (!strings.HasPrefix(spec, ".") && !strings.HasPrefix(spec, "/")) {
+			if spec == "" {
 				return
 			}
 			resolved, external, err := b.resolve(fromAbs, spec)
@@ -67,12 +67,12 @@ func rewriteRelativeSpecifiers(src, fromAbs string, b *bundler, typescript bool)
 			edits = append(edits, edit{
 				start: jsedit.TokenStart(src, arg),
 				end:   arg.End(),
-				text:  quoteJS(b.outputSpecifier(fromAbs, resolved, typescript)),
+				text:  quoteJS(b.outputSpecifier(fromAbs, resolved)),
 			})
 		})
 		jsedit.WalkRequires(stmt, func(arg *ast.Node) {
 			spec := arg.Text()
-			if spec == "" || (!strings.HasPrefix(spec, ".") && !strings.HasPrefix(spec, "/")) {
+			if spec == "" {
 				return
 			}
 			resolved, external, err := b.resolve(fromAbs, spec)
@@ -82,7 +82,7 @@ func rewriteRelativeSpecifiers(src, fromAbs string, b *bundler, typescript bool)
 			edits = append(edits, edit{
 				start: jsedit.TokenStart(src, arg),
 				end:   arg.End(),
-				text:  quoteJS(b.outputSpecifier(fromAbs, resolved, typescript)),
+				text:  quoteJS(b.outputSpecifier(fromAbs, resolved)),
 			})
 		})
 	}
@@ -115,7 +115,7 @@ func specifierNodes(stmt *ast.Node) []*ast.Node {
 	}
 }
 
-func (b *bundler) outputSpecifier(fromAbs, toAbs string, typescript bool) string {
+func (b *bundler) outputSpecifier(fromAbs, toAbs string) string {
 	if len(b.outputPaths) == 0 {
 		return relativeOutputSpecifier(fromAbs, toAbs)
 	}
@@ -123,9 +123,6 @@ func (b *bundler) outputSpecifier(fromAbs, toAbs string, typescript bool) string
 	toOut := b.outputPaths[moduleID(toAbs)]
 	if fromOut == "" || toOut == "" {
 		return relativeOutputSpecifier(fromAbs, toAbs)
-	}
-	if typescript {
-		toOut = strings.TrimSuffix(toOut, filepath.Ext(toOut)) + ".d.ts"
 	}
 	rel, err := filepath.Rel(filepath.Dir(fromOut), toOut)
 	if err != nil {

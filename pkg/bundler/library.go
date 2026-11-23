@@ -3,6 +3,7 @@ package bundler
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -29,14 +30,18 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 	if !fullPathPattern {
 		pattern = b.opts.EntryFileNames
 	}
-	b.outputPaths = nil
-	if pattern != "" && (b.opts.OutFile != "" || b.opts.OutDir != "") {
-		hasHash := HasHashPlaceholder(pattern)
-		b.outputPaths = make(map[string]string, len(b.units))
-		for _, id := range ids {
-			unit := b.units[id]
-			abs := filepath.FromSlash(id)
-			jsRel := modpath.DisplayRel(root, modpath.JavascriptOutputAbs(abs))
+	templated := pattern != ""
+	hasHash := templated && HasHashPlaceholder(pattern)
+	b.outputPaths = make(map[string]string, len(b.units))
+	for _, id := range ids {
+		unit := b.units[id]
+		abs := filepath.FromSlash(id)
+		jsRel := libraryOutputRel(root, abs)
+		outPath := jsRel
+		if b.opts.OutDir != "" {
+			outPath = filepath.Join(b.opts.OutDir, filepath.FromSlash(jsRel))
+		}
+		if templated {
 			name := strings.TrimSuffix(filepath.Base(jsRel), filepath.Ext(jsRel))
 			pathValue := strings.TrimSuffix(filepath.ToSlash(jsRel), filepath.Ext(jsRel))
 			hash := ""
@@ -44,30 +49,26 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 				hash = ContentHash(unit.code)
 			}
 			rendered := RenderEntryFileName(pattern, name, pathValue, b.format, hash)
-			outPath := rendered
+			outPath = rendered
 			if !fullPathPattern {
 				outPath = filepath.Join(b.opts.OutDir, filepath.FromSlash(rendered))
 			}
-			b.outputPaths[id] = b.uniqueOutputPath(outPath)
 		}
+		b.outputPaths[id] = b.uniqueOutputPath(outPath)
 	}
 	var files []Output
 	var entryJS string
 	for _, id := range ids {
 		unit := b.units[id]
 		abs := filepath.FromSlash(id)
-		jsRel := modpath.DisplayRel(root, modpath.JavascriptOutputAbs(abs))
 		js, err := rewriteRelativeSpecifiers(unit.code, abs, b, false)
 		if err != nil {
 			return nil, err
 		}
-		templated := len(b.outputPaths) > 0
-		jsPath := jsRel
-		if templated {
-			jsPath = b.outputPaths[id]
-		} else if b.opts.OutDir != "" {
-			jsPath = filepath.Join(b.opts.OutDir, filepath.FromSlash(jsRel))
+		if b.format == FormatESM && isCommonJSSource(js) {
+			js = wrapCommonJSForESM(js)
 		}
+		jsPath := b.outputPaths[id]
 		mapName := filepath.Base(jsPath) + ".map"
 		if b.sourceMap && strings.TrimSpace(unit.jsMap) != "" {
 			js = strings.TrimRight(js, "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
@@ -87,9 +88,6 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 				return nil, err
 			}
 			dtsPath := strings.TrimSuffix(jsPath, filepath.Ext(jsPath)) + ".d.ts"
-			if !templated && b.opts.OutDir == "" {
-				dtsPath = strings.TrimSuffix(jsRel, filepath.Ext(jsRel)) + ".d.ts"
-			}
 			mapName := filepath.Base(dtsPath) + ".map"
 			if b.declMap && strings.TrimSpace(unit.dtsMap) != "" {
 				dts = strings.TrimRight(jsedit.StripSourceMappingComment(dts), "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
@@ -112,6 +110,38 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 		}
 	}
 	return &Result{Files: files, entry: entryJS}, nil
+}
+
+var esmStatement = regexp.MustCompile(`(?m)^\s*(?:import\s|export\s|export\s*\{)`)
+
+func isCommonJSSource(code string) bool {
+	if esmStatement.MatchString(code) {
+		return false
+	}
+	return strings.Contains(code, "module.exports") || strings.Contains(code, "exports.")
+}
+
+func wrapCommonJSForESM(code string) string {
+	return "const __cjs_module = { exports: {} };\n" +
+		"(function (module, exports) {\n" + code + "\n})(__cjs_module, __cjs_module.exports);\n" +
+		"const __cjs_default = __cjs_module.exports;\n" +
+		"export default __cjs_default;\n"
+}
+
+// libraryOutputRel returns a relative output path that never escapes the
+// output directory. Modules outside rootDir (notably pnpm node_modules) keep
+// their node_modules/... suffix; others fall back to their base name.
+func libraryOutputRel(root, abs string) string {
+	jsAbs := modpath.JavascriptOutputAbs(abs)
+	rel := modpath.DisplayRel(root, jsAbs)
+	if !strings.HasPrefix(rel, "..") {
+		return rel
+	}
+	slash := filepath.ToSlash(jsAbs)
+	if idx := strings.Index(slash, "/node_modules/"); idx >= 0 {
+		return slash[idx+1:]
+	}
+	return filepath.Base(slash)
 }
 
 func (b *bundler) uniqueOutputPath(path string) string {

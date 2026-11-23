@@ -45,6 +45,7 @@ func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration, declarati
 			opts.JSX = jsx
 		}
 	}
+	opts.ExperimentalDecorators = compiler.ExperimentalDecorators == core.TSTrue
 	if !c.IsSet("map") {
 		opts.SourceMap = new(compiler.SourceMap == core.TSTrue)
 	}

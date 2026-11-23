@@ -47,9 +47,10 @@ func (b *bundler) declarationText(path, src string) (string, error) {
 	out := transpile.TranspileDeclaration(b.ctx, src, transpile.Options{
 		FileName: filepath.Base(path),
 		CompilerOptions: &core.CompilerOptions{
-			Module: core.ModuleKindESNext,
-			Target: b.target,
-			Jsx:    b.jsx,
+			Module:                 core.ModuleKindESNext,
+			Target:                 b.target,
+			Jsx:                    b.jsx,
+			ExperimentalDecorators: b.decoratorFlag(),
 		},
 		ReportDiagnostics: true,
 	})
@@ -58,7 +59,11 @@ func (b *bundler) declarationText(path, src string) (string, error) {
 	}
 	text := jsedit.StripSourceMappingComment(out.OutputText)
 	if strings.TrimSpace(text) == "" {
-		if err := errorFromDiagnostics(path, src, out.Diagnostics); err != nil {
+		if isJavaScriptSource(path) {
+			if err := errorFromSyntaxDiagnostics(path, src, out.Diagnostics); err != nil {
+				return "", err
+			}
+		} else if err := errorFromDiagnostics(path, src, out.Diagnostics); err != nil {
 			return "", err
 		}
 		return "", nil

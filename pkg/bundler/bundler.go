@@ -111,6 +111,8 @@ type Options struct {
 	// OutFile is the JavaScript path used by app mode. The declaration and
 	// source map are written beside it.
 	OutFile string
+	// ExperimentalDecorators enables the legacy TypeScript decorator transform.
+	ExperimentalDecorators bool
 	// NameTemplate marks OutFile as a full per-entry filename pattern.
 	NameTemplate string
 	// EntryFileNames is a per-entry filename pattern joined with OutDir.
@@ -129,6 +131,8 @@ type Options struct {
 	SourceMap *bool
 	// External package names or specifiers are left as import/require calls.
 	External []string
+	// BundleNodeModules keeps bare package imports inside library-mode output.
+	BundleNodeModules bool
 	// Conditions are extra package.json "exports" conditions. The resolver
 	// always adds import or require from the format, always matches default,
 	// and always includes module. These values are appended on top.
@@ -408,12 +412,18 @@ func (b *bundler) load(path string) error {
 	if err := errorFromDiagnostics(path, src, file.Diagnostics()); err != nil {
 		return err
 	}
-	if err := errorFromDiagnostics(path, src, file.JSDiagnostics()); err != nil {
+	if isJavaScriptSource(path) {
+		if err := errorFromSyntaxDiagnostics(path, src, file.JSDiagnostics()); err != nil {
+			return err
+		}
+	} else if err := errorFromDiagnostics(path, src, file.JSDiagnostics()); err != nil {
 		return err
 	}
 	binder.BindSourceFile(file)
-	if err := errorFromDiagnostics(path, src, file.BindDiagnostics()); err != nil {
-		return err
+	if !isJavaScriptSource(path) {
+		if err := errorFromDiagnostics(path, src, file.BindDiagnostics()); err != nil {
+			return err
+		}
 	}
 
 	deps, err := b.depsFromSpecifiers(path, specifiers(file))
@@ -443,17 +453,22 @@ func (b *bundler) load(path string) error {
 		out := transpile.TranspileModule(b.ctx, src, transpile.Options{
 			FileName: filepath.Base(path),
 			CompilerOptions: &core.CompilerOptions{
-				Module:    moduleKind,
-				Target:    b.target,
-				Jsx:       b.jsx,
-				SourceMap: sourceMapFlag,
+				Module:                 moduleKind,
+				Target:                 b.target,
+				Jsx:                    b.jsx,
+				SourceMap:              sourceMapFlag,
+				ExperimentalDecorators: b.decoratorFlag(),
 			},
 			ReportDiagnostics: true,
 		})
 		if out == nil {
 			return fmt.Errorf("%s: transpile canceled", path)
 		}
-		if err := errorFromDiagnostics(path, src, out.Diagnostics); err != nil {
+		if isJavaScriptSource(path) {
+			if err := errorFromSyntaxDiagnostics(path, src, out.Diagnostics); err != nil {
+				return err
+			}
+		} else if err := errorFromDiagnostics(path, src, out.Diagnostics); err != nil {
 			return err
 		}
 		js = jsedit.StripSourceMappingComment(jsedit.StripShebang(out.OutputText))
@@ -645,10 +660,41 @@ func jsxEmit(mode JSX) (core.JsxEmit, error) {
 }
 
 func errorFromDiagnostics(path, src string, diags []*ast.Diagnostic) error {
+	return errorFromDiagnosticsFiltered(path, src, diags, nil)
+}
+
+// errorFromSyntaxDiagnostics ignores semantic (@typedef, lib conflicts, etc.)
+// diagnostics. JavaScript sources are transformed, not type checked.
+func errorFromSyntaxDiagnostics(path, src string, diags []*ast.Diagnostic) error {
+	return errorFromDiagnosticsFiltered(path, src, diags, func(d *ast.Diagnostic) bool {
+		return d.Code() < 2000
+	})
+}
+
+func (b *bundler) decoratorFlag() core.Tristate {
+	if b.opts.ExperimentalDecorators {
+		return core.TSTrue
+	}
+	return core.TSFalse
+}
+
+func isJavaScriptSource(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".js", ".jsx", ".mjs", ".cjs":
+		return true
+	default:
+		return false
+	}
+}
+
+func errorFromDiagnosticsFiltered(path, src string, diags []*ast.Diagnostic, keep func(*ast.Diagnostic) bool) error {
 	var b strings.Builder
 	n := 0
 	for _, d := range diags {
 		if d == nil || d.Category() != diagnostics.CategoryError {
+			continue
+		}
+		if keep != nil && !keep(d) {
 			continue
 		}
 		if n > 0 {

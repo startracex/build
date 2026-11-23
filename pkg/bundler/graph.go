@@ -78,7 +78,7 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		Alias:       opts.Alias,
 		External:    opts.External,
 		Format:      string(loadFormat),
-		LibBuild:    outMode == ModeLib,
+		LibBuild:    outMode == ModeLib && !opts.BundleNodeModules,
 		ResolveHook: combineResolveHook(ctx, opts.Plugins, opts.Resolve),
 		OnAsset:     b.onAsset,
 	})

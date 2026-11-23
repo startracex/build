@@ -98,6 +98,32 @@ if (m.both() !== "AA") process.exit(1);
 	}
 }
 
+func TestBundleNodeModulesLibrary(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `import { secret } from "pkg"; export const value = secret;`)
+	writeFile(t, filepath.Join(dir, "node_modules", "pkg", "package.json"), `{"name":"pkg","type":"module","main":"index.js"}`)
+	writeFile(t, filepath.Join(dir, "node_modules", "pkg", "index.js"), `export const secret = "BUNDLED_SECRET";`)
+	out := filepath.Join(dir, "dist")
+	result, err := Build(context.Background(), Options{
+		Entries:           []string{filepath.Join(dir, "index.ts")},
+		Mode:              ModeLib,
+		OutDir:            out,
+		BundleNodeModules: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body string
+	for _, file := range result.Files {
+		if file.Path == filepath.Join(out, "index.js") {
+			body = file.Data
+		}
+	}
+	if strings.Contains(body, `from "pkg"`) {
+		t.Fatalf("package should be bundled:\n%s", body)
+	}
+}
+
 func TestJSXEmitModes(t *testing.T) {
 	cases := []struct {
 		mode JSX

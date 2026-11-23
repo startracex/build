@@ -46,9 +46,10 @@ func run(args []string, stderr, stdout io.Writer) error {
 			&cli.StringSliceFlag{Name: "alias", Usage: "import alias from=to (repeatable)"},
 			&cli.StringSliceFlag{Name: "define", Usage: "replace identifier KEY=VAL (repeatable)"},
 			&cli.StringSliceFlag{Name: "drop", Usage: "drop console or debugger (repeatable)"},
-			&cli.BoolFlag{Name: "map", Aliases: []string{"sourcemap"}, Usage: "write source maps; with --dts also writes .d.ts.map"},
+			&cli.BoolFlag{Name: "map", Usage: "write source maps; with --dts also writes .d.ts.map"},
 			&cli.BoolFlag{Name: "dts", Usage: "write .d.ts files for per-module output"},
 			&cli.StringSliceFlag{Name: "external", Usage: "package left unbundled (repeatable)"},
+			&cli.BoolFlag{Name: "bundle-node-modules", Usage: "bundle bare package imports in --outdir output"},
 			&cli.BoolFlag{Name: "splitting", Usage: "emit import() targets as chunks (requires --outdir)"},
 			&cli.StringFlag{Name: "cache-dir", Usage: "directory for transpile cache"},
 			&cli.BoolFlag{Name: "manifest", Usage: "write manifest.json of emitted assets"},
@@ -82,18 +83,19 @@ func action(c *cli.Context) error {
 	alias := parseKV(c.StringSlice("alias"))
 	define := parseKV(c.StringSlice("define"))
 	base := bundler.Options{
-		JSX:            bundler.JSX(flagOr(c, "jsx", string(bundler.JSXReact))),
-		External:       c.StringSlice("external"),
-		Conditions:     c.StringSlice("conditions"),
-		Alias:          alias,
-		Define:         define,
-		Drop:           c.StringSlice("drop"),
-		GlobalName:     c.String("global-name"),
-		Splitting:      c.Bool("splitting"),
-		CacheDir:       c.String("cache-dir"),
-		Manifest:       c.Bool("manifest"),
-		PublicPath:     c.String("public-path"),
-		EntryFileNames: c.String("entry-file-names"),
+		JSX:               bundler.JSX(flagOr(c, "jsx", string(bundler.JSXReact))),
+		External:          c.StringSlice("external"),
+		BundleNodeModules: c.Bool("bundle-node-modules"),
+		Conditions:        c.StringSlice("conditions"),
+		Alias:             alias,
+		Define:            define,
+		Drop:              c.StringSlice("drop"),
+		GlobalName:        c.String("global-name"),
+		Splitting:         c.Bool("splitting"),
+		CacheDir:          c.String("cache-dir"),
+		Manifest:          c.Bool("manifest"),
+		PublicPath:        c.String("public-path"),
+		EntryFileNames:    c.String("entry-file-names"),
 	}
 
 	if len(entries) == 1 {
