@@ -39,7 +39,7 @@ func run(args []string, stderr, stdout io.Writer) error {
 			&cli.StringSliceFlag{Name: "outdir", Usage: "directory for per-module or split output (repeatable)"},
 			&cli.StringFlag{Name: "project", Aliases: []string{"p"}, Usage: "tsconfig.json file or directory"},
 			&cli.StringSliceFlag{Name: "format", Usage: "output format: esm, cjs, iife, umd (repeatable)"},
-			&cli.StringFlag{Name: "jsx", Usage: "JSX transform: react or react-jsx"},
+			&cli.StringFlag{Name: "jsx", Usage: "JSX transform: react, react-jsx, react-jsxdev, preserve, or react-native"},
 			&cli.StringFlag{Name: "global-name", Usage: "global variable name for iife/umd"},
 			&cli.StringSliceFlag{Name: "conditions", Usage: "extra package.json exports conditions (repeatable)"},
 			&cli.StringSliceFlag{Name: "alias", Usage: "import alias from=to (repeatable)"},

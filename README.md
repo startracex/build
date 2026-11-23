@@ -90,7 +90,7 @@ Passing files on the command line ignores `tsconfig.json`. `-p` cannot be combin
 | `-p`, `--project` | `tsconfig.json` file or directory. |
 | `--format` | `esm`, `cjs`, `iife`, or `umd`. Repeatable; paired with output paths from the right. |
 | `--global-name` | Required for `iife` / `umd`. |
-| `--jsx` | `react` or `react-jsx`. |
+| `--jsx` | `react`, `react-jsx`, `react-jsxdev`, `preserve`, or `react-native`. `preserve` and `react-native` keep JSX syntax in the output. |
 | `--external` | Leave a package unbundled (repeatable). |
 | `--conditions` | Extra `package.json` `"exports"` conditions (repeatable). |
 | `--alias` | Specifier prefix mapping `from=to` (repeatable). |

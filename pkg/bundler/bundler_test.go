@@ -11,6 +11,7 @@ import (
 
 	"github.com/startracex/build/pkg/plugin"
 	"github.com/startracex/build/pkg/resolve"
+	"github.com/startracex/tsgo/pkg/core"
 )
 
 func TestFixtureBundle(t *testing.T) {
@@ -94,6 +95,29 @@ if (m.both() !== "AA") process.exit(1);
 	cmd := exec.Command("node", scriptPath, bundlePath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("node: %v\n%s", err, out)
+	}
+}
+
+func TestJSXEmitModes(t *testing.T) {
+	cases := []struct {
+		mode JSX
+		want core.JsxEmit
+	}{
+		{"", core.JsxEmitReact},
+		{JSXReact, core.JsxEmitReact},
+		{JSXAutomatic, core.JsxEmitReactJSX},
+		{JSXReactJSXDev, core.JsxEmitReactJSXDev},
+		{JSXPreserve, core.JsxEmitPreserve},
+		{JSXReactNative, core.JsxEmitReactNative},
+	}
+	for _, tc := range cases {
+		got, err := jsxEmit(tc.mode)
+		if err != nil || got != tc.want {
+			t.Errorf("jsxEmit(%q) = %v, %v; want %v", tc.mode, got, err, tc.want)
+		}
+	}
+	if _, err := jsxEmit(JSX("bad")); err == nil {
+		t.Fatal("expected unsupported jsx mode to fail")
 	}
 }
 

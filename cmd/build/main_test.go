@@ -346,6 +346,41 @@ func TestCLITemplatedOutfileHash(t *testing.T) {
 	}
 }
 
+func TestCLIJSXPreserve(t *testing.T) {
+	dir := t.TempDir()
+	entry := filepath.Join(dir, "ui.tsx")
+	if err := os.WriteFile(entry, []byte("export const view = <div className=\"x\">hi</div>;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config := `{"compilerOptions":{"module":"esnext","jsx":"preserve","outDir":"tsout"},"include":["ui.tsx"]}`
+	if err := os.WriteFile(filepath.Join(dir, "tsconfig.json"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	if err := run(nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "tsout", "ui.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "<div") {
+		t.Fatalf("preserve JSX missing from output:\n%s", body)
+	}
+
+	cliOut := filepath.Join(dir, "cliout")
+	if err := run([]string{"--jsx", "preserve", "--outdir", cliOut, entry}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err = os.ReadFile(filepath.Join(cliOut, "ui.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "<div") {
+		t.Fatalf("preserve JSX missing from CLI output:\n%s", body)
+	}
+}
+
 func TestCLIDirectoryInput(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")

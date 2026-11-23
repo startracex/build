@@ -187,8 +187,14 @@ func jsxFromCompiler(kind core.JsxEmit) (bundler.JSX, bool) {
 	switch kind {
 	case core.JsxEmitReact:
 		return bundler.JSXReact, true
-	case core.JsxEmitReactJSX, core.JsxEmitReactJSXDev:
+	case core.JsxEmitReactJSX:
 		return bundler.JSXAutomatic, true
+	case core.JsxEmitReactJSXDev:
+		return bundler.JSXReactJSXDev, true
+	case core.JsxEmitPreserve:
+		return bundler.JSXPreserve, true
+	case core.JsxEmitReactNative:
+		return bundler.JSXReactNative, true
 	default:
 		return "", false
 	}

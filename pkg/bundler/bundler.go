@@ -85,6 +85,12 @@ const (
 	// JSXAutomatic emits the react/jsx-runtime import used by modern TypeScript.
 	// That package is resolved and bundled like any other dependency.
 	JSXAutomatic JSX = "react-jsx"
+	// JSXReactJSXDev emits the development react/jsx-dev-runtime import.
+	JSXReactJSXDev JSX = "react-jsxdev"
+	// JSXPreserve keeps JSX syntax in the emitted output.
+	JSXPreserve JSX = "preserve"
+	// JSXReactNative keeps JSX syntax like preserve, with React Native typing.
+	JSXReactNative JSX = "react-native"
 )
 
 // Options configures a bundle.
@@ -617,8 +623,14 @@ func jsxEmit(mode JSX) (core.JsxEmit, error) {
 		return core.JsxEmitReact, nil
 	case JSXAutomatic:
 		return core.JsxEmitReactJSX, nil
+	case JSXReactJSXDev:
+		return core.JsxEmitReactJSXDev, nil
+	case JSXPreserve:
+		return core.JsxEmitPreserve, nil
+	case JSXReactNative:
+		return core.JsxEmitReactNative, nil
 	default:
-		return core.JsxEmitNone, fmt.Errorf("unsupported jsx mode %q (use %s or %s)", mode, JSXReact, JSXAutomatic)
+		return core.JsxEmitNone, fmt.Errorf("unsupported jsx mode %q (use %s, %s, %s, %s, or %s)", mode, JSXReact, JSXAutomatic, JSXReactJSXDev, JSXPreserve, JSXReactNative)
 	}
 }
 
