@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/startracex/build/pkg/compileropts"
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/resolve"
@@ -72,51 +73,12 @@ func declarationCompilerOptions(opts Options, declMap core.Tristate) *core.Compi
 	if src == nil {
 		return compilerOpts
 	}
-
-	// Strictness and inference.
-	compilerOpts.Strict = src.Strict
-	compilerOpts.StrictNullChecks = src.StrictNullChecks
-	compilerOpts.StrictFunctionTypes = src.StrictFunctionTypes
-	compilerOpts.StrictBindCallApply = src.StrictBindCallApply
-	compilerOpts.StrictPropertyInitialization = src.StrictPropertyInitialization
-	compilerOpts.NoImplicitAny = src.NoImplicitAny
-	compilerOpts.NoImplicitThis = src.NoImplicitThis
-	compilerOpts.NoImplicitReturns = src.NoImplicitReturns
-	compilerOpts.NoImplicitOverride = src.NoImplicitOverride
-	compilerOpts.NoUncheckedIndexedAccess = src.NoUncheckedIndexedAccess
-	compilerOpts.NoUncheckedSideEffectImports = src.NoUncheckedSideEffectImports
-	compilerOpts.ExactOptionalPropertyTypes = src.ExactOptionalPropertyTypes
-	compilerOpts.UseUnknownInCatchVariables = src.UseUnknownInCatchVariables
-	compilerOpts.NoPropertyAccessFromIndexSignature = src.NoPropertyAccessFromIndexSignature
-	compilerOpts.NoFallthroughCasesInSwitch = src.NoFallthroughCasesInSwitch
-	compilerOpts.AllowUnreachableCode = src.AllowUnreachableCode
-	compilerOpts.AllowUnusedLabels = src.AllowUnusedLabels
-	compilerOpts.NoUnusedLocals = src.NoUnusedLocals
-	compilerOpts.NoUnusedParameters = src.NoUnusedParameters
-	compilerOpts.Lib = src.Lib
-	compilerOpts.Types = src.Types
-	compilerOpts.TypeRoots = src.TypeRoots
-	compilerOpts.SkipDefaultLibCheck = src.SkipDefaultLibCheck
-
-	// Module resolution.
-	compilerOpts.ModuleResolution = resolve.NormalizeModuleResolution(src.ModuleResolution)
-	compilerOpts.Paths = resolve.WithPathsFallback(src.Paths, opts.BaseURL, src.PathsBasePath)
-	compilerOpts.PathsBasePath = src.PathsBasePath
-	compilerOpts.ResolvePackageJsonExports = src.ResolvePackageJsonExports
-	compilerOpts.ResolvePackageJsonImports = src.ResolvePackageJsonImports
-	compilerOpts.CheckJs = src.CheckJs
-	compilerOpts.ForceConsistentCasingInFileNames = src.ForceConsistentCasingInFileNames
-
-	// Emit shape.
-	compilerOpts.ExperimentalDecorators = src.ExperimentalDecorators
-	compilerOpts.EmitDecoratorMetadata = src.EmitDecoratorMetadata
-	compilerOpts.UseDefineForClassFields = src.UseDefineForClassFields
-	compilerOpts.JsxFactory = src.JsxFactory
-	compilerOpts.JsxFragmentFactory = src.JsxFragmentFactory
-	compilerOpts.JsxImportSource = src.JsxImportSource
-	compilerOpts.ReactNamespace = src.ReactNamespace
-	compilerOpts.PreserveConstEnums = src.PreserveConstEnums
-	compilerOpts.VerbatimModuleSyntax = src.VerbatimModuleSyntax
+	// Declaration emit reads the shared syntax switches but not the
+	// JavaScript-only ones: comments and line endings are not rewritten in a
+	// .d.ts, and no helper is ever emitted.
+	compileropts.SyntaxFrom(src).Apply(compilerOpts)
+	compileropts.TypesFrom(src).Apply(compilerOpts)
+	compileropts.ResolutionFrom(src, opts.BaseURL).Apply(compilerOpts)
 	return compilerOpts
 }
 

@@ -31,28 +31,19 @@ func NewTranspileCache(dir string) *TranspileCache {
 	return &TranspileCache{dir: dir}
 }
 
-// Key hashes path, source, emit options, and an optional plugin/options suffix.
-func (c *TranspileCache) Key(path, src string, moduleKind, target, jsx int, sourceMap bool, transformKey, compilerKey string) string {
+// Key hashes path, source, one fingerprint of every option that changes the
+// emitted text, and an optional plugin/options suffix. The caller decides what
+// the option fingerprint covers.
+func (c *TranspileCache) Key(path, src, optionKey, transformKey string) string {
 	h := sha256.New()
 	h.Write([]byte(path))
 	h.Write([]byte{0})
 	h.Write([]byte(src))
 	h.Write([]byte{0})
-	var meta [16]byte
-	meta[0] = byte(moduleKind)
-	meta[1] = byte(target)
-	meta[2] = byte(jsx)
-	if sourceMap {
-		meta[3] = 1
-	}
-	h.Write(meta[:])
+	h.Write([]byte(optionKey))
 	if transformKey != "" {
 		h.Write([]byte{0})
 		h.Write([]byte(transformKey))
-	}
-	if compilerKey != "" {
-		h.Write([]byte{0})
-		h.Write([]byte(compilerKey))
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

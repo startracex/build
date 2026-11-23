@@ -35,8 +35,6 @@ package bundler
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -46,6 +44,7 @@ import (
 
 	"github.com/startracex/build/pkg/asset"
 	"github.com/startracex/build/pkg/cache"
+	"github.com/startracex/build/pkg/compileropts"
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/plugin"
@@ -472,11 +471,12 @@ func (b *bundler) load(path string) error {
 	if b.sourceMap {
 		sourceMapFlag = core.TSTrue
 	}
+	emitOpts := b.transpileOptionsFor(moduleKind, sourceMapFlag)
 	cacheKey := ""
 	var js, jsMap string
 	cached := false
 	if b.cache != nil {
-		cacheKey = b.cache.Key(path, src, int(moduleKind), int(b.target), int(b.jsx), b.sourceMap, b.transformKey(), b.compilerOptionsKey())
+		cacheKey = b.cache.Key(path, src, emitOpts.Key(), b.transformKey())
 		if ent, ok := b.cache.Get(cacheKey); ok {
 			js, jsMap = ent.JS, ent.Map
 			cached = true
@@ -485,7 +485,7 @@ func (b *bundler) load(path string) error {
 	if !cached {
 		out := transpile.TranspileModule(b.ctx, src, transpile.Options{
 			FileName:          filepath.Base(path),
-			CompilerOptions:   b.transpileCompilerOptions(moduleKind, sourceMapFlag),
+			CompilerOptions:   emitOpts.CompilerOptions(),
 			ReportDiagnostics: true,
 		})
 		if out == nil {
@@ -721,66 +721,17 @@ func errorFromSyntaxDiagnostics(path, src string, diags []*ast.Diagnostic) error
 	})
 }
 
-// transpileCompilerOptions returns the compiler options used to emit the
-// JavaScript of one module. It starts from the tsconfig options that change
-// the emitted code and overrides the ones the bundler controls (module kind,
-// target, JSX transform, and source maps).
-func (b *bundler) transpileCompilerOptions(moduleKind core.ModuleKind, sourceMap core.Tristate) *core.CompilerOptions {
-	opts := &core.CompilerOptions{
-		Module:    moduleKind,
-		Target:    b.target,
-		Jsx:       b.jsx,
-		SourceMap: sourceMap,
-	}
-	src := b.compilerOpts
-	if src == nil {
-		return opts
-	}
-	opts.ExperimentalDecorators = src.ExperimentalDecorators
-	opts.EmitDecoratorMetadata = src.EmitDecoratorMetadata
-	opts.UseDefineForClassFields = src.UseDefineForClassFields
-	opts.VerbatimModuleSyntax = src.VerbatimModuleSyntax
-	opts.IsolatedModules = src.IsolatedModules
-	opts.ImportHelpers = src.ImportHelpers
-	opts.NoEmitHelpers = src.NoEmitHelpers
-	opts.JsxFactory = src.JsxFactory
-	opts.JsxFragmentFactory = src.JsxFragmentFactory
-	opts.JsxImportSource = src.JsxImportSource
-	opts.ReactNamespace = src.ReactNamespace
-	opts.PreserveConstEnums = src.PreserveConstEnums
-	opts.RemoveComments = src.RemoveComments
-	if src.NewLine != core.NewLineKindNone {
-		opts.NewLine = src.NewLine
-	}
-	return opts
+// transpileOptionsFor collects everything that affects the emitted text for
+// one module of this build. The projections live in compileropts, so the
+// options and their cache fingerprint share one definition.
+func (b *bundler) transpileOptionsFor(moduleKind core.ModuleKind, sourceMap core.Tristate) compileropts.Transpile {
+	return compileropts.NewTranspile(moduleKind, b.target, b.jsx, sourceMap, b.compilerOpts)
 }
 
-// compilerOptionsKey hashes the tsconfig options that change the emitted
-// JavaScript. It keeps the transpile cache from reusing output that was
-// emitted with different settings.
-func (b *bundler) compilerOptionsKey() string {
-	src := b.compilerOpts
-	if src == nil {
-		return ""
-	}
-	h := sha256.New()
-	fmt.Fprintf(h, "ed=%d;md=%d;ud=%d;vm=%d;im=%d;ih=%d;neh=%d;jf=%s;jff=%s;fis=%s;rn=%s;pce=%d;rc=%d;nl=%d\n",
-		int(src.ExperimentalDecorators),
-		int(src.EmitDecoratorMetadata),
-		int(src.UseDefineForClassFields),
-		int(src.VerbatimModuleSyntax),
-		int(src.IsolatedModules),
-		int(src.ImportHelpers),
-		int(src.NoEmitHelpers),
-		src.JsxFactory,
-		src.JsxFragmentFactory,
-		src.JsxImportSource,
-		src.ReactNamespace,
-		int(src.PreserveConstEnums),
-		int(src.RemoveComments),
-		int(src.NewLine),
-	)
-	return hex.EncodeToString(h.Sum(nil))
+// transpileCompilerOptions returns the compiler options used to emit the
+// JavaScript of one module.
+func (b *bundler) transpileCompilerOptions(moduleKind core.ModuleKind, sourceMap core.Tristate) *core.CompilerOptions {
+	return b.transpileOptionsFor(moduleKind, sourceMap).CompilerOptions()
 }
 
 func isJavaScriptSource(path string) bool {
