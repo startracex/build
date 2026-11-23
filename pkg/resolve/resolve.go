@@ -5,11 +5,11 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/startracex/build/pkg/asset"
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/tsgo/pkg/collections"
 	"github.com/startracex/tsgo/pkg/core"
@@ -150,7 +150,7 @@ func New(entryDir string, conditions []string, mode core.ResolutionMode, cfg Con
 	return &Resolver{
 		res:       res,
 		fs:        fs,
-		cwd:       cfg.CWD,
+		cwd:       filepath.ToSlash(cfg.CWD),
 		mode:      mode,
 		cfg:       cfg,
 		externals: map[string]struct{}{},

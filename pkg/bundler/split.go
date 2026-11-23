@@ -3,11 +3,11 @@ package bundler
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/sourcemap"

@@ -4,11 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/modpath"
 )
 
@@ -19,30 +19,32 @@ const (
 	FormatUMD  = "umd"
 )
 
-// DeriveOutFile picks an extension for dual-format outfile emission.
+// DeriveOutFile picks an extension for dual-format outfile emission. The result
+// is an output path, so it uses the host separator.
 func DeriveOutFile(base string, format string) string {
 	dir := filepath.Dir(base)
 	stem := modpath.BaseStem(base)
 	switch format {
 	case FormatCJS:
-		return filepath.Join(dir, stem+".cjs")
+		return filepath.Native(filepath.Join(dir, stem+".cjs"))
 	case FormatIIFE, FormatUMD:
-		return filepath.Join(dir, stem+".js")
+		return filepath.Native(filepath.Join(dir, stem+".js"))
 	default:
 		ext := modpath.LowerExt(base)
 		if ext == ".cjs" || ext == ".js" {
-			return filepath.Join(dir, stem+".mjs")
+			return filepath.Native(filepath.Join(dir, stem+".mjs"))
 		}
 		if ext == ".mjs" {
 			return base
 		}
-		return filepath.Join(dir, stem+".mjs")
+		return filepath.Native(filepath.Join(dir, stem+".mjs"))
 	}
 }
 
 // DeriveOutDir nests format under a shared outdir for multi-format lib builds.
+// The result is an output path, so it uses the host separator.
 func DeriveOutDir(base string, format string) string {
-	return filepath.Join(base, string(format))
+	return filepath.Native(filepath.Join(base, string(format)))
 }
 
 // DefaultHashLength is used by [hash] when no length is specified.

@@ -3,10 +3,10 @@ package modpath
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/tsgo/pkg/tspath"
 	"github.com/startracex/tsgo/pkg/vfs"
 	"github.com/startracex/tsgo/pkg/vfs/osvfs"
@@ -56,10 +56,7 @@ func NodeModulesRel(abs string) (string, bool) {
 // against cwd, so a caller that knows the project root does not have to rely on
 // the process working directory.
 func AbsPath(cwd, path string) (string, error) {
-	if filepath.IsAbs(path) || cwd == "" {
-		return filepath.Abs(path)
-	}
-	return filepath.Join(cwd, path), nil
+	return filepath.AbsIn(cwd, path)
 }
 
 // AbsFile resolves path to a clean absolute path and asks fs whether it is a
@@ -73,7 +70,7 @@ func AbsFile(fs vfs.FS, cwd, path string) (string, error) {
 	if fs == nil {
 		fs = osvfs.FS()
 	}
-	rooted, ok := tspath.TryRootedFilePathFromAbsolute(filepath.ToSlash(abs))
+	rooted, ok := tspath.TryRootedFilePathFromAbsolute(abs)
 	if !ok {
 		return "", fmt.Errorf("%s: %w", abs, vfs.ErrNotExist)
 	}
@@ -112,8 +109,7 @@ func DisplayRoot(cwd string, paths []string) string {
 	if cwd != "" && len(paths) > 0 {
 		inside := true
 		for _, p := range paths {
-			rel, relErr := filepath.Rel(cwd, p)
-			if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			if !tspath.ContainsPath(cwd, p, tspath.CaseSensitive) {
 				inside = false
 				break
 			}
@@ -135,8 +131,7 @@ func DisplayRoot(cwd string, paths []string) string {
 // CommonDir returns the deepest directory containing both paths.
 func CommonDir(dir, path string) string {
 	for {
-		rel, err := filepath.Rel(dir, path)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if dir == "" || tspath.ContainsPath(dir, path, tspath.CaseSensitive) {
 			return dir
 		}
 		parent := filepath.Dir(dir)
@@ -149,11 +144,14 @@ func CommonDir(dir, path string) string {
 
 // DisplayRel returns path relative to root for emitted file names.
 func DisplayRel(root, path string) string {
+	if root == "" || filepath.IsAbs(root) != filepath.IsAbs(path) {
+		return filepath.Base(path)
+	}
 	rel, err := filepath.Rel(root, path)
 	if err != nil || rel == "." {
-		return filepath.ToSlash(filepath.Base(path))
+		return filepath.Base(path)
 	}
-	return filepath.ToSlash(rel)
+	return rel
 }
 
 // JavascriptOutputAbs maps a TypeScript (or JSON) source path to its .js output path.

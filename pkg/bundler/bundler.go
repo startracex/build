@@ -44,12 +44,12 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"maps"
-	"path/filepath"
 	"strings"
 
 	"github.com/startracex/build/pkg/asset"
 	"github.com/startracex/build/pkg/cache"
 	"github.com/startracex/build/pkg/compileropts"
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/plugin"
@@ -290,6 +290,7 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 			return nil, err
 		}
 		result.Sources = b.sources
+		nativePaths(result)
 		return result, nil
 	}
 	merged := &Result{Manifest: map[string]string{}, Sources: b.sources}
@@ -324,7 +325,26 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 	if err := applyGenerateBundle(opts.Plugins, hookCtx, merged); err != nil {
 		return nil, err
 	}
+	nativePaths(merged)
 	return merged, nil
+}
+
+// nativePaths converts the emitted paths to the host separator. A build works
+// on slash-separated paths throughout, but the result is handed to os or to a
+// host caller, which follows the host layout.
+func nativePaths(result *Result) {
+	if result == nil {
+		return
+	}
+	for i := range result.Files {
+		result.Files[i].Path = filepath.Native(result.Files[i].Path)
+	}
+	for key, value := range result.Manifest {
+		result.Manifest[key] = filepath.Native(value)
+	}
+	for key, value := range result.Sources {
+		result.Sources[key] = filepath.Native(value)
+	}
 }
 
 type unit struct {

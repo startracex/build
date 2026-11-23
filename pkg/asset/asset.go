@@ -5,11 +5,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/tsgo/pkg/tspath"
 	"github.com/startracex/tsgo/pkg/vfs"
 )
 
@@ -62,7 +63,7 @@ func ParseQuery(spec string) Query {
 // ModuleKey is the graph id for an asset, including ?raw / ?url when needed so
 // the same file can be imported under different query kinds.
 func ModuleKey(abs string, kind Kind) string {
-	id := filepath.ToSlash(abs)
+	id := tspath.NormalizeSlashes(abs)
 	switch kind {
 	case Raw:
 		return id + "?raw"
@@ -122,13 +123,13 @@ func Load(fs vfs.FS, abs string, kind Kind, rootDir, publicPath string) (*Unit, 
 	if err != nil {
 		return nil, "", fmt.Errorf("read asset %s: %w", abs, err)
 	}
-	rel := filepath.Base(abs)
-	if rootDir != "" {
-		if r, err := filepath.Rel(rootDir, abs); err == nil && !strings.HasPrefix(r, "..") {
+	rel := tspath.GetBaseFileName(abs)
+	if rootDir != "" && tspath.PathIsAbsolute(rootDir) == tspath.PathIsAbsolute(abs) {
+		if r := tspath.GetRelativePathFromDirectory(rootDir, abs, tspath.CaseSensitive); !strings.HasPrefix(r, "..") {
 			rel = r
 		}
 	}
-	rel = filepath.ToSlash(rel)
+	rel = tspath.NormalizeSlashes(rel)
 	if kind == URL || (kind != Raw && kind != CSS) {
 		rel = hashedRel(rel, data)
 	}
@@ -169,7 +170,7 @@ func CollectEmit(assets map[string]*Unit, outRoot string) (files []EmitFile, man
 			manifest[au.Source] = "(inline)"
 			continue
 		}
-		dest := filepath.Join(outRoot, filepath.FromSlash(au.OutRel))
+		dest := filepath.Join(outRoot, au.OutRel)
 		files = append(files, EmitFile{Path: dest, Data: string(au.Data)})
 		manifest[au.Source] = dest
 	}

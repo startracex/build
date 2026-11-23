@@ -2,9 +2,9 @@ package bundler
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/sourcemap"

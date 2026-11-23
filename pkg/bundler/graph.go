@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
 
 	"github.com/startracex/build/pkg/asset"
 	"github.com/startracex/build/pkg/cache"
 	"github.com/startracex/build/pkg/define"
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/output"
 	"github.com/startracex/build/pkg/resolve"
@@ -61,6 +61,9 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		// A wasm build has no working directory; the caller supplies CWD there.
 		cwd, _ = os.Getwd()
 	}
+	// A build compares every path as a slash-separated vfs path, so the root is
+	// normalized once here instead of at each call site.
+	cwd = filepath.ToSlash(cwd)
 	roots, err := opts.absRoots(cwd)
 	if err != nil {
 		return nil, nil, err

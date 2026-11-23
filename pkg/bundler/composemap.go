@@ -1,8 +1,7 @@
 package bundler
 
 import (
-	"path/filepath"
-
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/sourcemap"
 )

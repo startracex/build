@@ -3,10 +3,10 @@ package sourcemap
 import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
-	"path/filepath"
 	"strings"
 
 	"github.com/startracex/build/pkg/asset"
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/tsgo/pkg/vfs"
 )

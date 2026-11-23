@@ -1,9 +1,9 @@
 package modpath
 
 import (
-	"path/filepath"
 	"strings"
 
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/tsgo/pkg/tspath"
 )
 
@@ -15,18 +15,18 @@ func Ext(path string) string {
 
 // LowerExt returns the lowercase extension of path, including the leading dot.
 func LowerExt(path string) string {
-	return strings.ToLower(filepath.Ext(path))
+	return strings.ToLower(Ext(path))
 }
 
 // Stem returns path without its extension.
 func Stem(path string) string {
-	return strings.TrimSuffix(path, filepath.Ext(path))
+	return strings.TrimSuffix(path, Ext(path))
 }
 
 // BaseStem returns the base name of path without its extension.
 func BaseStem(path string) string {
 	base := filepath.Base(path)
-	return strings.TrimSuffix(base, filepath.Ext(base))
+	return strings.TrimSuffix(base, Ext(base))
 }
 
 // ReplaceExt returns path with its extension replaced by ext. An empty ext

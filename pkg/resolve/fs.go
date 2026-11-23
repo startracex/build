@@ -1,9 +1,9 @@
 package resolve
 
 import (
-	"path/filepath"
 	"sync"
 
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/tsgo/pkg/tspath"
 	"github.com/startracex/tsgo/pkg/vfs"
 )

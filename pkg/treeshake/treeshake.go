@@ -3,9 +3,9 @@ package treeshake
 import (
 	"encoding/json/v2"
 	"path"
-	"path/filepath"
 	"strings"
 
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/tsgo/pkg/ast"
 	"github.com/startracex/tsgo/pkg/scanner"

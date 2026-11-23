@@ -3,12 +3,12 @@ package dts
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
 
 	"github.com/startracex/build/pkg/compileropts"
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/resolve"
 	"github.com/startracex/tsgo/pkg/ast"
