@@ -19,7 +19,7 @@ func TestEntryFileNamesInAppSplit(t *testing.T) {
 		Entries:        []string{filepath.Join(dir, "src", "a.ts"), filepath.Join(dir, "src", "b.ts")},
 		Mode:           ModeApp,
 		OutDir:         out,
-		EntryFileNames: "entries/[name]-[hash:6][extname]",
+		EntryFileNames: "entries/[name]-[hash:6].[ext]",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ export async function load() {
 		Entry:          filepath.Join(dir, "index.ts"),
 		Mode:           ModeApp,
 		OutDir:         out,
-		ChunkFileNames: "js/[name]-[hash:6][extname]",
+		ChunkFileNames: "js/[name]-[hash:6].[ext]",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestChunkFileNamesForManualChunk(t *testing.T) {
 		Entries:        []string{filepath.Join(dir, "a.ts"), filepath.Join(dir, "b.ts")},
 		Mode:           ModeApp,
 		OutDir:         out,
-		ChunkFileNames: "parts/[name][extname]",
+		ChunkFileNames: "parts/[name].[ext]",
 		ManualChunks:   map[string]string{"vendor": "vendor"},
 	})
 	if err != nil {
@@ -120,7 +120,7 @@ export { url };
 		Entry:          filepath.Join(dir, "index.ts"),
 		Mode:           ModeApp,
 		OutDir:         out,
-		AssetFileNames: "media/[name]-[hash:6][extname]",
+		AssetFileNames: "media/[name]-[hash:6].[ext]",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +152,7 @@ func TestAssetFileNamesForEntryCSS(t *testing.T) {
 		Entry:          filepath.Join(dir, "index.ts"),
 		Mode:           ModeApp,
 		OutDir:         out,
-		AssetFileNames: "css/[name]-[hash:6][extname]",
+		AssetFileNames: "css/[name]-[hash:6].[ext]",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -185,9 +185,9 @@ export { url };
 		Entry:          filepath.Join(dir, "index.ts"),
 		Mode:           ModeApp,
 		OutDir:         out,
-		EntryFileNames: "[type]/[name][extname]",
-		ChunkFileNames: "[type]/[name]-[hash:6][extname]",
-		AssetFileNames: "[type]/[name]-[hash:6][extname]",
+		EntryFileNames: "[type]/[name].[ext]",
+		ChunkFileNames: "[type]/[name]-[hash:6].[ext]",
+		AssetFileNames: "[type]/[name]-[hash:6].[ext]",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -213,7 +213,7 @@ export { url };
 	}
 }
 
-// TestEntryFileNamesInLibWithExt checks the [format]/[extname] placeholders in
+// TestEntryFileNamesInLibWithExt checks the [format] and [ext] placeholders in
 // library mode.
 func TestEntryFileNamesInLibWithExt(t *testing.T) {
 	dir := t.TempDir()
@@ -225,7 +225,7 @@ func TestEntryFileNamesInLibWithExt(t *testing.T) {
 		Mode:           ModeLib,
 		OutDir:         out,
 		RootDir:        filepath.Join(dir, "src"),
-		EntryFileNames: "[name].[format][extname]",
+		EntryFileNames: "[name].[format].[ext]",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -236,5 +236,5 @@ func TestEntryFileNamesInLibWithExt(t *testing.T) {
 			return
 		}
 	}
-	t.Fatalf("entry pattern with [format]/[extname] not applied, want %s: %v", want, pathsOf(result.Files))
+	t.Fatalf("entry pattern with [format]/[ext] not applied, want %s: %v", want, pathsOf(result.Files))
 }

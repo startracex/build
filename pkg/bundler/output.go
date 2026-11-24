@@ -36,7 +36,7 @@ func RenderEntryFileName(pattern, name, path string, format Format, hash string)
 // FileNameParts is the set of values a filename pattern can interpolate.
 type FileNameParts = output.FileNameParts
 
-// RenderFileName expands [name], [path], [ext], [extname], [format], [hash],
+// RenderFileName expands [name], [path], [ext], [format], [hash],
 // and [hash:N] in a filename pattern.
 func RenderFileName(pattern string, parts FileNameParts) string {
 	return output.RenderFileName(pattern, parts)

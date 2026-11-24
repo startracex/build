@@ -69,7 +69,6 @@ func ContentHash(data string) string {
 //	[name]     base name without extension
 //	[path]     source-relative path without extension
 //	[ext]      extension without the leading dot
-//	[extname]  extension with the leading dot
 //	[type]     file kind: entry, chunk, or asset
 //	[format]   output format (esm, cjs, iife, umd)
 //	[hash]     content digest, truncated to DefaultHashLength
@@ -92,7 +91,6 @@ func RenderFileName(pattern string, parts FileNameParts) string {
 		"[name]", parts.Name,
 		"[path]", parts.Path,
 		"[ext]", strings.TrimPrefix(parts.Ext, "."),
-		"[extname]", parts.Ext,
 		"[type]", parts.Type,
 		"[format]", parts.Format,
 	).Replace(pattern)
@@ -117,8 +115,7 @@ func RenderFileName(pattern string, parts FileNameParts) string {
 
 // RenderEntryFileName expands [name], [path], [format], [hash], and [hash:N]
 // in an entry filename pattern. hash is usually the digest of the emitted content.
-// It is RenderFileName without the [ext]/[extname] inputs, kept for callers that
-// only name entry files.
+// It is RenderFileName without the [ext] inputs, kept for callers that only name entry files.
 func RenderEntryFileName(pattern, name, path, format, hash string) string {
 	return RenderFileName(pattern, FileNameParts{Name: name, Path: path, Format: format, Hash: hash})
 }

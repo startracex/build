@@ -59,22 +59,22 @@ func TestContentHashStable(t *testing.T) {
 	}
 }
 
-// TestRenderFileNamePlaceholders checks every supported placeholder and the
-// difference between [ext] (no dot) and [extname] (with dot).
+// TestRenderFileNamePlaceholders checks every supported placeholder. [ext]
+// expands without the leading dot, so a pattern writes ".[ext]" for ".js".
 func TestRenderFileNamePlaceholders(t *testing.T) {
 	cases := []struct {
 		pattern string
 		parts   FileNameParts
 		want    string
 	}{
-		{"[name]-[hash:4][extname]", FileNameParts{Name: "logo", Ext: ".png", Hash: "abcdef0123"}, "logo-abcd.png"},
+		{"[name]-[hash:4].[ext]", FileNameParts{Name: "logo", Ext: ".png", Hash: "abcdef0123"}, "logo-abcd.png"},
 		{"[path].[ext]", FileNameParts{Path: "img/logo", Ext: ".png"}, "img/logo.png"},
 		{"[name].[format].js", FileNameParts{Name: "index", Format: "esm"}, "index.esm.js"},
 		{"chunks/[name]-[hash].js", FileNameParts{Name: "shared", Hash: "0123456789"}, "chunks/shared-01234567.js"},
-		{"[type]/[name][extname]", FileNameParts{Type: "entry", Name: "index", Ext: ".js"}, "entry/index.js"},
-		{"[type]/[name]-[hash:4][extname]", FileNameParts{Type: "chunk", Name: "lazy", Ext: ".js", Hash: "abcdef01"}, "chunk/lazy-abcd.js"},
+		{"[type]/[name].[ext]", FileNameParts{Type: "entry", Name: "index", Ext: ".js"}, "entry/index.js"},
+		{"[type]/[name]-[hash:4].[ext]", FileNameParts{Type: "chunk", Name: "lazy", Ext: ".js", Hash: "abcdef01"}, "chunk/lazy-abcd.js"},
 		// A missing part expands to nothing so optional segments can be dropped.
-		{"assets/[name][extname]", FileNameParts{Name: "raw", Ext: ""}, "assets/raw"},
+		{"assets/[name][ext]", FileNameParts{Name: "raw", Ext: ""}, "assets/raw"},
 	}
 	for _, tc := range cases {
 		if got := RenderFileName(tc.pattern, tc.parts); got != tc.want {

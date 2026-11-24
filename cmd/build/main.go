@@ -38,9 +38,9 @@ func run(args []string, stderr, stdout io.Writer) error {
 		Flags: []cli.Flag{
 			&cli.StringSliceFlag{Name: "outfile", Aliases: []string{"o"}, Usage: "single-file bundle path (repeatable)"},
 			&cli.StringSliceFlag{Name: "outdir", Aliases: []string{"d"}, Usage: "directory for per-module or split output (repeatable)"},
-			&cli.StringFlag{Name: "entry-file-names", Aliases: []string{"n"}, Usage: "filename pattern for entry files ([name], [path], [ext], [extname], [type], [format], [hash], [hash:N])"},
-			&cli.StringFlag{Name: "chunk-file-names", Usage: "filename pattern for split chunks ([name], [path], [ext], [extname], [type], [format], [hash], [hash:N])"},
-			&cli.StringFlag{Name: "asset-file-names", Usage: "filename pattern for emitted assets and CSS ([name], [path], [ext], [extname], [type], [hash], [hash:N])"},
+			&cli.StringFlag{Name: "entry-file-names", Aliases: []string{"n"}, Usage: "filename pattern for entry files ([name], [path], [ext], [type], [format], [hash], [hash:N])"},
+			&cli.StringFlag{Name: "chunk-file-names", Usage: "filename pattern for split chunks ([name], [path], [ext], [type], [format], [hash], [hash:N])"},
+			&cli.StringFlag{Name: "asset-file-names", Usage: "filename pattern for emitted assets and CSS ([name], [path], [ext], [type], [hash], [hash:N])"},
 			&cli.StringFlag{Name: "root-dir", Aliases: []string{"r"}, Usage: "base directory for paths written under the output directory"},
 			&cli.StringFlag{Name: "project", Aliases: []string{"p"}, Usage: "tsconfig.json file or directory"},
 			&cli.StringSliceFlag{Name: "format", Aliases: []string{"f"}, Usage: "output format: esm, cjs, iife, umd (repeatable)"},

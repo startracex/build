@@ -39,7 +39,7 @@ build -o dist/index.js --format esm --format cjs src/index.ts
 build --format iife --global-name App -o dist/app.js src/index.ts
 ```
 
-`[name]` is the entry or module base name, `[path]` is the module path relative to `rootDir` (or the common source directory) without extension, `[ext]` is the extension without the dot, `[extname]` is the extension with the dot, `[type]` is `entry`, `chunk`, or `asset`, and `[format]` is the output format. `[hash]` is a SHA-256 digest of the emitted content; use `[hash:N]` to keep the first `N` characters (default `8`). When two modules render to the same path, the later one gets a `-2`, `-3`, … suffix before the extension. Relative imports are rewritten to the final filenames, including renamed ones. A templated `-o` allows multiple entries and emits one file per module (library mode):
+`[name]` is the entry or module base name, `[path]` is the module path relative to `rootDir` (or the common source directory) without extension, `[ext]` is the extension without the dot, `[type]` is `entry`, `chunk`, or `asset`, and `[format]` is the output format. `[hash]` is a SHA-256 digest of the emitted content; use `[hash:N]` to keep the first `N` characters (default `8`). When two modules render to the same path, the later one gets a `-2`, `-3`, … suffix before the extension. Relative imports are rewritten to the final filenames, including renamed ones. A templated `-o` allows multiple entries and emits one file per module (library mode):
 
 ```bash
 build -o 'dist/[name].cjs' --format cjs src/
@@ -57,18 +57,18 @@ Split app output also accepts `--chunk-file-names` for dynamic, shared, and manu
 
 ```bash
 build --mode app --outdir dist \
-  --entry-file-names 'entries/[name].[hash:8][extname]' \
-  --chunk-file-names 'js/[name]-[hash:8][extname]' \
-  --asset-file-names 'media/[name]-[hash:8][extname]' src/index.ts
+  --entry-file-names 'entries/[name].[hash:8].[ext]' \
+  --chunk-file-names 'js/[name]-[hash:8].[ext]' \
+  --asset-file-names 'media/[name]-[hash:8].[ext]' src/index.ts
 ```
 
 `[type]` expands to `entry`, `chunk`, or `asset`, so one shape can categorize every emitted file:
 
 ```bash
 build --mode app --outdir dist \
-  --entry-file-names '[type]/[name][extname]' \
-  --chunk-file-names '[type]/[name]-[hash:8][extname]' \
-  --asset-file-names '[type]/[name]-[hash:8][extname]' src/index.ts
+  --entry-file-names '[type]/[name].[ext]' \
+  --chunk-file-names '[type]/[name]-[hash:8].[ext]' \
+  --asset-file-names '[type]/[name]-[hash:8].[ext]' src/index.ts
 # dist/entry/index.js, dist/chunk/lazy-xxxxxxxx.js, dist/asset/note-xxxxxxxx.txt
 ```
 
@@ -172,9 +172,9 @@ The compiler options that change the output are read from `tsconfig.json`. They 
 | --- | --- |
 | `-o`, `--outfile` | Single-file bundle path (repeatable). Supports `[name]`, `[path]`, `[format]`, `[hash]`, and `[hash:N]` placeholders; with a placeholder, several modules emit one file per module. |
 | `--outdir` | Directory for per-module or split output (repeatable). |
-| `--entry-file-names` | Filename pattern for entry files in `--outdir` output: `[name]`, `[path]`, `[ext]`, `[extname]`, `[type]`, `[format]`, `[hash]`, `[hash:N]`. Ignored with `--outfile`. |
+| `--entry-file-names` | Filename pattern for entry files in `--outdir` output: `[name]`, `[path]`, `[ext]`, `[type]`, `[format]`, `[hash]`, `[hash:N]`. Ignored with `--outfile`. |
 | `--chunk-file-names` | Filename pattern for split chunks (dynamic, shared, manual): same placeholders with `[type]` = `chunk`; defaults to the `chunks/` layout. |
-| `--asset-file-names` | Filename pattern for emitted `?url` assets and entry CSS: `[name]`, `[path]`, `[ext]`, `[extname]`, `[type]` = `asset`, `[hash]`, `[hash:N]`; defaults to the source-relative path with a content hash. |
+| `--asset-file-names` | Filename pattern for emitted `?url` assets and entry CSS: `[name]`, `[path]`, `[ext]`, `[type]` = `asset`, `[hash]`, `[hash:N]`; defaults to the source-relative path with a content hash. |
 | `-r`, `--root-dir` | Base directory for paths written under the output dir. Defaults to tsconfig `rootDir`, then the common source directory. |
 | arguments | Entry files (including `.html`), directories, or globs. Directories are expanded to supported source files (excluding `node_modules` and `.d.ts`). |
 | `-p`, `--project` | `tsconfig.json` file or directory. |

@@ -1751,9 +1751,9 @@ export { url };
 	if err := run([]string{
 		"--mode", "app",
 		"--outdir", out,
-		"--entry-file-names", "entries/[name][extname]",
-		"--chunk-file-names", "js/[name]-[hash:6][extname]",
-		"--asset-file-names", "media/[name]-[hash:6][extname]",
+		"--entry-file-names", "entries/[name].[ext]",
+		"--chunk-file-names", "js/[name]-[hash:6].[ext]",
+		"--asset-file-names", "media/[name]-[hash:6].[ext]",
 		"src/index.ts",
 	}, nil, nil); err != nil {
 		t.Fatal(err)
