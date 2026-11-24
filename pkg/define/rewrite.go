@@ -29,14 +29,14 @@ func rewrite(src string, rules map[string]rule, dropConsole, dropDebugger bool) 
 }
 
 type rewriter struct {
-	src          string
-	rules        map[string]rule
-	dropConsole  bool
-	dropDebugger bool
+	rules map[string]rule
+	src   string
+	edits []jsedit.Edit
 	// scopes is the lexical scope stack, innermost last. A define key is only
 	// replaced where no enclosing scope declares the same name.
-	scopes []map[string]bool
-	edits  []jsedit.Edit
+	scopes       []map[string]bool
+	dropConsole  bool
+	dropDebugger bool
 }
 
 func (w *rewriter) visit(n *ast.Node) {

@@ -16,64 +16,64 @@ import (
 )
 
 type esModule struct {
-	id        string
-	src       string
-	jsMap     string
-	linkedMap string
-	file      *ast.SourceFile
-	locals    map[string]*esLocal
-	imports   map[string]*esImport // local name -> import
-	exports   map[string]*esExp
-	stars     []string // module ids re-exported with export *
-	sideImps  []string
-	needed    []string
-	inst      bool
-	liveExp   map[string]bool
-	liveLoc   map[string]bool
+	cjsSkip  map[*ast.Node]bool
+	ctx      *linkContext
+	exports  map[string]*esExp
+	extFinal map[extKey]string
+	file     *ast.SourceFile
+	imports  map[string]*esImport // local name -> import
+	liveExp  map[string]bool
+	liveLoc  map[string]bool
+	locals   map[string]*esLocal
+	scanned  map[string]bool
 	// scanning and scanned guard the walk of a local's initializer. A
 	// reference inside that initializer reaches the same local again, and the
 	// outer walk already covers it.
 	scanning      map[string]bool
-	scanned       map[string]bool
-	extFinal      map[extKey]string
-	ctx           *linkContext
-	path          string // os path for resolve importer
-	effectsFree   bool
 	cjsMode       cjsMode
-	cjsSkip       map[*ast.Node]bool
-	cjsWrapAll    bool
+	id            string
+	jsMap         string
+	linkedMap     string
+	path          string // os path for resolve importer
+	src           string
 	cjsNamedOrder []string
+	needed        []string
+	sideImps      []string
+	stars         []string // module ids re-exported with export *
+	cjsWrapAll    bool
+	effectsFree   bool
+	inst          bool
 }
 
 type extKey struct{ spec, name string }
 
 type esLocal struct {
-	name            string
-	idents          []*ast.Node
-	stmt            *ast.Node
-	final           string
-	defExpr         bool // synthetic const for `export default <expr>`
-	cjsInit         *ast.Node
-	cjsFromExports  string // const x = __cjsExports.x
-	cjsObjectBundle bool   // const __cjsExports = { a, b }
-	cjsFactory      bool   // var require_x = __commonJS(...)
-	cjsFromFactory  bool   // const __cjsExports = require_x()
+	cjsInit *ast.Node
 	// Property-level tree shaking: when escapes is false, only props keys are live
 	// on an object-literal initializer.
-	props   map[string]bool
-	escapes bool
+	props           map[string]bool
+	stmt            *ast.Node
+	cjsFromExports  string // const x = __cjsExports.x
+	final           string
+	name            string
+	idents          []*ast.Node
+	cjsFactory      bool // var require_x = __commonJS(...)
+	cjsFromFactory  bool // const __cjsExports = require_x()
+	cjsObjectBundle bool // const __cjsExports = { a, b }
+	defExpr         bool // synthetic const for `export default <expr>`
+	escapes         bool
 }
 
 type esImport struct {
-	local     string
-	spec      string
-	module    string // empty if external
-	external  bool
-	imported  string // export name, "*" for namespace
-	escapes   bool
 	props     map[string]bool
-	namespace bool
 	final     string
+	imported  string // export name, "*" for namespace
+	local     string
+	module    string // empty if external
+	spec      string
+	escapes   bool
+	external  bool
+	namespace bool
 	used      bool
 }
 

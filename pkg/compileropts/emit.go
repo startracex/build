@@ -86,8 +86,8 @@ func (o JavaScript) Apply(dst *core.CompilerOptions) {
 
 // Emit holds every tsconfig switch that changes transpiled JavaScript.
 type Emit struct {
-	Syntax     Syntax     `json:"syntax"`
 	JavaScript JavaScript `json:"javascript"`
+	Syntax     Syntax     `json:"syntax"`
 }
 
 // EmitFrom reads every switch that changes emitted JavaScript.

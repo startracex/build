@@ -12,10 +12,10 @@ import (
 )
 
 type htmlDocument struct {
-	path    string
 	node    *html.Node
 	scripts map[*html.Node]string
 	styles  map[*html.Node]string
+	path    string
 }
 
 func prepareHTMLEntries(entries []string) ([]*htmlDocument, []string, error) {

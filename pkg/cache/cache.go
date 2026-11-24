@@ -19,9 +19,9 @@ import (
 // TranspileCache stores transpile results keyed by content hash. The entries
 // live under dir, on fs when one is set and on the OS file system otherwise.
 type TranspileCache struct {
-	dir string
 	fs  vfs.FS
 	mu  sync.Mutex
+	dir string
 }
 
 // Entry is one cached transpile result.

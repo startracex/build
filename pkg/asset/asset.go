@@ -28,19 +28,19 @@ const (
 // Unit is one loaded asset module.
 type Unit struct {
 	Kind     Kind
-	Source   string // absolute source path
-	Data     []byte
-	Text     string // for raw
-	OutRel   string // relative emit path
 	JSModule string // synthetic ESM for the importer
+	OutRel   string // relative emit path
+	Source   string // absolute source path
+	Text     string // for raw
+	Data     []byte
 }
 
 // Query holds ?raw / ?url flags from an import specifier.
 type Query struct {
 	Path  string
+	Query string
 	Raw   bool
 	URL   bool
-	Query string
 }
 
 // ParseQuery splits a specifier into path and import-query flags.

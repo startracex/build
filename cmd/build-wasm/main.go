@@ -16,10 +16,10 @@ import (
 )
 
 type jsFileInfo struct {
+	modified time.Time
 	name     string
 	size     int64
 	dir      bool
-	modified time.Time
 }
 
 func (f *jsFileInfo) Name() string       { return f.name }

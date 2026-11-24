@@ -31,10 +31,6 @@ type Emit struct {
 
 // Options configures program-level declaration emit.
 type Options struct {
-	Target           core.ScriptTarget
-	Jsx              core.JsxEmit
-	DeclarationMap   bool
-	CustomConditions []string
 	// CompilerOptions carries the tsconfig options that change the declaration
 	// output and the type checking behind it: the strict family, "lib",
 	// "types", "paths", "moduleResolution", the decorator and JSX
@@ -45,13 +41,17 @@ type Options struct {
 	// keeps working.
 	BaseURL resolve.BaseURLFallback
 	// FS reads the program sources. Nil uses the OS file system.
-	FS vfs.FS
+	FS     vfs.FS
+	Jsx    core.JsxEmit
+	Target core.ScriptTarget
 	// CWD resolves relative paths. Empty falls back to the process working
 	// directory.
 	CWD string
 	// RootDir is the source root used for declaration paths. Empty falls back
 	// to the common directory of absPaths.
-	RootDir string
+	RootDir          string
+	CustomConditions []string
+	DeclarationMap   bool
 }
 
 // declarationCompilerOptions builds the compiler options for the declaration

@@ -15,11 +15,11 @@ type File struct {
 
 // Plugin groups optional build hooks. Nil function fields are skipped.
 type Plugin struct {
-	Name           string
-	Resolve        func(ctx HookCtx, source, importer string) (id string, external bool, ok bool, err error)
-	Load           func(ctx HookCtx, id string) (code string, ok bool, err error)
-	Transform      func(ctx HookCtx, code, id string) (codeOut string, mapJSON string, err error)
 	GenerateBundle func(ctx HookCtx, files []File) ([]File, error)
+	Load           func(ctx HookCtx, id string) (code string, ok bool, err error)
+	Resolve        func(ctx HookCtx, source, importer string) (id string, external bool, ok bool, err error)
+	Transform      func(ctx HookCtx, code, id string) (codeOut string, mapJSON string, err error)
+	Name           string
 }
 
 // RunResolve calls Resolve on each plugin; the first ok result wins.

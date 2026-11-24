@@ -113,104 +113,104 @@ const (
 
 // Options configures a bundle.
 type Options struct {
-	// Entry is the file the bundle starts from. Entries lists more roots.
-	// A single-file build allows only one of them.
-	Entry string
-	// Entries are additional root files. Library output emits every root and
-	// the modules each one imports.
-	Entries []string
-	// Format selects ESM or CommonJS output. Empty means FormatESM.
-	Format Format
-	// JSX selects the JSX transform. Empty means JSXReact.
-	JSX JSX
-	// Mode selects app (one bundle per entry) or lib (one file per module).
-	// It must be set; there is no default layout.
-	Mode Mode
-	// OutFile is the JavaScript path used by app mode. The declaration and
-	// source map are written beside it.
-	OutFile string
-	// NameTemplate marks OutFile as a full per-entry filename pattern.
-	NameTemplate string
-	// EntryFileNames is a per-entry filename pattern joined with OutDir.
-	EntryFileNames string
-	// ChunkFileNames is a filename pattern for split chunks (shared, async, and
-	// manual) in app mode. Empty keeps the built-in chunks/ layout.
-	ChunkFileNames string
-	// AssetFileNames is a filename pattern for emitted assets (?url imports) and
-	// entry CSS. Empty keeps the source-relative path with a content hash.
-	AssetFileNames string
-	// OutDir is the directory used by per-module output.
-	OutDir string
-	// RootDir is the base for paths written under OutDir. When empty, the
-	// rootDir from CompilerOptions is used, then the deepest directory shared
-	// by the entry files.
-	RootDir string
-	// Declaration writes .d.ts files in library mode. Nil means no, matching tsc.
-	// App mode does not write declarations.
-	Declaration *bool
-	// DeclarationMap writes .d.ts.map files when Declaration is on. Nil means no.
-	DeclarationMap *bool
-	// SourceMap writes .map files. Nil means no, matching tsc.
-	SourceMap *bool
-	// External package names or specifiers are left as import/require calls.
-	External []string
-	// BundleNodeModules keeps bare package imports inside library-mode output.
-	BundleNodeModules bool
-	// DepsDir is the directory bundled packages are written under in library
-	// mode, so "vendor" emits vendor/<package>/... instead of
-	// node_modules/<package>/.... Empty keeps node_modules.
-	DepsDir string
-	// Conditions are extra package.json "exports" conditions. The resolver
-	// always adds import or require from the format, always matches default,
-	// and always includes module. These values are appended on top.
-	Conditions []string
-	// Target is the TypeScript emit target. Empty means ESNext.
-	Target core.ScriptTarget
+	// Alias maps import prefixes to filesystem paths (longest prefix wins).
+	Alias map[string]string
 	// CompilerOptions holds the compiler options read from tsconfig.json. They
 	// decide the emitted JavaScript, the declaration output, and how module
 	// specifiers are resolved. The bundler owns module kind, target, JSX
 	// transform, and source maps; the rest comes from here.
 	CompilerOptions *core.CompilerOptions
-	// BaseURL stands in for the removed tsconfig "baseUrl" option. TypeScript
-	// 5 resolved bare specifiers against it, so a tsconfig that still uses it
-	// keeps working.
-	BaseURL resolve.BaseURLFallback
-	// Outputs lists Rollup-style emit targets. The module graph is loaded once;
-	// each output is linked/emitted from that shared graph.
-	Outputs []OutputOptions
-	// GlobalName is the IIFE/UMD global variable when Outputs is empty.
-	GlobalName string
+	// Declaration writes .d.ts files in library mode. Nil means no, matching tsc.
+	// App mode does not write declarations.
+	Declaration *bool
+	// DeclarationMap writes .d.ts.map files when Declaration is on. Nil means no.
+	DeclarationMap *bool
 	// Define replaces free identifiers / process.env.* at emit time.
 	Define map[string]string
-	// Drop removes console.* calls and/or debugger statements ("console", "debugger").
-	Drop []string
-	// Alias maps import prefixes to filesystem paths (longest prefix wins).
-	Alias map[string]string
 	// ManualChunks maps a module path substring to a chunk base name under
 	// chunks/ (e.g. "node_modules/lodash" -> "vendor-lodash"). App mode only.
 	ManualChunks map[string]string
-	// CacheDir stores transpile results keyed by content hash. It is resolved
-	// against CWD and written through Options.FS, so a virtual build caches in
-	// its own tree; empty disables the cache.
-	CacheDir string
-	// Manifest writes a JSON map of source assets to emitted paths.
-	Manifest bool
-	// PublicPath prefixes emitted asset URLs for ?url and file imports.
-	PublicPath string
 	// Resolve, when it reports ok, supplies the file that specifier refers to.
 	// Return ok false to keep the built-in resolver. The hook is how aliases
 	// and, later, plugins replace resolution.
 	Resolve func(importer, specifier string) (resolved string, ok bool, err error)
-	// Plugins run Resolve/Load/Transform/GenerateBundle hooks (first ok wins
-	// for resolve/load; transform and generate chain).
-	Plugins []plugin.Plugin
+	// SourceMap writes .map files. Nil means no, matching tsc.
+	SourceMap *bool
+	// BaseURL stands in for the removed tsconfig "baseUrl" option. TypeScript
+	// 5 resolved bare specifiers against it, so a tsconfig that still uses it
+	// keeps working.
+	BaseURL resolve.BaseURLFallback
+	// Format selects ESM or CommonJS output. Empty means FormatESM.
+	Format Format
 	// FS reads sources, assets, and the paths the resolver probes. Nil uses the
 	// OS file system. A build that targets wasm or runs on a virtual file
 	// system supplies its own implementation.
 	FS vfs.FS
+	// JSX selects the JSX transform. Empty means JSXReact.
+	JSX JSX
+	// Mode selects app (one bundle per entry) or lib (one file per module).
+	// It must be set; there is no default layout.
+	Mode Mode
+	// Target is the TypeScript emit target. Empty means ESNext.
+	Target core.ScriptTarget
+	// AssetFileNames is a filename pattern for emitted assets (?url imports) and
+	// entry CSS. Empty keeps the source-relative path with a content hash.
+	AssetFileNames string
+	// CacheDir stores transpile results keyed by content hash. It is resolved
+	// against CWD and written through Options.FS, so a virtual build caches in
+	// its own tree; empty disables the cache.
+	CacheDir string
+	// ChunkFileNames is a filename pattern for split chunks (shared, async, and
+	// manual) in app mode. Empty keeps the built-in chunks/ layout.
+	ChunkFileNames string
 	// CWD resolves relative entry paths and display paths. Empty falls back to
 	// the process working directory, which a wasm build may not have.
 	CWD string
+	// DepsDir is the directory bundled packages are written under in library
+	// mode, so "vendor" emits vendor/<package>/... instead of
+	// node_modules/<package>/.... Empty keeps node_modules.
+	DepsDir string
+	// Entry is the file the bundle starts from. Entries lists more roots.
+	// A single-file build allows only one of them.
+	Entry string
+	// EntryFileNames is a per-entry filename pattern joined with OutDir.
+	EntryFileNames string
+	// GlobalName is the IIFE/UMD global variable when Outputs is empty.
+	GlobalName string
+	// NameTemplate marks OutFile as a full per-entry filename pattern.
+	NameTemplate string
+	// OutDir is the directory used by per-module output.
+	OutDir string
+	// OutFile is the JavaScript path used by app mode. The declaration and
+	// source map are written beside it.
+	OutFile string
+	// PublicPath prefixes emitted asset URLs for ?url and file imports.
+	PublicPath string
+	// RootDir is the base for paths written under OutDir. When empty, the
+	// rootDir from CompilerOptions is used, then the deepest directory shared
+	// by the entry files.
+	RootDir string
+	// Conditions are extra package.json "exports" conditions. The resolver
+	// always adds import or require from the format, always matches default,
+	// and always includes module. These values are appended on top.
+	Conditions []string
+	// Drop removes console.* calls and/or debugger statements ("console", "debugger").
+	Drop []string
+	// Entries are additional root files. Library output emits every root and
+	// the modules each one imports.
+	Entries []string
+	// External package names or specifiers are left as import/require calls.
+	External []string
+	// Outputs lists Rollup-style emit targets. The module graph is loaded once;
+	// each output is linked/emitted from that shared graph.
+	Outputs []OutputOptions
+	// Plugins run Resolve/Load/Transform/GenerateBundle hooks (first ok wins
+	// for resolve/load; transform and generate chain).
+	Plugins []plugin.Plugin
+	// BundleNodeModules keeps bare package imports inside library-mode output.
+	BundleNodeModules bool
+	// Manifest writes a JSON map of source assets to emitted paths.
+	Manifest bool
 }
 
 // Bundle reads Entry and returns the entry JavaScript.
@@ -232,11 +232,11 @@ type Output struct {
 // Result is every file a build wrote logically, including JavaScript,
 // TypeScript declarations, and source maps.
 type Result struct {
-	Files    []Output
 	Manifest map[string]string
 	// Sources maps absolute source paths (slash separated) to emitted files.
 	Sources map[string]string
 	entry   string
+	Files   []Output
 }
 
 // JavaScript returns the entry JavaScript source.
@@ -349,61 +349,61 @@ func nativePaths(result *Result) {
 }
 
 type unit struct {
+	file   *ast.SourceFile
 	code   string
-	source string
-	jsMap  string
 	dts    string
 	dtsMap string
-	file   *ast.SourceFile
-	json   bool
+	jsMap  string
+	source string
 	asset  bool
+	json   bool
 	// verbatim marks a module whose code is its source text: the emitter only
 	// reformatted it, so it keeps the original formatting and an identity map.
 	verbatim bool
 }
 
 type bundler struct {
-	ctx     context.Context
-	opts    Options
-	format  Format
-	outMode Mode
-	jsx     core.JsxEmit
-	mode    core.ResolutionMode
-	res     *resolve.Resolver
-	// fs reads every source and asset; cwd resolves relative paths. Both come
-	// from Options, defaulting to the OS file system and working directory.
-	fs        vfs.FS
-	cwd       string
-	rootDir   string
-	loading   map[string]bool
-	units     map[string]*unit
-	assets    map[string]*asset.Unit
-	decl      bool
-	declMap   bool
-	sourceMap bool
-	target    core.ScriptTarget
+	assets map[string]*asset.Unit
+	cache  *cache.TranspileCache
+	// chunkPaths maps module id -> relative chunk path for splitting.
+	chunkPaths map[string]string
 	// compilerOpts holds the compiler options read from tsconfig.json. They
 	// change the emitted JavaScript, the declaration output, and how module
 	// specifiers are resolved.
 	compilerOpts *core.CompilerOptions
-	cache        *cache.TranspileCache
-	// transformKey fingerprints the plugin transform settings. They are fixed
-	// for a build, so the key is computed once and reused by every module.
-	transformKey string
+	// linkedMaps are per-module source maps remapped through the last Link.
+	linkedMaps map[string]string
+	loading    map[string]bool
 	// outputPaths maps module id -> rendered output path when using a
 	// filename template. It keeps relative imports aligned with hashed names.
 	outputPaths map[string]string
+	res         *resolve.Resolver
+	// sources maps source paths to rendered output paths.
+	sources map[string]string
+	units   map[string]*unit
 	// usedOutputPaths tracks every rendered path across outputs so duplicate
 	// names are renamed deterministically instead of overwriting files.
 	usedOutputPaths map[string]bool
-	// sources maps source paths to rendered output paths.
-	sources map[string]string
-	// chunkPaths maps module id -> relative chunk path for splitting.
-	chunkPaths map[string]string
+	ctx             context.Context
+	format          Format
+	// fs reads every source and asset; cwd resolves relative paths. Both come
+	// from Options, defaulting to the OS file system and working directory.
+	fs      vfs.FS
+	jsx     core.JsxEmit
+	mode    core.ResolutionMode
+	outMode Mode
+	target  core.ScriptTarget
+	cwd     string
 	// linkingChunk is the chunk path currently being linked (empty for entry).
 	linkingChunk string
-	// linkedMaps are per-module source maps remapped through the last Link.
-	linkedMaps map[string]string
+	rootDir      string
+	// transformKey fingerprints the plugin transform settings. They are fixed
+	// for a build, so the key is computed once and reused by every module.
+	transformKey string
+	opts         Options
+	decl         bool
+	declMap      bool
+	sourceMap    bool
 }
 
 func (b *bundler) load(path string) error {

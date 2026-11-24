@@ -48,9 +48,9 @@ type Options struct {
 
 // Result is the linked script plus per-module maps remapped through linker edits.
 type Result struct {
-	Code string
 	// Maps maps module id -> source map JSON for the rendered module body.
 	Maps map[string]string
+	Code string
 }
 
 // Link scope-hoists mods into one script or module body.

@@ -37,32 +37,32 @@ var nodeBuiltins = map[string]struct{}{
 
 // Config holds resolver options supplied by the bundler.
 type Config struct {
-	Alias    map[string]string
-	External []string
-	Format   string // "esm", "cjs", ...
-	LibBuild bool   // library mode: bare package imports are external
-	// EntryDir is the directory of the entry file. Resolution starts here.
-	EntryDir string
-	// Conditions are the extra package.json "exports" conditions. They are used
-	// as given: no platform-specific condition is added.
-	Conditions []string
-	// Mode is the resolution mode tsgo uses for the import graph.
-	Mode core.ResolutionMode
+	Alias map[string]string
 	// CompilerOptions carries the tsconfig options that change how module
 	// specifiers are resolved: "moduleResolution" and "paths".
 	CompilerOptions *core.CompilerOptions
+	OnAsset         func(abs string, q asset.Query) error
+	ResolveHook     func(importer, spec string) (path string, external bool, ok bool, err error)
+	// FS reads the files the resolver probes. Nil uses the OS file system.
+	FS vfs.FS
+	// Mode is the resolution mode tsgo uses for the import graph.
+	Mode core.ResolutionMode
 	// BaseURL stands in for the removed tsconfig "baseUrl" option. TypeScript
 	// 5 resolved bare specifiers against it, so a tsconfig that still uses it
 	// keeps working. It is kept apart from the mappings the user wrote so
 	// library mode still treats bare package imports as external.
-	BaseURL     BaseURLFallback
-	ResolveHook func(importer, spec string) (path string, external bool, ok bool, err error)
-	OnAsset     func(abs string, q asset.Query) error
-	// FS reads the files the resolver probes. Nil uses the OS file system.
-	FS vfs.FS
+	BaseURL BaseURLFallback
 	// CWD resolves relative paths. Empty falls back to the process working
 	// directory.
 	CWD string
+	// EntryDir is the directory of the entry file. Resolution starts here.
+	EntryDir string
+	Format   string // "esm", "cjs", ...
+	// Conditions are the extra package.json "exports" conditions. They are used
+	// as given: no platform-specific condition is added.
+	Conditions []string
+	External   []string
+	LibBuild   bool // library mode: bare package imports are external
 }
 
 // BaseURLFallback describes the project root that stands in for the removed

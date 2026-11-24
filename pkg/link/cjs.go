@@ -24,17 +24,17 @@ const (
 )
 
 type cjsProp struct {
-	name string
 	init *ast.Node
+	name string
 }
 
 type cjsAnalysis struct {
-	isCJS        bool
-	mode         cjsMode
-	skip         []*ast.Node
-	props        []cjsProp
 	defaultInit  *ast.Node
 	okLHS        map[*ast.Node]bool
+	mode         cjsMode
+	props        []cjsProp
+	skip         []*ast.Node
+	isCJS        bool
 	wholesaleObj bool
 }
 

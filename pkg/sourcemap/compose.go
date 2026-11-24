@@ -230,9 +230,9 @@ func ComposeLinked(fs vfs.FS, js, fileName string, modules []ModuleMap) string {
 }
 
 type decodedMap struct {
-	sources []string
-	content []string
 	segs    map[int][]seg
+	content []string
+	sources []string
 }
 
 type seg struct {

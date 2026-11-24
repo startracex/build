@@ -10,29 +10,29 @@ import (
 // declaration types but never the emitted JavaScript text, so they are kept
 // apart from Emit and never fingerprint a transpile cache entry.
 type Types struct {
-	Strict                             core.Tristate
-	StrictNullChecks                   core.Tristate
-	StrictFunctionTypes                core.Tristate
-	StrictBindCallApply                core.Tristate
-	StrictPropertyInitialization       core.Tristate
-	NoImplicitAny                      core.Tristate
-	NoImplicitThis                     core.Tristate
-	NoImplicitReturns                  core.Tristate
-	NoImplicitOverride                 core.Tristate
-	NoUncheckedIndexedAccess           core.Tristate
-	NoUncheckedSideEffectImports       core.Tristate
-	ExactOptionalPropertyTypes         core.Tristate
-	UseUnknownInCatchVariables         core.Tristate
-	NoPropertyAccessFromIndexSignature core.Tristate
-	NoFallthroughCasesInSwitch         core.Tristate
 	AllowUnreachableCode               core.Tristate
 	AllowUnusedLabels                  core.Tristate
+	ExactOptionalPropertyTypes         core.Tristate
+	NoFallthroughCasesInSwitch         core.Tristate
+	NoImplicitAny                      core.Tristate
+	NoImplicitOverride                 core.Tristate
+	NoImplicitReturns                  core.Tristate
+	NoImplicitThis                     core.Tristate
+	NoPropertyAccessFromIndexSignature core.Tristate
+	NoUncheckedIndexedAccess           core.Tristate
+	NoUncheckedSideEffectImports       core.Tristate
 	NoUnusedLocals                     core.Tristate
 	NoUnusedParameters                 core.Tristate
-	Lib                                []string
-	Types                              []string
-	TypeRoots                          []tspath.RootedDirectoryPath
 	SkipDefaultLibCheck                core.Tristate
+	Strict                             core.Tristate
+	StrictBindCallApply                core.Tristate
+	StrictFunctionTypes                core.Tristate
+	StrictNullChecks                   core.Tristate
+	StrictPropertyInitialization       core.Tristate
+	UseUnknownInCatchVariables         core.Tristate
+	Lib                                []string
+	TypeRoots                          []tspath.RootedDirectoryPath
+	Types                              []string
 }
 
 // TypesFrom reads the type-checking switches. A nil source yields the zero

@@ -15,9 +15,9 @@ import (
 
 // Edit is a byte-range replacement in a source string.
 type Edit struct {
-	Start int
-	End   int
 	Text  string
+	End   int
+	Start int
 }
 
 // ApplyEditsWithMap applies edits and returns the new source plus a net line delta.
