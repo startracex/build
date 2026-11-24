@@ -58,3 +58,36 @@ func TestContentHashStable(t *testing.T) {
 		t.Fatalf("hash = %q, %q", first, second)
 	}
 }
+
+// TestRenderFileNamePlaceholders checks every supported placeholder and the
+// difference between [ext] (no dot) and [extname] (with dot).
+func TestRenderFileNamePlaceholders(t *testing.T) {
+	cases := []struct {
+		pattern string
+		parts   FileNameParts
+		want    string
+	}{
+		{"[name]-[hash:4][extname]", FileNameParts{Name: "logo", Ext: ".png", Hash: "abcdef0123"}, "logo-abcd.png"},
+		{"[path].[ext]", FileNameParts{Path: "img/logo", Ext: ".png"}, "img/logo.png"},
+		{"[name].[format].js", FileNameParts{Name: "index", Format: "esm"}, "index.esm.js"},
+		{"chunks/[name]-[hash].js", FileNameParts{Name: "shared", Hash: "0123456789"}, "chunks/shared-01234567.js"},
+		{"[type]/[name][extname]", FileNameParts{Type: "entry", Name: "index", Ext: ".js"}, "entry/index.js"},
+		{"[type]/[name]-[hash:4][extname]", FileNameParts{Type: "chunk", Name: "lazy", Ext: ".js", Hash: "abcdef01"}, "chunk/lazy-abcd.js"},
+		// A missing part expands to nothing so optional segments can be dropped.
+		{"assets/[name][extname]", FileNameParts{Name: "raw", Ext: ""}, "assets/raw"},
+	}
+	for _, tc := range cases {
+		if got := RenderFileName(tc.pattern, tc.parts); got != tc.want {
+			t.Errorf("RenderFileName(%q) = %q, want %q", tc.pattern, got, tc.want)
+		}
+	}
+}
+
+// TestRenderEntryFileNameKeepsOldShape checks the compatibility wrapper still
+// expands the placeholders it always supported.
+func TestRenderEntryFileNameKeepsOldShape(t *testing.T) {
+	got := RenderEntryFileName("[name]-[hash:3].[format].js", "index", "sub/index", "esm", "123456789")
+	if got != "index-123.esm.js" {
+		t.Fatalf("got %q", got)
+	}
+}

@@ -81,7 +81,18 @@ func (b *bundler) appResult(entry, js, linked string, emitFmt Format) (*Result, 
 		if HasHashPlaceholder(b.opts.NameTemplate) {
 			hash = ContentHash(js)
 		}
-		jsName = RenderEntryFileName(b.opts.NameTemplate, name, name, emitFmt, hash)
+		ext := modpath.Ext(jsName)
+		if ext == "" {
+			ext = ".js"
+		}
+		jsName = RenderFileName(b.opts.NameTemplate, FileNameParts{
+			Name:   name,
+			Path:   name,
+			Ext:    ext,
+			Type:   "entry",
+			Format: string(emitFmt),
+			Hash:   hash,
+		})
 	}
 	b.sources[filepath.ToSlash(filepath.FromSlash(entry))] = jsName
 	if b.sourceMap {

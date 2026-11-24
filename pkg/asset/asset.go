@@ -10,6 +10,7 @@ import (
 
 	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/build/pkg/output"
 	"github.com/startracex/tsgo/pkg/tspath"
 	"github.com/startracex/tsgo/pkg/vfs"
 )
@@ -117,8 +118,10 @@ func JoinPublicPath(public, rel string) string {
 }
 
 // Load reads an asset file through fs and returns the unit plus synthetic ESM
-// source. A nil fs reads the OS file system.
-func Load(fs vfs.FS, abs string, kind Kind, rootDir, publicPath string) (*Unit, string, error) {
+// source. A nil fs reads the OS file system. assetFileNames, when set, is a
+// filename pattern for the emitted asset and is used in place of the default
+// source-relative hashed name.
+func Load(fs vfs.FS, abs string, kind Kind, rootDir, publicPath, assetFileNames string) (*Unit, string, error) {
 	data, err := modpath.ReadFile(fs, abs)
 	if err != nil {
 		return nil, "", fmt.Errorf("read asset %s: %w", abs, err)
@@ -130,7 +133,21 @@ func Load(fs vfs.FS, abs string, kind Kind, rootDir, publicPath string) (*Unit, 
 		}
 	}
 	rel = tspath.NormalizeSlashes(rel)
-	if kind == URL || (kind != Raw && kind != CSS) {
+	switch {
+	case assetFileNames != "":
+		hash := ""
+		if output.HasHashPlaceholder(assetFileNames) {
+			hash = output.ContentHash(string(data))
+		}
+		stem := modpath.Stem(rel)
+		rel = filepath.ToSlash(output.RenderFileName(assetFileNames, output.FileNameParts{
+			Name: modpath.BaseStem(rel),
+			Path: stem,
+			Ext:  modpath.Ext(rel),
+			Type: "asset",
+			Hash: hash,
+		}))
+	case kind == URL || (kind != Raw && kind != CSS):
 		rel = hashedRel(rel, data)
 	}
 	au := &Unit{Kind: kind, Source: abs, Data: data, OutRel: rel}

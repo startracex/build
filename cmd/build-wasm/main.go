@@ -225,6 +225,8 @@ func optionsFromJS(value js.Value) (bundler.Options, error) {
 		RootDir:           stringField(value, "rootDir"),
 		NameTemplate:      stringField(value, "nameTemplate"),
 		EntryFileNames:    stringField(value, "entryFileNames"),
+		ChunkFileNames:    stringField(value, "chunkFileNames"),
+		AssetFileNames:    stringField(value, "assetFileNames"),
 		Declaration:       boolFieldOrNil(value, "declaration"),
 		DeclarationMap:    boolFieldOrNil(value, "declarationMap"),
 		SourceMap:         boolFieldOrNil(value, "sourceMap"),
@@ -254,6 +256,8 @@ func optionsFromJS(value js.Value) (bundler.Options, error) {
 				Name:           stringField(item, "name"),
 				NameTemplate:   stringField(item, "nameTemplate"),
 				EntryFileNames: stringField(item, "entryFileNames"),
+				ChunkFileNames: stringField(item, "chunkFileNames"),
+				AssetFileNames: stringField(item, "assetFileNames"),
 			})
 		}
 	}

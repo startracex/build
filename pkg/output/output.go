@@ -64,18 +64,47 @@ func ContentHash(data string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// RenderEntryFileName expands [name], [path], [format], [hash], and [hash:N]
-// in an entry filename pattern. hash is usually the digest of the emitted content.
-func RenderEntryFileName(pattern, name, path, format, hash string) string {
-	rendered := strings.NewReplacer("[name]", name, "[path]", path, "[format]", format).Replace(pattern)
+// FileNameParts holds the values a filename pattern can interpolate:
+//
+//	[name]     base name without extension
+//	[path]     source-relative path without extension
+//	[ext]      extension without the leading dot
+//	[extname]  extension with the leading dot
+//	[type]     file kind: entry, chunk, or asset
+//	[format]   output format (esm, cjs, iife, umd)
+//	[hash]     content digest, truncated to DefaultHashLength
+//	[hash:N]   content digest truncated to N characters
+type FileNameParts struct {
+	Name   string
+	Path   string
+	Ext    string
+	Type   string
+	Format string
+	Hash   string
+}
+
+// RenderFileName expands the placeholders in pattern. A placeholder with no
+// value expands to an empty string, so a pattern can be built from optional
+// parts. When Hash is empty it is derived from the rendered text, which keeps
+// a [hash] pattern deterministic even without content.
+func RenderFileName(pattern string, parts FileNameParts) string {
+	rendered := strings.NewReplacer(
+		"[name]", parts.Name,
+		"[path]", parts.Path,
+		"[ext]", strings.TrimPrefix(parts.Ext, "."),
+		"[extname]", parts.Ext,
+		"[type]", parts.Type,
+		"[format]", parts.Format,
+	).Replace(pattern)
+	hash := parts.Hash
 	if hash == "" {
 		hash = ContentHash(rendered)
 	}
 	return hashPlaceholder.ReplaceAllStringFunc(rendered, func(match string) string {
 		length := DefaultHashLength
-		parts := hashPlaceholder.FindStringSubmatch(match)
-		if len(parts) > 1 && parts[1] != "" {
-			if n, err := strconv.Atoi(parts[1]); err == nil && n > 0 {
+		sub := hashPlaceholder.FindStringSubmatch(match)
+		if len(sub) > 1 && sub[1] != "" {
+			if n, err := strconv.Atoi(sub[1]); err == nil && n > 0 {
 				length = n
 			}
 		}
@@ -84,6 +113,14 @@ func RenderEntryFileName(pattern, name, path, format, hash string) string {
 		}
 		return hash[:length]
 	})
+}
+
+// RenderEntryFileName expands [name], [path], [format], [hash], and [hash:N]
+// in an entry filename pattern. hash is usually the digest of the emitted content.
+// It is RenderFileName without the [ext]/[extname] inputs, kept for callers that
+// only name entry files.
+func RenderEntryFileName(pattern, name, path, format, hash string) string {
+	return RenderFileName(pattern, FileNameParts{Name: name, Path: path, Format: format, Hash: hash})
 }
 
 // ValidateOutputPaths checks outfile/outdir constraints for one emit target.

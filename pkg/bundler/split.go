@@ -109,7 +109,10 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 	for _, name := range manualNames {
 		ids := manualGroups[name]
 		sort.Strings(ids)
-		rel := "chunks/" + name + ".js"
+		rel := b.chunkOutputRel(name, name, ids, "chunks/"+name+".js")
+		for _, id := range ids {
+			b.chunkPaths[id] = rel
+		}
 		js, err := b.linkChunk(ids[0], rel, ids)
 		if err != nil {
 			return nil, err
@@ -120,15 +123,16 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 	}
 
 	if len(sharedMods) > 0 {
-		sharedRel := "chunks/shared-" + shortHash(keysOf(sharedMods)) + ".js"
+		sharedIDs := keysOf(sharedMods)
+		sharedRel := b.chunkOutputRel("shared", "shared", sharedIDs, "chunks/shared-"+shortHash(sharedIDs)+".js")
 		for id := range sharedMods {
 			if _, ok := b.chunkPaths[id]; ok {
 				continue
 			}
 			b.chunkPaths[id] = sharedRel
 		}
-		root := keysOf(sharedMods)[0]
-		js, err := b.linkChunk(root, sharedRel, keysOf(sharedMods))
+		root := sharedIDs[0]
+		js, err := b.linkChunk(root, sharedRel, sharedIDs)
 		if err != nil {
 			return nil, err
 		}
@@ -139,6 +143,10 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 
 	asyncRootList := keysOf(asyncRoots)
 	sort.Strings(asyncRootList)
+	rootDir := b.rootDir
+	if rootDir == "" {
+		rootDir = modpath.DisplayRoot(b.cwd, entries)
+	}
 	for _, root := range asyncRootList {
 		if _, ok := b.chunkPaths[root]; ok {
 			continue
@@ -154,7 +162,12 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 			mods[id] = true
 		}
 		mods[root] = true
-		chunkRel := "chunks/" + chunkName(root) + ".js"
+		chunkRel := b.chunkOutputRel(
+			modpath.BaseStem(root),
+			entryRelPath(rootDir, root),
+			[]string{root},
+			"chunks/"+chunkName(root)+".js",
+		)
 		for id := range mods {
 			if !sharedMods[id] {
 				if _, ok := b.chunkPaths[id]; ok {
@@ -173,10 +186,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 	}
 
 	var entryJS string
-	rootDir := b.rootDir
-	if rootDir == "" {
-		rootDir = modpath.DisplayRoot(b.cwd, entries)
-	}
+	entryOut := make(map[string]string, len(entries))
 	for i, e := range entries {
 		rel := filepath.Base(modpath.JavascriptOutputAbs(e))
 		if r, err := filepath.Rel(rootDir, modpath.JavascriptOutputAbs(e)); err == nil {
@@ -187,13 +197,30 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 		if linkFmt == FormatIIFE || linkFmt == FormatUMD {
 			b.format = FormatCJS
 		}
+		// Chunk imports are relative to the entry's output directory, which a
+		// name pattern can move below the output root. The directory is known
+		// before linking because a hash only changes the file name.
+		entryRel, fullPath := b.renderedEntryRel(rel, emitFmt, "")
+		entryDir := filepath.Dir(entryRel)
+		if fullPath {
+			if r, err := filepath.Rel(b.opts.OutDir, entryRel); err == nil {
+				entryDir = filepath.Dir(r)
+			}
+		}
+		prevLinking := b.linkingChunk
+		if entryDir == "" {
+			b.linkingChunk = "index.js"
+		} else {
+			b.linkingChunk = entryDir + "/index.js"
+		}
 		linked, err := b.linkModules(modpath.ModuleID(e), nil)
+		b.linkingChunk = prevLinking
 		b.format = emitFmt
 		if err != nil {
 			return nil, err
 		}
 		js := wrap.WrapFormat(linked, string(emitFmt), b.opts.GlobalName)
-		out := filepath.Join(b.opts.OutDir, filepath.FromSlash(rel))
+		out := b.entryOutputPath(rel, emitFmt, js)
 		if b.sourceMap {
 			mapName := filepath.Base(out) + ".map"
 			js = strings.TrimRight(js, "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
@@ -209,6 +236,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 			files = append(files, Output{Path: out + ".map", Data: mapData})
 		}
 		files = append(files, Output{Path: out, Data: js})
+		entryOut[e] = out
 		if i == 0 {
 			entryJS = js
 		}
@@ -219,14 +247,86 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 
 	result := &Result{Files: files, Manifest: manifest, entry: entryJS}
 	for _, e := range entries {
-		rel := filepath.Base(modpath.JavascriptOutputAbs(e))
-		if r, err := filepath.Rel(rootDir, modpath.JavascriptOutputAbs(e)); err == nil {
-			rel = filepath.ToSlash(r)
-		}
-		out := filepath.Join(b.opts.OutDir, filepath.FromSlash(rel))
-		b.emitEntryCSS(result, out, e)
+		b.emitEntryCSS(result, entryOut[e], e)
 	}
 	return result, nil
+}
+
+// entryOutputPath returns the full output path for one entry. A name template
+// (from --outfile) is a full path; EntryFileNames is joined with OutDir; without
+// either the built-in rootDir-relative layout applies.
+func (b *bundler) entryOutputPath(defaultRel string, format Format, js string) string {
+	pattern := b.entryPattern()
+	if pattern == "" {
+		return filepath.Join(b.opts.OutDir, filepath.FromSlash(defaultRel))
+	}
+	hash := ""
+	if HasHashPlaceholder(pattern) {
+		hash = ContentHash(js)
+	}
+	rel, fullPath := b.renderedEntryRel(defaultRel, format, hash)
+	if fullPath {
+		return rel
+	}
+	return filepath.Join(b.opts.OutDir, filepath.FromSlash(rel))
+}
+
+// entryPattern returns the entry filename pattern, preferring the full-path
+// template produced by --outfile over the OutDir-joined EntryFileNames.
+func (b *bundler) entryPattern() string {
+	if b.opts.NameTemplate != "" {
+		return b.opts.NameTemplate
+	}
+	return b.opts.EntryFileNames
+}
+
+// renderedEntryRel renders the entry path without joining OutDir. fullPath
+// reports that the pattern is a complete path (NameTemplate), so the caller
+// must not prepend OutDir.
+func (b *bundler) renderedEntryRel(defaultRel string, format Format, hash string) (string, bool) {
+	pattern := b.entryPattern()
+	if pattern == "" {
+		return defaultRel, false
+	}
+	rendered := RenderFileName(pattern, FileNameParts{
+		Name:   modpath.BaseStem(defaultRel),
+		Path:   modpath.Stem(filepath.ToSlash(defaultRel)),
+		Ext:    modpath.Ext(defaultRel),
+		Type:   "entry",
+		Format: string(format),
+		Hash:   hash,
+	})
+	return filepath.ToSlash(rendered), b.opts.NameTemplate != ""
+}
+
+// chunkOutputRel returns the OutDir-relative path of a chunk. Empty
+// ChunkFileNames keeps the built-in fallback layout used by each chunk kind.
+func (b *bundler) chunkOutputRel(name, path string, mods []string, fallback string) string {
+	if b.opts.ChunkFileNames == "" {
+		return fallback
+	}
+	hash := ""
+	if HasHashPlaceholder(b.opts.ChunkFileNames) {
+		hash = shortHash(mods)
+	}
+	return filepath.ToSlash(RenderFileName(b.opts.ChunkFileNames, FileNameParts{
+		Name:   name,
+		Path:   path,
+		Ext:    ".js",
+		Type:   "chunk",
+		Format: string(FormatESM),
+		Hash:   hash,
+	}))
+}
+
+// entryRelPath returns the rootDir-relative path of an entry without its
+// extension, used as the [path] value in a filename pattern.
+func entryRelPath(rootDir, abs string) string {
+	p := modpath.JavascriptOutputAbs(abs)
+	if r, err := filepath.Rel(rootDir, p); err == nil {
+		return modpath.Stem(filepath.ToSlash(r))
+	}
+	return modpath.BaseStem(p)
 }
 
 func (b *bundler) linkChunk(entryID, chunkRel string, preserve []string) (string, error) {

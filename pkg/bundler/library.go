@@ -56,7 +56,14 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			if hasHash {
 				hash = ContentHash(unit.code)
 			}
-			rendered := RenderEntryFileName(pattern, name, pathValue, b.format, hash)
+			rendered := RenderFileName(pattern, FileNameParts{
+				Name:   name,
+				Path:   pathValue,
+				Ext:    modpath.Ext(jsRel),
+				Type:   "entry",
+				Format: string(b.format),
+				Hash:   hash,
+			})
 			outPath = rendered
 			if !fullPathPattern {
 				outPath = filepath.Join(b.opts.OutDir, filepath.FromSlash(rendered))

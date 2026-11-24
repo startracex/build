@@ -234,7 +234,7 @@ func (m *esModule) declareImport(stmt *ast.Node) error {
 	if !external && resolved != "" && m.ctx.opts.Chunks != nil {
 		if cp := m.ctx.chunkRel(modpath.ModuleID(resolved)); cp != "" && cp != m.ctx.opts.LinkingChunk {
 			external = true
-			chunkExt = "./" + cp
+			chunkExt = m.ctx.chunkSpec(cp)
 		}
 	}
 	if decl.ImportClause == nil {

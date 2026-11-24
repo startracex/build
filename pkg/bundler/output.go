@@ -22,11 +22,24 @@ type OutputOptions struct {
 	NameTemplate string
 	// EntryFileNames is a filename pattern joined with OutDir.
 	EntryFileNames string
+	// ChunkFileNames is a filename pattern for split chunks.
+	ChunkFileNames string
+	// AssetFileNames is a filename pattern for emitted assets and CSS.
+	AssetFileNames string
 }
 
 // RenderEntryFileName expands [name], [path], [format], [hash], and [hash:N].
 func RenderEntryFileName(pattern, name, path string, format Format, hash string) string {
 	return output.RenderEntryFileName(pattern, name, path, string(format), hash)
+}
+
+// FileNameParts is the set of values a filename pattern can interpolate.
+type FileNameParts = output.FileNameParts
+
+// RenderFileName expands [name], [path], [ext], [extname], [format], [hash],
+// and [hash:N] in a filename pattern.
+func RenderFileName(pattern string, parts FileNameParts) string {
+	return output.RenderFileName(pattern, parts)
 }
 
 // ContentHash returns the digest used by [hash] placeholders.
@@ -61,6 +74,12 @@ func (o Options) normalizedOutputs() ([]OutputOptions, error) {
 			if out.EntryFileNames == "" {
 				out.EntryFileNames = o.EntryFileNames
 			}
+			if out.ChunkFileNames == "" {
+				out.ChunkFileNames = o.ChunkFileNames
+			}
+			if out.AssetFileNames == "" {
+				out.AssetFileNames = o.AssetFileNames
+			}
 			outs = append(outs, out)
 		}
 		return outs, nil
@@ -76,6 +95,8 @@ func (o Options) normalizedOutputs() ([]OutputOptions, error) {
 		Name:           o.GlobalName,
 		NameTemplate:   o.NameTemplate,
 		EntryFileNames: o.EntryFileNames,
+		ChunkFileNames: o.ChunkFileNames,
+		AssetFileNames: o.AssetFileNames,
 	}}, nil
 }
 
@@ -86,6 +107,8 @@ func withOutput(opts Options, out OutputOptions) Options {
 	opts.GlobalName = out.Name
 	opts.NameTemplate = out.NameTemplate
 	opts.EntryFileNames = out.EntryFileNames
+	opts.ChunkFileNames = out.ChunkFileNames
+	opts.AssetFileNames = out.AssetFileNames
 	opts.Outputs = nil
 	return opts
 }

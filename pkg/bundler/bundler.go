@@ -133,6 +133,12 @@ type Options struct {
 	NameTemplate string
 	// EntryFileNames is a per-entry filename pattern joined with OutDir.
 	EntryFileNames string
+	// ChunkFileNames is a filename pattern for split chunks (shared, async, and
+	// manual) in app mode. Empty keeps the built-in chunks/ layout.
+	ChunkFileNames string
+	// AssetFileNames is a filename pattern for emitted assets (?url imports) and
+	// entry CSS. Empty keeps the source-relative path with a content hash.
+	AssetFileNames string
 	// OutDir is the directory used by per-module output.
 	OutDir string
 	// RootDir is the base for paths written under OutDir. When empty, the
@@ -275,13 +281,11 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 			return nil, err
 		}
 		b.emitAssetFiles(result)
-		if b.outMode == ModeApp {
+		// A split build (OutDir set) writes entry CSS from emitSplit, where the
+		// rendered entry path is known; only the single-file layout needs it here.
+		if b.outMode == ModeApp && outputs[0].OutDir == "" {
 			for _, root := range roots {
-				jsOut := outputs[0].OutFile
-				if jsOut == "" && outputs[0].OutDir != "" {
-					jsOut = filepath.Join(outputs[0].OutDir, filepath.Base(modpath.JavascriptOutputAbs(root)))
-				}
-				b.emitEntryCSS(result, jsOut, root)
+				b.emitEntryCSS(result, outputs[0].OutFile, root)
 			}
 		}
 		if opts.Manifest && len(opts.Outputs) == 0 {
@@ -645,7 +649,7 @@ func (b *bundler) loadAsset(abs string, kind asset.Kind) error {
 	if _, ok := b.assets[id]; ok {
 		return nil
 	}
-	au, js, err := asset.Load(b.fs, abs, kind, b.rootDir, b.opts.PublicPath)
+	au, js, err := asset.Load(b.fs, abs, kind, b.rootDir, b.opts.PublicPath, b.opts.AssetFileNames)
 	if err != nil {
 		return err
 	}

@@ -1684,7 +1684,9 @@ func TestCLIAppModeSplittingChunks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), `import("./chunks/`) {
+	// The entry sits in dist/src and chunks in dist/chunks, so the import must
+	// climb one directory; "./chunks/" would resolve under dist/src.
+	if !strings.Contains(string(body), `import("../chunks/`) {
 		t.Fatalf("dynamic import was not rewritten to a chunk:\n%s", body)
 	}
 	if strings.Contains(string(body), "Promise.resolve") {
@@ -1742,5 +1744,55 @@ func TestCLIAppModeSharedChunk(t *testing.T) {
 	}
 	if !shared {
 		t.Fatalf("no shared chunk emitted: %#v", entries)
+	}
+}
+
+// TestCLINamingPatterns checks the --entry-file-names, --chunk-file-names and
+// --asset-file-names flags together, including the relative chunk import when
+// the entry is in a subdirectory.
+func TestCLINamingPatterns(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(src, "lazy.ts"), "export const lazy = \"lazy\";\n")
+	writeFile(t, filepath.Join(src, "note.txt"), "hello")
+	writeFile(t, filepath.Join(src, "index.ts"), `import url from "./note.txt?url";
+export const load = () => import("./lazy.js");
+export { url };
+`)
+	t.Chdir(dir)
+
+	out := filepath.Join(dir, "dist")
+	if err := run([]string{
+		"--mode", "app",
+		"--outdir", out,
+		"--entry-file-names", "entries/[name][extname]",
+		"--chunk-file-names", "js/[name]-[hash:6][extname]",
+		"--asset-file-names", "media/[name]-[hash:6][extname]",
+		"src/index.ts",
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "entries", "index.js")); err != nil {
+		t.Fatalf("entry pattern not applied: %v", err)
+	}
+	chunks, err := os.ReadDir(filepath.Join(out, "js"))
+	if err != nil || len(chunks) == 0 {
+		t.Fatalf("chunk pattern not applied: %v", err)
+	}
+	media, err := os.ReadDir(filepath.Join(out, "media"))
+	if err != nil || len(media) == 0 {
+		t.Fatalf("asset pattern not applied: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(out, "entries", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The entry is in entries/ and the chunk in js/, so the import climbs one
+	// directory instead of pointing at entries/js/.
+	if !strings.Contains(string(body), `import("../js/lazy-`) {
+		t.Fatalf("chunk import is not relative to the entry directory:\n%s", body)
 	}
 }

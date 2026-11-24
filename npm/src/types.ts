@@ -36,6 +36,8 @@ export interface OutputOptions {
 	name?: string;
 	nameTemplate?: string;
 	entryFileNames?: string;
+	chunkFileNames?: string;
+	assetFileNames?: string;
 }
 
 export interface Plugin {
@@ -57,6 +59,8 @@ export interface BuildOptions {
 	rootDir?: string;
 	nameTemplate?: string;
 	entryFileNames?: string;
+	chunkFileNames?: string;
+	assetFileNames?: string;
 	declaration?: boolean;
 	declarationMap?: boolean;
 	sourceMap?: boolean;
