@@ -1,17 +1,5 @@
 package bundler
 
-import "github.com/startracex/build/pkg/output"
-
-// DeriveOutFile picks an extension for dual-format outfile emission.
-func DeriveOutFile(base string, format Format) string {
-	return output.DeriveOutFile(base, string(format))
-}
-
-// DeriveOutDir nests format under a shared outdir for multi-format lib builds.
-func DeriveOutDir(base string, format Format) string {
-	return output.DeriveOutDir(base, string(format))
-}
-
 // OutputOptions configures one emit target, like a Rollup output entry.
 type OutputOptions struct {
 	Format  Format
@@ -26,30 +14,6 @@ type OutputOptions struct {
 	ChunkFileNames string
 	// AssetFileNames is a filename pattern for emitted assets and CSS.
 	AssetFileNames string
-}
-
-// RenderEntryFileName expands [name], [path], [format], [hash], and [hash:N].
-func RenderEntryFileName(pattern, name, path string, format Format, hash string) string {
-	return output.RenderEntryFileName(pattern, name, path, string(format), hash)
-}
-
-// FileNameParts is the set of values a filename pattern can interpolate.
-type FileNameParts = output.FileNameParts
-
-// RenderFileName expands [name], [path], [ext], [format], [hash],
-// and [hash:N] in a filename pattern.
-func RenderFileName(pattern string, parts FileNameParts) string {
-	return output.RenderFileName(pattern, parts)
-}
-
-// ContentHash returns the digest used by [hash] placeholders.
-func ContentHash(data string) string {
-	return output.ContentHash(data)
-}
-
-// HasHashPlaceholder reports whether pattern contains [hash] or [hash:N].
-func HasHashPlaceholder(pattern string) bool {
-	return output.HasHashPlaceholder(pattern)
 }
 
 func (o Options) normalizedOutputs() ([]OutputOptions, error) {

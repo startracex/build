@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/startracex/build/pkg/bundler"
+	"github.com/startracex/build/pkg/output"
 )
 
 func TestPlanOutputsRightAlignFormats(t *testing.T) {
@@ -72,8 +73,8 @@ func TestPlanOutputsSinglePathDerivesEachFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []bundler.OutputOptions{
-		{Format: bundler.FormatESM, OutFile: bundler.DeriveOutFile(base, bundler.FormatESM)},
-		{Format: bundler.FormatCJS, OutFile: bundler.DeriveOutFile(base, bundler.FormatCJS)},
+		{Format: bundler.FormatESM, OutFile: output.DeriveOutFile(base, string(bundler.FormatESM))},
+		{Format: bundler.FormatCJS, OutFile: output.DeriveOutFile(base, string(bundler.FormatCJS))},
 	}
 	if !reflect.DeepEqual(plan.Outputs, want) {
 		t.Fatalf("outputs = %#v, want %#v", plan.Outputs, want)

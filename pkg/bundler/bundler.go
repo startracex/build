@@ -248,7 +248,7 @@ func (r *Result) JavaScript() string {
 		return r.entry
 	}
 	for _, file := range r.Files {
-		if isJavaScriptOutput(file.Path) {
+		if modpath.IsJavaScriptOutput(file.Path) {
 			return file.Data
 		}
 	}
@@ -488,7 +488,7 @@ func (b *bundler) load(path string) error {
 	if err := errorFromDiagnostics(path, src, file.Diagnostics()); err != nil {
 		return err
 	}
-	if isJavaScriptSource(path) {
+	if modpath.IsJavaScriptSource(path) {
 		if err := errorFromSyntaxDiagnostics(path, src, file.JSDiagnostics()); err != nil {
 			return err
 		}
@@ -496,7 +496,7 @@ func (b *bundler) load(path string) error {
 		return err
 	}
 	binder.BindSourceFile(file)
-	if !isJavaScriptSource(path) {
+	if !modpath.IsJavaScriptSource(path) {
 		if err := errorFromDiagnostics(path, src, file.BindDiagnostics()); err != nil {
 			return err
 		}
@@ -535,7 +535,7 @@ func (b *bundler) load(path string) error {
 		if out == nil {
 			return fmt.Errorf("%s: transpile canceled", path)
 		}
-		if isJavaScriptSource(path) {
+		if modpath.IsJavaScriptSource(path) {
 			if err := errorFromSyntaxDiagnostics(path, src, out.Diagnostics); err != nil {
 				return err
 			}
@@ -604,7 +604,7 @@ func (b *bundler) load(path string) error {
 // only a reprint. Downleveling, a module format change, or a removed comment
 // all make the emit load-bearing, and then the emitted text is used instead.
 func (b *bundler) verbatimModule(path, src string, file *ast.SourceFile, emittedText string, emitted *ast.SourceFile) (string, bool) {
-	if !isJavaScriptSource(path) {
+	if !modpath.IsJavaScriptSource(path) {
 		return "", false
 	}
 	if b.compilerOpts != nil && b.compilerOpts.RemoveComments.IsTrue() {
@@ -838,10 +838,6 @@ func (b *bundler) transpileCompilerOptions(moduleKind core.ModuleKind, sourceMap
 	return b.transpileOptionsFor(moduleKind, sourceMap).CompilerOptions()
 }
 
-func isJavaScriptSource(path string) bool {
-	return modpath.IsJavaScriptSource(path)
-}
-
 func errorFromDiagnosticsFiltered(path, src string, diags []*ast.Diagnostic, keep func(*ast.Diagnostic) bool) error {
 	var b strings.Builder
 	n := 0
@@ -917,7 +913,7 @@ func applyGenerateBundle(plugins []plugin.Plugin, ctx plugin.HookCtx, result *Re
 	}
 	if result.entry != "" {
 		for _, f := range result.Files {
-			if isJavaScriptOutput(f.Path) {
+			if modpath.IsJavaScriptOutput(f.Path) {
 				result.entry = f.Data
 				break
 			}

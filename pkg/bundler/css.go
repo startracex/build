@@ -6,6 +6,7 @@ import (
 	"github.com/startracex/build/pkg/asset"
 	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/build/pkg/output"
 )
 
 // emitEntryCSS writes one concatenated stylesheet beside the entry JS output.
@@ -25,10 +26,10 @@ func (b *bundler) emitEntryCSS(result *Result, jsOut, entryAbs string) {
 		}
 		rel := entryRelPath(root, entryAbs)
 		hash := ""
-		if HasHashPlaceholder(b.opts.AssetFileNames) {
-			hash = ContentHash(css)
+		if output.HasHashPlaceholder(b.opts.AssetFileNames) {
+			hash = output.ContentHash(css)
 		}
-		rendered := RenderFileName(b.opts.AssetFileNames, FileNameParts{
+		rendered := output.RenderFileName(b.opts.AssetFileNames, output.FileNameParts{
 			Name:   modpath.BaseStem(rel),
 			Path:   rel,
 			Ext:    ".css",

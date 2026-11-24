@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/startracex/build/pkg/bundler"
+	"github.com/startracex/build/pkg/output"
 )
 
 type outputMode string
@@ -25,7 +26,7 @@ type outputPlan struct {
 }
 
 func templateOf(path string) string {
-	if strings.Contains(path, "[name]") || strings.Contains(path, "[path]") || strings.Contains(path, "[format]") || bundler.HasHashPlaceholder(path) {
+	if strings.Contains(path, "[name]") || strings.Contains(path, "[path]") || strings.Contains(path, "[format]") || output.HasHashPlaceholder(path) {
 		return path
 	}
 	return ""
@@ -119,9 +120,9 @@ func derivedPlan(mode outputMode, base string, formats []bundler.Format, name st
 
 func derivePath(mode outputMode, base string, format bundler.Format) string {
 	if mode == outputFile {
-		return bundler.DeriveOutFile(base, format)
+		return output.DeriveOutFile(base, string(format))
 	}
-	return bundler.DeriveOutDir(base, format)
+	return output.DeriveOutDir(base, string(format))
 }
 
 func applyOutputPlan(opts *bundler.Options, plan outputPlan) {

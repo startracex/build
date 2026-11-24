@@ -9,6 +9,7 @@ import (
 	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/build/pkg/output"
 	"github.com/startracex/build/pkg/sourcemap"
 	"github.com/startracex/tsgo/pkg/core"
 )
@@ -39,7 +40,7 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 		pattern = b.opts.EntryFileNames
 	}
 	templated := pattern != ""
-	hasHash := templated && HasHashPlaceholder(pattern)
+	hasHash := templated && output.HasHashPlaceholder(pattern)
 	b.outputPaths = make(map[string]string, len(b.units))
 	for _, id := range ids {
 		unit := b.units[id]
@@ -54,9 +55,9 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			pathValue := modpath.Stem(filepath.ToSlash(jsRel))
 			hash := ""
 			if hasHash {
-				hash = ContentHash(unit.code)
+				hash = output.ContentHash(unit.code)
 			}
-			rendered := RenderFileName(pattern, FileNameParts{
+			rendered := output.RenderFileName(pattern, output.FileNameParts{
 				Name:   name,
 				Path:   pathValue,
 				Ext:    modpath.Ext(jsRel),
@@ -135,7 +136,7 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 	}
 	if entryJS == "" {
 		for _, file := range files {
-			if isJavaScriptOutput(file.Path) {
+			if modpath.IsJavaScriptOutput(file.Path) {
 				entryJS = file.Data
 				break
 			}

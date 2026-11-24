@@ -10,6 +10,7 @@ import (
 	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/build/pkg/output"
 	"github.com/startracex/build/pkg/sourcemap"
 	"github.com/startracex/build/pkg/wrap"
 	"github.com/startracex/tsgo/pkg/ast"
@@ -261,8 +262,8 @@ func (b *bundler) entryOutputPath(defaultRel string, format Format, js string) s
 		return filepath.Join(b.opts.OutDir, filepath.FromSlash(defaultRel))
 	}
 	hash := ""
-	if HasHashPlaceholder(pattern) {
-		hash = ContentHash(js)
+	if output.HasHashPlaceholder(pattern) {
+		hash = output.ContentHash(js)
 	}
 	rel, fullPath := b.renderedEntryRel(defaultRel, format, hash)
 	if fullPath {
@@ -288,7 +289,7 @@ func (b *bundler) renderedEntryRel(defaultRel string, format Format, hash string
 	if pattern == "" {
 		return defaultRel, false
 	}
-	rendered := RenderFileName(pattern, FileNameParts{
+	rendered := output.RenderFileName(pattern, output.FileNameParts{
 		Name:   modpath.BaseStem(defaultRel),
 		Path:   modpath.Stem(filepath.ToSlash(defaultRel)),
 		Ext:    modpath.Ext(defaultRel),
@@ -306,10 +307,10 @@ func (b *bundler) chunkOutputRel(name, path string, mods []string, fallback stri
 		return fallback
 	}
 	hash := ""
-	if HasHashPlaceholder(b.opts.ChunkFileNames) {
+	if output.HasHashPlaceholder(b.opts.ChunkFileNames) {
 		hash = shortHash(mods)
 	}
-	return filepath.ToSlash(RenderFileName(b.opts.ChunkFileNames, FileNameParts{
+	return filepath.ToSlash(output.RenderFileName(b.opts.ChunkFileNames, output.FileNameParts{
 		Name:   name,
 		Path:   path,
 		Ext:    ".js",

@@ -7,6 +7,7 @@ import (
 	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/build/pkg/output"
 	"github.com/startracex/build/pkg/sourcemap"
 	"github.com/startracex/build/pkg/wrap"
 	"github.com/startracex/tsgo/pkg/core"
@@ -58,7 +59,7 @@ func (b *bundler) declarationText(path, src string) (string, error) {
 	}
 	text := jsedit.StripSourceMappingComment(out.OutputText)
 	if strings.TrimSpace(text) == "" {
-		if isJavaScriptSource(path) {
+		if modpath.IsJavaScriptSource(path) {
 			if err := errorFromSyntaxDiagnostics(path, src, out.Diagnostics); err != nil {
 				return "", err
 			}
@@ -78,14 +79,14 @@ func (b *bundler) appResult(entry, js, linked string, emitFmt Format) (*Result, 
 	if b.opts.NameTemplate != "" {
 		name := modpath.BaseStem(entry)
 		hash := ""
-		if HasHashPlaceholder(b.opts.NameTemplate) {
-			hash = ContentHash(js)
+		if output.HasHashPlaceholder(b.opts.NameTemplate) {
+			hash = output.ContentHash(js)
 		}
 		ext := modpath.Ext(jsName)
 		if ext == "" {
 			ext = ".js"
 		}
-		jsName = RenderFileName(b.opts.NameTemplate, FileNameParts{
+		jsName = output.RenderFileName(b.opts.NameTemplate, output.FileNameParts{
 			Name:   name,
 			Path:   name,
 			Ext:    ext,
@@ -117,5 +118,3 @@ func (b *bundler) appResult(entry, js, linked string, emitFmt Format) (*Result, 
 	}
 	return &Result{Files: files, entry: js}, nil
 }
-
-func isJavaScriptOutput(path string) bool { return modpath.IsJavaScriptOutput(path) }

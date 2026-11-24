@@ -69,6 +69,7 @@ func ContentHash(data string) string {
 //	[name]     base name without extension
 //	[path]     source-relative path without extension
 //	[ext]      extension without the leading dot
+//	[extname]  extension with the leading dot
 //	[type]     file kind: entry, chunk, or asset
 //	[format]   output format (esm, cjs, iife, umd)
 //	[hash]     content digest, truncated to DefaultHashLength
