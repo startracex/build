@@ -5,7 +5,6 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/startracex/build/pkg/asset"
@@ -36,48 +35,19 @@ var nodeBuiltins = map[string]struct{}{
 	"v8": {}, "vm": {}, "wasi": {}, "worker_threads": {}, "zlib": {},
 }
 
-// Platform selects the runtime the JavaScript output is written for. It only
-// steers the package.json "exports" conditions used for the JavaScript graph;
-// declaration emit keeps the tsconfig settings untouched.
-type Platform string
-
-const (
-	// PlatformAuto leaves the choice to the bundler, which picks Browser for a
-	// single-file ESM output and Neutral otherwise.
-	PlatformAuto Platform = ""
-	// PlatformNeutral resolves packages with the conditions the tsconfig
-	// implies.
-	PlatformNeutral Platform = "neutral"
-	// PlatformBrowser resolves packages for a browser. The "node" condition is
-	// left out, so a package cannot select a server build, and "browser" is
-	// matched when a package offers it.
-	PlatformBrowser Platform = "browser"
-	// PlatformNode resolves packages for Node, keeping the "node" condition
-	// that node16 and nodeNext resolution add.
-	PlatformNode Platform = "node"
-)
-
-// ParsePlatform validates a platform name as written on the command line.
-func ParsePlatform(name string) (Platform, error) {
-	switch Platform(strings.TrimSpace(name)) {
-	case PlatformAuto:
-		return PlatformAuto, nil
-	case PlatformNeutral, PlatformBrowser, PlatformNode:
-		return Platform(strings.TrimSpace(name)), nil
-	default:
-		return PlatformAuto, fmt.Errorf("unknown platform %q (want browser, node, or neutral)", name)
-	}
-}
-
 // Config holds resolver options supplied by the bundler.
 type Config struct {
 	Alias    map[string]string
 	External []string
 	Format   string // "esm", "cjs", ...
 	LibBuild bool   // library mode: bare package imports are external
-	// Platform is the runtime the JavaScript output targets. Empty behaves like
-	// PlatformNeutral.
-	Platform Platform
+	// EntryDir is the directory of the entry file. Resolution starts here.
+	EntryDir string
+	// Conditions are the extra package.json "exports" conditions. They are used
+	// as given: no platform-specific condition is added.
+	Conditions []string
+	// Mode is the resolution mode tsgo uses for the import graph.
+	Mode core.ResolutionMode
 	// CompilerOptions carries the tsconfig options that change how module
 	// specifiers are resolved: "moduleResolution" and "paths".
 	CompilerOptions *core.CompilerOptions
@@ -111,12 +81,12 @@ func (f BaseURLFallback) IsZero() bool {
 
 // Resolver resolves import specifiers using tsgo's bundler resolver.
 type Resolver struct {
-	res       *tsmodule.DefaultResolver
 	fs        *realpathFS
-	cwd       string
+	res       *tsmodule.DefaultResolver
 	mode      core.ResolutionMode
-	cfg       Config
 	externals map[string]struct{}
+	cwd       string
+	cfg       Config
 }
 
 type resolutionHost struct {
@@ -128,16 +98,14 @@ func (h resolutionHost) FS() vfs.FS { return h.fs }
 
 func (h resolutionHost) GetCurrentDirectory() tspath.RootedDirectoryPath { return h.dir }
 
-// New constructs a Resolver rooted at entryDir.
-func New(entryDir string, conditions []string, mode core.ResolutionMode, cfg Config) (*Resolver, error) {
-	dir, err := modpath.AbsPath(cfg.CWD, entryDir)
+// New constructs a Resolver rooted at Config.EntryDir.
+func New(cfg Config) (*Resolver, error) {
+	dir, err := modpath.AbsPath(cfg.CWD, cfg.EntryDir)
 	if err != nil {
 		return nil, err
 	}
 	rooted := tspath.RootedDirectoryPathFromAbsolute(dir)
 	base := cfg.FS
-	// Only the OS file system needs the reparse point retry; an injected FS
-	// answers through its own Realpath.
 	native := base == nil
 	if native {
 		base = osvfs.FS()
@@ -145,13 +113,13 @@ func New(entryDir string, conditions []string, mode core.ResolutionMode, cfg Con
 	fs := newRealpathFS(base, native)
 	res := tsmodule.NewResolver(tsmodule.ResolverOptions{
 		Host:            resolutionHost{fs: fs, dir: rooted},
-		CompilerOptions: resolutionCompilerOptions(conditions, cfg.Platform, cfg.CompilerOptions, cfg.BaseURL),
+		CompilerOptions: resolutionCompilerOptions(cfg.Conditions, cfg.CompilerOptions, cfg.BaseURL),
 	})
 	return &Resolver{
 		res:       res,
 		fs:        fs,
 		cwd:       filepath.ToSlash(cfg.CWD),
-		mode:      mode,
+		mode:      cfg.Mode,
 		cfg:       cfg,
 		externals: map[string]struct{}{},
 	}, nil
@@ -160,10 +128,9 @@ func New(entryDir string, conditions []string, mode core.ResolutionMode, cfg Con
 // resolutionCompilerOptions builds the compiler options used to resolve module
 // specifiers for the JavaScript graph. The tsconfig options that steer
 // resolution are honoured; everything else keeps the bundler defaults.
-//
-// The platform only decides which "exports" conditions are available. It never
-// reaches declaration emit, which keeps the tsconfig settings as written.
-func resolutionCompilerOptions(conditions []string, platform Platform, src *core.CompilerOptions, baseURL BaseURLFallback) *core.CompilerOptions {
+// Config.Conditions is used as given: no platform-specific condition is added
+// and the module resolution kind is never changed.
+func resolutionCompilerOptions(conditions []string, src *core.CompilerOptions, baseURL BaseURLFallback) *core.CompilerOptions {
 	opts := &core.CompilerOptions{
 		Module:                     core.ModuleKindESNext,
 		ModuleResolution:           core.ModuleResolutionKindBundler,
@@ -182,23 +149,7 @@ func resolutionCompilerOptions(conditions []string, platform Platform, src *core
 			opts.ModuleResolution = kind
 		}
 	}
-	if platform == PlatformBrowser {
-		// node16 and nodeNext resolution add the "node" condition, and a package
-		// can point that at a server build: Lit maps it to its SSR shims, which
-		// replace customElements in a browser. Bundler resolution leaves the
-		// condition out, and "browser" is matched where a package offers it.
-		opts.ModuleResolution = core.ModuleResolutionKindBundler
-		opts.CustomConditions = appendCondition(opts.CustomConditions, "browser")
-	}
 	return opts
-}
-
-// appendCondition adds a condition unless it is already there.
-func appendCondition(conditions []string, condition string) []string {
-	if slices.Contains(conditions, condition) {
-		return conditions
-	}
-	return append(conditions, condition)
 }
 
 // WithPathsFallback returns the path mappings with the wildcard fallback

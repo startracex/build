@@ -164,11 +164,6 @@ type Options struct {
 	// always adds import or require from the format, always matches default,
 	// and always includes module. These values are appended on top.
 	Conditions []string
-	// Platform is the runtime the JavaScript output targets, which decides
-	// which package.json "exports" conditions are available. Empty infers it:
-	// app mode with ESM output resolves for the browser, any other layout
-	// follows the tsconfig. Declaration output is not affected.
-	Platform resolve.Platform
 	// Target is the TypeScript emit target. Empty means ESNext.
 	Target core.ScriptTarget
 	// CompilerOptions holds the compiler options read from tsconfig.json. They

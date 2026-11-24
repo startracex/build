@@ -185,8 +185,7 @@ The compiler options that change the output are read from `tsconfig.json`. They 
 | `--mode` | Output layout: `app` (one bundle per entry, packages inlined, `import()` split into chunks, no `.d.ts`) or `lib` (one file per module, packages external by default, nothing split). Inferred from the output path when omitted. |
 | `--bundle` | Bundle bare package imports in library output instead of leaving them external (alias `--bundle-node-modules`). |
 | `--deps-dir` | Directory for bundled packages in library output. Empty keeps `node_modules/<package>/...`; `--deps-dir vendor` writes `vendor/<package>/...`. |
-| `--conditions` | Extra `package.json` `"exports"` conditions (repeatable). |
-| `--platform` | Runtime the JavaScript output targets: `browser`, `node`, or `neutral`. `browser` drops the `node` condition and matches `browser`; `neutral` keeps the tsconfig settings. Defaults to `browser` for app-mode ESM output and `neutral` otherwise. Declaration output always keeps the tsconfig settings. |
+| `--conditions` | Extra `package.json` `"exports"` conditions (repeatable). They are used as given; the resolver never adds a platform-specific condition or changes `moduleResolution`. |
 | `--alias` | Specifier prefix mapping `from=to` (repeatable). |
 | `--define` | Replace a free reference `KEY=EXPR` (repeatable). Keys are identifiers or dotted chains (`process.env.NODE_ENV`); values must be one JavaScript expression. |
 | `--drop` | `console` and/or `debugger` (repeatable). |

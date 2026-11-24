@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/startracex/build/pkg/bundler"
-	"github.com/startracex/build/pkg/resolve"
 	"github.com/urfave/cli/v2"
 )
 
@@ -48,7 +47,6 @@ func run(args []string, stderr, stdout io.Writer) error {
 			&cli.StringFlag{Name: "jsx", Usage: "JSX transform: react, react-jsx, react-jsxdev, preserve, or react-native"},
 			&cli.StringFlag{Name: "global-name", Aliases: []string{"g"}, Usage: "global variable name for iife/umd"},
 			&cli.StringSliceFlag{Name: "conditions", Usage: "extra package.json exports conditions (repeatable)"},
-			&cli.StringFlag{Name: "platform", Usage: "runtime for the JavaScript output: browser, node, or neutral (default browser for app mode)"},
 			&cli.StringSliceFlag{Name: "alias", Usage: "import alias from=to (repeatable)"},
 			&cli.StringSliceFlag{Name: "define", Usage: "replace a free reference KEY=EXPR (repeatable)"},
 			&cli.StringSliceFlag{Name: "drop", Usage: "drop console calls or debugger statements (repeatable)"},
@@ -127,19 +125,12 @@ func action(c *cli.Context) error {
 	formatSet := c.IsSet("format")
 	alias := parseKV(c.StringSlice("alias"))
 	define := parseKV(c.StringSlice("define"))
-	// The platform decides how the module graph is resolved, and a build loads
-	// that graph once, so every output shares one platform.
-	platform, err := resolve.ParsePlatform(c.String("platform"))
-	if err != nil {
-		return err
-	}
 	base := bundler.Options{
 		JSX:               bundler.JSX(flagOr(c, "jsx", string(bundler.JSXReact))),
 		External:          c.StringSlice("external"),
 		BundleNodeModules: c.Bool("bundle"),
 		DepsDir:           c.String("deps-dir"),
 		Conditions:        c.StringSlice("conditions"),
-		Platform:          platform,
 		Alias:             alias,
 		Define:            define,
 		Drop:              c.StringSlice("drop"),

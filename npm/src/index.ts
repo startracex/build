@@ -10,7 +10,6 @@ export type {
 	Format,
 	Mode,
 	OutputOptions,
-	Platform,
 	Plugin,
 } from "./types.js";
 

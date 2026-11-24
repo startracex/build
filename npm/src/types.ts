@@ -1,6 +1,5 @@
 export type Format = "esm" | "cjs" | "iife" | "umd";
 export type Mode = "app" | "lib";
-export type Platform = "browser" | "node" | "neutral" | "";
 
 export interface File {
 	path: string;
@@ -68,7 +67,6 @@ export interface BuildOptions {
 	bundleNodeModules?: boolean;
 	depsDir?: string;
 	conditions?: string[];
-	platform?: Platform;
 	globalName?: string;
 	define?: Record<string, string>;
 	drop?: string[];

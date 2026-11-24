@@ -11,7 +11,6 @@ import (
 
 	"github.com/startracex/build/pkg/bundler"
 	"github.com/startracex/build/pkg/plugin"
-	"github.com/startracex/build/pkg/resolve"
 	"github.com/startracex/tsgo/pkg/tspath"
 	"github.com/startracex/tsgo/pkg/vfs"
 )
@@ -210,10 +209,6 @@ func boolFieldOrNil(obj js.Value, key string) *bool {
 }
 
 func optionsFromJS(value js.Value) (bundler.Options, error) {
-	platform, err := resolve.ParsePlatform(stringField(value, "platform"))
-	if err != nil {
-		return bundler.Options{}, err
-	}
 	opts := bundler.Options{
 		Entry:             stringField(value, "entry"),
 		Entries:           stringArray(value.Get("entries")),
@@ -234,7 +229,6 @@ func optionsFromJS(value js.Value) (bundler.Options, error) {
 		BundleNodeModules: boolField(value, "bundleNodeModules"),
 		DepsDir:           stringField(value, "depsDir"),
 		Conditions:        stringArray(value.Get("conditions")),
-		Platform:          platform,
 		GlobalName:        stringField(value, "globalName"),
 		Define:            objectStringMap(value.Get("define")),
 		Drop:              stringArray(value.Get("drop")),

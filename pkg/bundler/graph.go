@@ -30,19 +30,6 @@ func preferredLoadFormat(outputs []OutputOptions) Format {
 	return FormatCJS
 }
 
-// resolutionPlatform fills in the platform when the caller left it open. A
-// single-file ESM bundle runs in a browser; every other layout keeps the
-// tsconfig semantics so Node consumers and declaration emit stay consistent.
-func resolutionPlatform(platform resolve.Platform, mode Mode, format Format) resolve.Platform {
-	if platform != resolve.PlatformAuto {
-		return platform
-	}
-	if mode == ModeApp && format == FormatESM {
-		return resolve.PlatformBrowser
-	}
-	return resolve.PlatformNeutral
-}
-
 // effectiveRootDir resolves the base used for paths written under the output
 // directory. An explicit option wins, then the rootDir from tsconfig, then the
 // deepest directory shared by the entry files.
@@ -146,12 +133,14 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		// once instead of once per module.
 		b.transformKey = transformKeyFor(opts)
 	}
-	res, err := resolve.New(filepath.Dir(entry), opts.Conditions, resolution, resolve.Config{
+	res, err := resolve.New(resolve.Config{
 		Alias:           opts.Alias,
 		External:        opts.External,
 		Format:          string(loadFormat),
 		LibBuild:        outMode == ModeLib && !opts.BundleNodeModules,
-		Platform:        resolutionPlatform(opts.Platform, outMode, loadFormat),
+		EntryDir:        filepath.Dir(entry),
+		Conditions:      opts.Conditions,
+		Mode:            resolution,
 		CompilerOptions: b.compilerOpts,
 		BaseURL:         opts.BaseURL,
 		ResolveHook:     combineResolveHook(ctx, opts.Plugins, opts.Resolve),

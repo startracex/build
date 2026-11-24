@@ -1352,13 +1352,14 @@ func TestCLITSConfigModuleResolution(t *testing.T) {
 	writeFile(t, filepath.Join(pkgDir, "default.js"), "export const value = \"DEFAULT_BUILD\";\n")
 	t.Chdir(dir)
 
+	// node16 adds the "node" condition, so it wins with no extra condition.
 	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
   "compilerOptions": { "module": "esnext", "moduleResolution": "node16", "outDir": "dist" },
   "include": ["index.ts"]
 }
 `)
 	nodeBuild := filepath.Join(dir, "node.js")
-	if err := run([]string{"--platform", "node", "-o", nodeBuild}, nil, nil); err != nil {
+	if err := run([]string{"-o", nodeBuild}, nil, nil); err != nil {
 		t.Fatalf("moduleResolution node16 should match the node condition: %v", err)
 	}
 	body, err := os.ReadFile(nodeBuild)
@@ -1369,31 +1370,23 @@ func TestCLITSConfigModuleResolution(t *testing.T) {
 		t.Fatalf("package was not bundled:\n%s", body)
 	}
 
-	// App mode with ESM output resolves for the browser by default, so the node
-	// condition must not be matched even though the tsconfig asks for node16.
+	// --conditions is used as given. It only takes effect when the tsconfig
+	// leaves the node condition out, so use bundler resolution here.
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": { "module": "esnext", "moduleResolution": "bundler", "outDir": "dist" },
+  "include": ["index.ts"]
+}
+`)
 	browserBuild := filepath.Join(dir, "browser.js")
-	if err := run([]string{"-o", browserBuild}, nil, nil); err != nil {
-		t.Fatalf("app mode should resolve for the browser: %v", err)
+	if err := run([]string{"--conditions", "browser", "-o", browserBuild}, nil, nil); err != nil {
+		t.Fatalf("bundler resolution should match the browser condition: %v", err)
 	}
 	body, err = os.ReadFile(browserBuild)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(body), "BROWSER_BUILD") || strings.Contains(string(body), "NODE_BUILD") {
-		t.Fatalf("browser platform should match the browser condition:\n%s", body)
-	}
-
-	// An explicit neutral platform keeps the tsconfig semantics.
-	neutralBuild := filepath.Join(dir, "neutral.js")
-	if err := run([]string{"--platform", "neutral", "-o", neutralBuild}, nil, nil); err != nil {
-		t.Fatalf("neutral platform should keep the tsconfig: %v", err)
-	}
-	body, err = os.ReadFile(neutralBuild)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(body), "NODE_BUILD") {
-		t.Fatalf("neutral platform should keep the node condition:\n%s", body)
+		t.Fatalf("browser condition should match the browser build:\n%s", body)
 	}
 
 	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
@@ -1404,7 +1397,7 @@ func TestCLITSConfigModuleResolution(t *testing.T) {
 	// With no moduleResolution the tsconfig implies bundler resolution, so the
 	// node condition is out and the default branch is matched.
 	bundlerBuild := filepath.Join(dir, "bundler.js")
-	if err := run([]string{"--platform", "neutral", "-o", bundlerBuild}, nil, nil); err != nil {
+	if err := run([]string{"-o", bundlerBuild}, nil, nil); err != nil {
 		t.Fatalf("bundler resolution should fall back to default: %v", err)
 	}
 	body, err = os.ReadFile(bundlerBuild)
@@ -1491,7 +1484,10 @@ func TestCLIRootDirFlagOverridesTSConfig(t *testing.T) {
 	}
 }
 
-func TestCLIPlatformDoesNotAffectDeclarations(t *testing.T) {
+// TestCLIConditionsAffectDeclarations checks that --conditions reaches the
+// declaration graph too: the JavaScript graph and declaration emit resolve with
+// the same conditions.
+func TestCLIConditionsAffectDeclarations(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), "import { value } from \"pkg\";\nexport const n = value;\n")
 	pkgDir := filepath.Join(dir, "node_modules", "pkg")
@@ -1508,7 +1504,7 @@ func TestCLIPlatformDoesNotAffectDeclarations(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
   "compilerOptions": {
     "module": "esnext",
-    "moduleResolution": "node16",
+    "moduleResolution": "bundler",
     "declaration": true,
     "outDir": "dist"
   },
@@ -1516,7 +1512,7 @@ func TestCLIPlatformDoesNotAffectDeclarations(t *testing.T) {
 }
 `)
 	// No entry on the command line, so tsconfig.json drives the build.
-	if err := run([]string{"--platform", "browser"}, nil, nil); err != nil {
+	if err := run([]string{"--conditions", "browser"}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	var body []byte
@@ -1539,21 +1535,8 @@ func TestCLIPlatformDoesNotAffectDeclarations(t *testing.T) {
 	if len(body) == 0 {
 		t.Fatalf("no declaration file was written")
 	}
-	if !strings.Contains(string(body), "NODE_TYPE") {
-		t.Fatalf("declaration emit should keep the tsconfig resolution:\n%s", body)
-	}
-	if strings.Contains(string(body), "BROWSER_TYPE") {
-		t.Fatalf("platform leaked into declaration emit:\n%s", body)
-	}
-}
-
-func TestCLIPlatformFlagRejectsUnknownValue(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "index.ts"), "export const n = 1;\n")
-	t.Chdir(dir)
-	err := run([]string{"--platform", "deno", "-o", filepath.Join(dir, "out.js"), "index.ts"}, nil, nil)
-	if err == nil || !strings.Contains(err.Error(), "platform") {
-		t.Fatalf("unknown platform should be rejected: %v", err)
+	if !strings.Contains(string(body), "BROWSER_TYPE") {
+		t.Fatalf("declaration emit should follow --conditions:\n%s", body)
 	}
 }
 
