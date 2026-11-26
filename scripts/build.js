@@ -29,8 +29,6 @@ run("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", join(out, "main.wasm
 const goroot = spawnSync("go", ["env", "GOROOT"], { encoding: "utf8" }).stdout.trim();
 copyFileSync(join(goroot, "lib", "wasm", "wasm_exec.js"), join(out, "wasm_exec.js"));
 
-run("go", ["run", "./cmd/build", "-p", join(npm, "tsconfig.json"), "--d", out,"--format", "esm",  "-n", "[name].js", "--dts", "--map", "--platform", "node", join(npm, "src")], {
-	cwd: root,
-});
+run("go", ["run", "./cmd/build", "-p", join(npm, "tsconfig.json"), "-d", out, join(npm, "src")], { cwd: root });
 
 console.log("built", out);

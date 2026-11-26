@@ -1,0 +1,9 @@
+{
+  "extends": "@startracex/dev-config/tsconfig/lib",
+  "compilerOptions": {
+    "types": ["node"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "rootDir": "src"
+  }
+}
