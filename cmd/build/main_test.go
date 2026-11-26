@@ -664,8 +664,7 @@ func TestCLIHTMLEntrySingleBundle(t *testing.T) {
 	}
 }
 
-// TestCLIHTMLEntryAppDir covers an HTML entry with --mode app and --outdir,
-// where every script becomes an entry bundle beside the page.
+// TestCLIHTMLEntryAppDir checks that --mode app bundles each script beside the HTML page.
 func TestCLIHTMLEntryAppDir(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")
@@ -1370,8 +1369,7 @@ func TestCLITSConfigModuleResolution(t *testing.T) {
 		t.Fatalf("package was not bundled:\n%s", body)
 	}
 
-	// --conditions is used as given. It only takes effect when the tsconfig
-	// leaves the node condition out, so use bundler resolution here.
+	// --conditions only takes effect when tsconfig omits the node condition, so use bundler resolution.
 	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
   "compilerOptions": { "module": "esnext", "moduleResolution": "bundler", "outDir": "dist" },
   "include": ["index.ts"]
@@ -1394,8 +1392,7 @@ func TestCLITSConfigModuleResolution(t *testing.T) {
   "include": ["index.ts"]
 }
 `)
-	// With no moduleResolution the tsconfig implies bundler resolution, so the
-	// node condition is out and the default branch is matched.
+	// Without moduleResolution, bundler resolution applies and the default branch matches.
 	bundlerBuild := filepath.Join(dir, "bundler.js")
 	if err := run([]string{"-o", bundlerBuild}, nil, nil); err != nil {
 		t.Fatalf("bundler resolution should fall back to default: %v", err)
@@ -1409,10 +1406,8 @@ func TestCLITSConfigModuleResolution(t *testing.T) {
 	}
 }
 
-// TestCLIBundleKeepsPackageSpecifierInDeclarations guards a declaration that
-// references a package: types do not need the bundled copy, and pointing at the
-// emitted file either escapes the output directory (a type-only import never
-// enters the graph) or names a .js file with no declaration beside it.
+// TestCLIBundleKeepsPackageSpecifierInDeclarations checks that declarations keep package specifiers.
+// Pointing at the bundled copy would escape the output dir or name a .js file with no declaration.
 func TestCLIBundleKeepsPackageSpecifierInDeclarations(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o755); err != nil {
@@ -1448,8 +1443,7 @@ export const local: T = { name: "x" };
 	}
 }
 
-// TestCLIRootDirFlagOverridesTSConfig checks that the explicit flag wins over
-// tsconfig's rootDir, and that tsconfig's value is the default.
+// TestCLIRootDirFlagOverridesTSConfig checks that --root-dir wins over tsconfig's rootDir.
 func TestCLIRootDirFlagOverridesTSConfig(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o755); err != nil {
@@ -1484,9 +1478,7 @@ func TestCLIRootDirFlagOverridesTSConfig(t *testing.T) {
 	}
 }
 
-// TestCLIConditionsAffectDeclarations checks that --conditions reaches the
-// declaration graph too: the JavaScript graph and declaration emit resolve with
-// the same conditions.
+// TestCLIConditionsAffectDeclarations checks that --conditions applies to declaration emit too.
 func TestCLIConditionsAffectDeclarations(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), "import { value } from \"pkg\";\nexport const n = value;\n")
@@ -1667,8 +1659,7 @@ func TestCLIAppModeSplittingChunks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The entry sits in dist/src and chunks in dist/chunks, so the import must
-	// climb one directory; "./chunks/" would resolve under dist/src.
+	// The entry sits in dist/src but chunks in dist/chunks, so the import must climb one directory.
 	if !strings.Contains(string(body), `import("../chunks/`) {
 		t.Fatalf("dynamic import was not rewritten to a chunk:\n%s", body)
 	}
@@ -1730,9 +1721,7 @@ func TestCLIAppModeSharedChunk(t *testing.T) {
 	}
 }
 
-// TestCLINamingPatterns checks the --entry-file-names, --chunk-file-names and
-// --asset-file-names flags together, including the relative chunk import when
-// the entry is in a subdirectory.
+// TestCLINamingPatterns checks --entry-file-names, --chunk-file-names and --asset-file-names together, including relative imports.
 func TestCLINamingPatterns(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")
@@ -1773,8 +1762,7 @@ export { url };
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The entry is in entries/ and the chunk in js/, so the import climbs one
-	// directory instead of pointing at entries/js/.
+	// The entry is in entries/ and the chunk in js/, so the import must climb one directory.
 	if !strings.Contains(string(body), `import("../js/lazy-`) {
 		t.Fatalf("chunk import is not relative to the entry directory:\n%s", body)
 	}

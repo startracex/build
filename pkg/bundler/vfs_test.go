@@ -11,8 +11,7 @@ import (
 	"github.com/startracex/tsgo/pkg/vfs/vfstest"
 )
 
-// countingFS records reads of cache entries so a test can tell whether the
-// second build actually hit the cache.
+// countingFS records cache reads so a test can tell whether the second build hit the cache.
 type countingFS struct {
 	vfs.FS
 	prefix     string
@@ -26,8 +25,7 @@ func (f *countingFS) ReadFile(path tspath.RootedFilePath) (string, bool) {
 	return f.FS.ReadFile(path)
 }
 
-// virtualRoot returns a rooted path the current platform accepts, so the same
-// in-memory tree works on Windows and on POSIX hosts.
+// virtualRoot returns a rooted path accepted on both Windows and POSIX hosts.
 func virtualRoot(name string) string {
 	if runtime.GOOS == "windows" {
 		return "C:/" + name
@@ -35,8 +33,7 @@ func virtualRoot(name string) string {
 	return "/" + name
 }
 
-// TestBuildWithVirtualFS runs a build whose sources exist only in memory. No
-// path in the tree exists on disk, so a read that bypasses Options.FS fails.
+// TestBuildWithVirtualFS runs a build whose sources exist only in memory, so bypassing Options.FS fails.
 func TestBuildWithVirtualFS(t *testing.T) {
 	root := virtualRoot("virtual-build")
 	fsys := vfstest.FromMap(map[string]string{
@@ -69,8 +66,7 @@ export const value: string = label;
 	}
 }
 
-// TestBuildVirtualFSRelativeEntry checks that a relative entry is resolved
-// against the injected working directory instead of the process CWD.
+// TestBuildVirtualFSRelativeEntry checks that a relative entry resolves against CWD, not the process directory.
 func TestBuildVirtualFSRelativeEntry(t *testing.T) {
 	root := virtualRoot("virtual-relative")
 	fsys := vfstest.FromMap(map[string]string{
@@ -93,8 +89,7 @@ func TestBuildVirtualFSRelativeEntry(t *testing.T) {
 	}
 }
 
-// TestBuildVirtualFSCache checks that a transpile cache set on a virtual build
-// writes into the injected FS and is read back by the next build.
+// TestBuildVirtualFSCache checks that the transpile cache writes into the injected FS and is read back.
 func TestBuildVirtualFSCache(t *testing.T) {
 	root := virtualRoot("virtual-cache")
 	fsys := &countingFS{

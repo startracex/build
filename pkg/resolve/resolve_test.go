@@ -7,9 +7,7 @@ import (
 	"github.com/startracex/tsgo/pkg/core"
 )
 
-// TestResolutionCompilerOptionsUsesConditionsAsGiven checks that the resolver
-// keeps the tsconfig moduleResolution and does not add a platform condition of
-// its own.
+// TestResolutionCompilerOptionsUsesConditionsAsGiven checks the resolver keeps tsconfig moduleResolution and adds no platform condition.
 func TestResolutionCompilerOptionsUsesConditionsAsGiven(t *testing.T) {
 	src := &core.CompilerOptions{ModuleResolution: core.ModuleResolutionKindNodeNext}
 
@@ -28,8 +26,7 @@ func TestResolutionCompilerOptionsUsesConditionsAsGiven(t *testing.T) {
 	}
 }
 
-// TestResolutionCompilerOptionsNoImplicitBrowser checks that no condition is
-// added when the caller supplies none.
+// TestResolutionCompilerOptionsNoImplicitBrowser checks no condition is added when the caller supplies none.
 func TestResolutionCompilerOptionsNoImplicitBrowser(t *testing.T) {
 	opts := resolutionCompilerOptions(nil, nil, BaseURLFallback{})
 	if slices.Contains(opts.CustomConditions, "browser") {
@@ -40,8 +37,7 @@ func TestResolutionCompilerOptionsNoImplicitBrowser(t *testing.T) {
 	}
 }
 
-// TestResolutionCompilerOptionsDeduplicatesConditions checks repeated
-// conditions collapse to one entry.
+// TestResolutionCompilerOptionsDeduplicatesConditions checks repeated conditions collapse to one entry.
 func TestResolutionCompilerOptionsDeduplicatesConditions(t *testing.T) {
 	opts := resolutionCompilerOptions([]string{"browser", "browser"}, nil, BaseURLFallback{})
 	count := 0
@@ -55,7 +51,6 @@ func TestResolutionCompilerOptionsDeduplicatesConditions(t *testing.T) {
 	}
 }
 
-// TestNewStoresConfig checks that New reads its inputs from Config.
 func TestNewStoresConfig(t *testing.T) {
 	dir := t.TempDir()
 	res, err := New(Config{

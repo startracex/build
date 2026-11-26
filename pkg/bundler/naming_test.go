@@ -7,8 +7,7 @@ import (
 	"testing"
 )
 
-// TestEntryFileNamesInAppSplit checks that EntryFileNames names the entry files
-// of a split (multi-entry) app build, a layout that used to ignore it.
+// TestEntryFileNamesInAppSplit checks that EntryFileNames names split app entries.
 func TestEntryFileNamesInAppSplit(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "src", "a.ts"), `export const a = "A";`)
@@ -37,8 +36,7 @@ func TestEntryFileNamesInAppSplit(t *testing.T) {
 	}
 }
 
-// TestChunkFileNamesForAsyncChunk checks that ChunkFileNames controls the
-// dynamic-import chunk path and that the entry imports it with a relative path.
+// TestChunkFileNamesForAsyncChunk checks that ChunkFileNames controls async chunk paths and relative entry imports.
 func TestChunkFileNamesForAsyncChunk(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "lazy.ts"), `export const lazy = "lazy";`)
@@ -75,8 +73,7 @@ export async function load() {
 	}
 }
 
-// TestChunkFileNamesForManualChunk checks that a manual chunk also follows the
-// pattern, not only automatic shared/async chunks.
+// TestChunkFileNamesForManualChunk checks that manual chunks follow ChunkFileNames too.
 func TestChunkFileNamesForManualChunk(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "vendor.ts"), `export const vend = "VENDOR";`)
@@ -105,8 +102,7 @@ func TestChunkFileNamesForManualChunk(t *testing.T) {
 	}
 }
 
-// TestAssetFileNamesForURL checks that ?url assets use AssetFileNames and the
-// emitted module points at the same path.
+// TestAssetFileNamesForURL checks that ?url assets use AssetFileNames in both path and module.
 func TestAssetFileNamesForURL(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "note.txt"), "hello")
@@ -140,8 +136,7 @@ export { url };
 	}
 }
 
-// TestAssetFileNamesForEntryCSS checks that entry CSS uses AssetFileNames and is
-// written exactly once.
+// TestAssetFileNamesForEntryCSS checks that entry CSS uses AssetFileNames exactly once.
 func TestAssetFileNamesForEntryCSS(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "style.css"), ".x { color: red; }")
@@ -169,8 +164,7 @@ func TestAssetFileNamesForEntryCSS(t *testing.T) {
 	}
 }
 
-// TestTypePlaceholder checks that [type] expands to entry, chunk, or asset
-// depending on what the pattern names.
+// TestTypePlaceholder checks that [type] expands to entry, chunk, or asset.
 func TestTypePlaceholder(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "lazy.ts"), `export const lazy = "lazy";`)
@@ -213,8 +207,7 @@ export { url };
 	}
 }
 
-// TestEntryFileNamesInLibWithExt checks the [format] and [ext] placeholders in
-// library mode.
+// TestEntryFileNamesInLibWithExt checks [format] and [ext] in library mode.
 func TestEntryFileNamesInLibWithExt(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "src", "index.ts"), `export const value = 1;`)

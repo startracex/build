@@ -12,10 +12,7 @@ type linkContext struct {
 	opts Options
 }
 
-// chunkSpec returns the import specifier from the current output file to a
-// target chunk. Both paths are relative to the output root, so an entry under
-// a subdirectory reaches chunks/ with "..", not ".". An empty LinkingChunk
-// means the current file sits at the output root.
+// chunkSpec returns the specifier from the current output file to a target chunk; both paths are relative to the output root, so a subdirectory entry uses "..", and an empty LinkingChunk means the current file is at the root.
 func (c *linkContext) chunkSpec(target string) string {
 	rel := target
 	if base := c.opts.LinkingChunk; base != "" {

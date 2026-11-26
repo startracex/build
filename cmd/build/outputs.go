@@ -15,8 +15,7 @@ const (
 	outputDir  outputMode = "dir"
 )
 
-// outputPlan is the CLI-level description of one or more emit targets.
-// When Outputs is empty, Format and Base describe a single scalar output.
+// outputPlan describes CLI emit targets; when Outputs is empty, Base and Format define one scalar output.
 type outputPlan struct {
 	Mode     outputMode
 	Base     string
@@ -32,9 +31,8 @@ func templateOf(path string) string {
 	return ""
 }
 
-// planOutputs pairs explicit output paths with formats from the right. Missing
-// formats are filled with fallbackFormat, and missing paths are derived from
-// fallbackBase (or the first explicit path when no fallback base exists).
+// planOutputs pairs paths with formats from the right, filling gaps with fallbackFormat.
+// Missing paths are derived from fallbackBase or the first explicit path.
 func planOutputs(mode outputMode, paths []string, formats []bundler.Format, fallbackFormat bundler.Format, fallbackBase, name string) (outputPlan, error) {
 	if mode != outputFile && mode != outputDir {
 		return outputPlan{}, fmt.Errorf("unsupported output mode %q", mode)
@@ -46,13 +44,11 @@ func planOutputs(mode outputMode, paths []string, formats []bundler.Format, fall
 		fallbackFormat = bundler.FormatESM
 	}
 
-	// No explicit path: every output is derived from the configured base.
 	if len(paths) == 0 {
 		return derivedPlan(mode, fallbackBase, formats, name), nil
 	}
 
-	// One explicit path with several formats keeps the existing behavior: the
-	// path is a derivation base, not a literal output path.
+	// One explicit path with several formats is a derivation base, not a literal output path.
 	if len(paths) == 1 && len(formats) > 1 {
 		return derivedPlan(mode, paths[0], formats, name), nil
 	}

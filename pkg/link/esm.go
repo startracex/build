@@ -16,19 +16,16 @@ import (
 )
 
 type esModule struct {
-	cjsSkip  map[*ast.Node]bool
-	ctx      *linkContext
-	exports  map[string]*esExp
-	extFinal map[extKey]string
-	file     *ast.SourceFile
-	imports  map[string]*esImport // local name -> import
-	liveExp  map[string]bool
-	liveLoc  map[string]bool
-	locals   map[string]*esLocal
-	scanned  map[string]bool
-	// scanning and scanned guard the walk of a local's initializer. A
-	// reference inside that initializer reaches the same local again, and the
-	// outer walk already covers it.
+	cjsSkip       map[*ast.Node]bool
+	ctx           *linkContext
+	exports       map[string]*esExp
+	extFinal      map[extKey]string
+	file          *ast.SourceFile
+	imports       map[string]*esImport // local name -> import
+	liveExp       map[string]bool
+	liveLoc       map[string]bool
+	locals        map[string]*esLocal
+	scanned       map[string]bool
 	scanning      map[string]bool
 	cjsMode       cjsMode
 	id            string
@@ -49,8 +46,7 @@ type extKey struct{ spec, name string }
 
 type esLocal struct {
 	cjsInit *ast.Node
-	// Property-level tree shaking: when escapes is false, only props keys are live
-	// on an object-literal initializer.
+	// Property-level tree shaking: when escapes is false, only props keys are live on an object-literal initializer.
 	props           map[string]bool
 	stmt            *ast.Node
 	cjsFromExports  string // const x = __cjsExports.x
@@ -393,8 +389,7 @@ type expTarget struct {
 }
 
 func markLive(mods map[string]*esModule, entry *esModule) error {
-	// instantiate walks side-effect imports (import "./x.js") and scans their
-	// impure statements; markLive used to set inst and only scan the entry.
+	// instantiate walks side-effect imports (import "./x.js") and scans their impure statements; the old code only scanned the entry.
 	if err := entry.instantiate(mods); err != nil {
 		return err
 	}
@@ -868,8 +863,7 @@ func (m *esModule) walkFunction(n *ast.Node, sc *scope, fn func(ref)) {
 		eachBindingIdent(p.AsParameterDeclaration().Name(), func(id *ast.Node) { fnScope.define(id.Text()) })
 	}
 	for _, p := range n.Parameters() {
-		// A default value is evaluated in the parameter scope and can read a
-		// module binding, so it keeps that binding alive.
+		// A default value is evaluated in the parameter scope and can read a module binding, so it keeps that binding alive.
 		if init := p.AsParameterDeclaration().Initializer; init != nil {
 			m.walk(init, p, fnScope, fn)
 		}
@@ -1260,14 +1254,7 @@ func importLive(m *esModule, imp *esImport) bool {
 	if imp.namespace {
 		return false
 	}
-	// A named/default import is live when its local name was referenced from
-	// live code. markImport records that by marking the dependency export.
-	// External imports have no dependency module, so treat props/escapes and
-	// any live local that is this import as used. References set escapes or
-	// are discovered by scanning; we mark external imports live if the scan
-	// saw them. The scan sets a flag via props for namespaces. For named
-	// imports, applyRef calls markImport which for external returns nil
-	// without recording. Record usage on the import during applyRef instead.
+	// A named/default import is live when its local name was referenced from live code, normally recorded by markImport on the dependency export. External imports have no dependency module and markImport records nothing for them, so usage is recorded directly on the import; external namespaces are live via props/escapes.
 	return imp.used
 }
 
@@ -1351,8 +1338,7 @@ func renderLinked(mods map[string]*esModule, order []string, entry *esModule, fo
 			continue
 		}
 		if n := len(sections); n > 0 && needsStatementEnd(sections[n-1].body, body) {
-			// A module kept verbatim can end a statement without a semicolon,
-			// and the next body may start with a token that continues it.
+			// A verbatim module can end without a semicolon, and the next body may start with a token that continues it.
 			sections[n-1].body += ";"
 		}
 		sections = append(sections, section{display: modpath.DisplayRel(root, m.osPath()), body: body})
@@ -1489,9 +1475,7 @@ func topoModules(mods map[string]*esModule, entry *esModule) []*esModule {
 	return out
 }
 
-// needsStatementEnd reports whether prev must end with a semicolon so that
-// next, which starts with a token that can continue an expression, stays a
-// separate statement.
+// needsStatementEnd reports whether prev needs a semicolon so next, starting with an expression-continuing token, stays separate.
 func needsStatementEnd(prev, next string) bool {
 	trimmed := strings.TrimRight(prev, " \t\r\n")
 	if trimmed == "" || strings.HasSuffix(trimmed, ";") {
@@ -1651,8 +1635,7 @@ func (m *esModule) renderBody(mods map[string]*esModule, helper string) string {
 	for _, imp := range m.namespaceObjects(mods) {
 		chunks = append(chunks, imp)
 	}
-	// Static CommonJS bindings copy expressions out of the module body, so they
-	// follow it: a const or let they read is not hoisted.
+	// Static CommonJS bindings follow the module body, since a const or let they read is not hoisted.
 	if m.cjsMode != cjsStatic {
 		chunks = append(chunks, m.renderCJSBindings(mods, helper)...)
 	}
@@ -1773,8 +1756,7 @@ func (m *esModule) statementEdits(mods map[string]*esModule, stmt *ast.Node) []j
 			}
 			edits = append(edits, jsedit.Edit{Start: jsedit.TokenStart(m.src, r.node), End: r.node.End(), Text: text})
 		case refLocalProp, refImportProp:
-			// x.prop keeps only the object reference here; the property is
-			// handled by the tree shaker.
+			// x.prop keeps only the object reference here; the tree shaker handles the property.
 			final, ok := m.outputName(r.name)
 			if !ok || final == r.name {
 				return
@@ -1820,9 +1802,7 @@ func (m *esModule) statementEdits(mods map[string]*esModule, stmt *ast.Node) []j
 	return edits
 }
 
-// keptLocal reports whether the statement declaring loc stays in the output
-// even though nothing references the local. A declaration whose initializer has
-// a side effect is kept, so its name still has to be unique across the bundle.
+// keptLocal reports whether loc's declaration stays despite no references; a side-effect initializer is kept, so its name must stay bundle-unique.
 func (m *esModule) keptLocal(loc *esLocal) bool {
 	if loc == nil || loc.stmt == nil {
 		return false

@@ -20,10 +20,9 @@ type ChunkTable interface {
 
 // Module is one unit in the link graph.
 type Module struct {
-	ID   string // slash path id
-	Code string
-	Path string // os path if needed
-	// JSMap is the transpile source map for Code (optional).
+	ID    string // slash path id
+	Code  string
+	Path  string // os path if needed
 	JSMap string
 }
 
@@ -33,16 +32,13 @@ type Options struct {
 	LinkingChunk string
 	Chunks       ChunkTable
 	Resolver     Resolver
-	// PreserveExports lists module ids whose public exports stay live even when
-	// they are not the link entry (used for shared chunks).
+	// PreserveExports lists module ids whose public exports stay live even off-entry (used for shared chunks).
 	PreserveExports []string
-	// CWD resolves relative display paths. Empty falls back to the deepest
-	// common directory of the linked modules.
+	// CWD resolves relative display paths; empty falls back to the deepest common directory of the linked modules.
 	CWD string
 	// RootDir overrides the base for relative display paths.
 	RootDir string
-	// FS reads the package.json files that decide side-effect pruning. Nil uses
-	// the OS file system.
+	// FS reads the package.json files that decide side-effect pruning; nil uses the OS file system.
 	FS vfs.FS
 }
 

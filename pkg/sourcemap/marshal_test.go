@@ -5,9 +5,7 @@ import (
 	"testing"
 )
 
-// TestMarshalMapKeepsV1Encoding checks that the v2 encoder is configured to
-// produce what the v1 encoder produced: sorted keys, escaped HTML and JS
-// characters, and U+FFFD in place of invalid UTF-8.
+// TestMarshalMapKeepsV1Encoding checks the v2 encoder matches v1: sorted keys, escaped HTML/JS, and U+FFFD for invalid UTF-8.
 func TestMarshalMapKeepsV1Encoding(t *testing.T) {
 	got, err := marshalMap(map[string]any{
 		"b": "x<y>&z",
@@ -26,8 +24,7 @@ func TestMarshalMapKeepsV1Encoding(t *testing.T) {
 			t.Errorf("missing %q in %s", want, text)
 		}
 	}
-	// The v2 encoder writes the replacement rune itself where v1 wrote the
-	// \ufffd escape; both decode to U+FFFD.
+	// v2 writes the replacement rune directly where v1 wrote \ufffd; both decode to U+FFFD.
 	if !strings.Contains(text, "\ufffd") {
 		t.Errorf("invalid UTF-8 was not replaced: %s", text)
 	}

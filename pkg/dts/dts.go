@@ -31,32 +31,23 @@ type Emit struct {
 
 // Options configures program-level declaration emit.
 type Options struct {
-	// CompilerOptions carries the tsconfig options that change the declaration
-	// output and the type checking behind it: the strict family, "lib",
-	// "types", "paths", "moduleResolution", the decorator and JSX
-	// settings. The declaration-only switches are always set by this package.
+	// CompilerOptions carries the tsconfig options affecting declaration output and type checking: strict family, "lib", "types", "paths", "moduleResolution", decorator and JSX settings; declaration-only switches are always set by this package.
 	CompilerOptions *core.CompilerOptions
-	// BaseURL stands in for the removed tsconfig "baseUrl" option. TypeScript
-	// 5 resolved bare specifiers against it, so a tsconfig that still uses it
-	// keeps working.
+	// BaseURL stands in for the removed tsconfig "baseUrl" option so bare specifiers still resolve against the project root as in TypeScript 5.
 	BaseURL resolve.BaseURLFallback
 	// FS reads the program sources. Nil uses the OS file system.
 	FS     vfs.FS
 	Jsx    core.JsxEmit
 	Target core.ScriptTarget
-	// CWD resolves relative paths. Empty falls back to the process working
-	// directory.
+	// CWD resolves relative paths; empty falls back to the process working directory.
 	CWD string
-	// RootDir is the source root used for declaration paths. Empty falls back
-	// to the common directory of absPaths.
+	// RootDir is the source root for declaration paths; empty falls back to the common directory of absPaths.
 	RootDir          string
 	CustomConditions []string
 	DeclarationMap   bool
 }
 
-// declarationCompilerOptions builds the compiler options for the declaration
-// program. The tsconfig options that change type checking and inference are
-// honoured; the declaration-only switches are always set here.
+// declarationCompilerOptions honours tsconfig type-checking and inference options and always sets the declaration-only switches.
 func declarationCompilerOptions(opts Options, declMap core.Tristate) *core.CompilerOptions {
 	compilerOpts := &core.CompilerOptions{
 		Declaration:          core.TSTrue,
@@ -81,17 +72,14 @@ func declarationCompilerOptions(opts Options, declMap core.Tristate) *core.Compi
 	if src == nil {
 		return compilerOpts
 	}
-	// Declaration emit reads the shared syntax switches but not the
-	// JavaScript-only ones: comments and line endings are not rewritten in a
-	// .d.ts, and no helper is ever emitted.
+	// Declaration emit reads shared syntax switches but not JavaScript-only ones: comments and line endings are not rewritten, and no helper is emitted.
 	compileropts.SyntaxFrom(src).Apply(compilerOpts)
 	compileropts.TypesFrom(src).Apply(compilerOpts)
 	compileropts.ResolutionFrom(src, opts.BaseURL).Apply(compilerOpts)
 	return compilerOpts
 }
 
-// EmitProgram runs a tsgo declaration-only program for the given TypeScript paths.
-// Keys in the result map are normalized via Key.
+// EmitProgram runs a tsgo declaration-only program for the given paths; result keys are normalized via Key.
 func EmitProgram(ctx context.Context, absPaths []string, opts Options) (map[string]Emit, error) {
 	base := opts.FS
 	if base == nil {
@@ -163,8 +151,7 @@ func EmitProgram(ctx context.Context, absPaths []string, opts Options) (map[stri
 
 // Key normalizes a filesystem path for declaration emit maps.
 func Key(path string) string {
-	// The compiler reports absolute paths. Only a relative one needs the
-	// working directory, which a wasm build may not have.
+	// The compiler reports absolute paths; only a relative one needs the working directory, which a wasm build may lack.
 	abs := filepath.FromSlash(path)
 	if !filepath.IsAbs(abs) {
 		if cleaned, err := filepath.Abs(abs); err == nil {

@@ -8,13 +8,7 @@ import (
 	"github.com/startracex/tsgo/pkg/vfs"
 )
 
-// realpathFS retries a probe through the target of the path when the first
-// attempt fails. Windows refuses to traverse an untrusted mount point, and a
-// package manager can leave dependency directories as reparse points that fail
-// that check, while the link target itself stays readable.
-//
-// A base FS that is not the OS file system does its own resolution: there is no
-// native path to walk, so Realpath answers instead.
+// realpathFS retries a failed probe through the path's target: Windows refuses untrusted mount points, and a package manager can leave dependency directories as unreadable reparse points whose link target stays readable. A non-OS base FS does its own resolution, so Realpath answers instead.
 type realpathFS struct {
 	vfs.FS
 	native bool
@@ -38,8 +32,7 @@ func (f *realpathFS) real(p tspath.RootedPath) (tspath.RootedPath, bool) {
 		f.cache.Store(key, target)
 		return target, target != p
 	}
-	// filepath.EvalSymlinks walks the links one component at a time, which
-	// succeeds where opening a handle to the whole path does not.
+	// EvalSymlinks walks links one component at a time, succeeding where opening a handle to the whole path fails.
 	if real, err := filepath.EvalSymlinks(filepath.FromSlash(key)); err == nil && real != "" {
 		target = tspath.RootedPathFromAbsolute(filepath.ToSlash(real))
 	}
@@ -47,8 +40,7 @@ func (f *realpathFS) real(p tspath.RootedPath) (tspath.RootedPath, bool) {
 	return target, target != p
 }
 
-// realNative returns the target of a native absolute path, or the path itself
-// when it does not resolve.
+// realNative returns the target of a native absolute path, or the path itself when unresolved.
 func (f *realpathFS) realNative(path string) string {
 	rooted, ok := tspath.TryRootedPathFromAbsolute(filepath.ToSlash(path))
 	if !ok {

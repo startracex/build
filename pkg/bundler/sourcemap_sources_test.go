@@ -10,10 +10,7 @@ import (
 	"github.com/startracex/tsgo/pkg/tspath"
 )
 
-// TestLibrarySourceMapSourcesMatchTSC checks that lib-mode source maps write
-// "sources" relative to the directory holding the emitted .map file, the way
-// tsc does, rather than relative to the source root. With src/index.ts and a
-// map in dist, tsc writes "../src/index.ts" and an empty "sourceRoot".
+// TestLibrarySourceMapSourcesMatchTSC checks that lib maps write "sources" relative to the .map file, as tsc does.
 func TestLibrarySourceMapSourcesMatchTSC(t *testing.T) {
 	dir := t.TempDir()
 	sourceDir := filepath.Join(dir, "src")
@@ -48,8 +45,7 @@ func TestLibrarySourceMapSourcesMatchTSC(t *testing.T) {
 	}
 }
 
-// TestLibrarySourceMapConfigFromTSConfig checks that sourceRoot and
-// inlineSources from the tsconfig compiler options reach the emitted maps.
+// TestLibrarySourceMapConfigFromTSConfig checks that sourceRoot and inlineSources reach emitted maps.
 func TestLibrarySourceMapConfigFromTSConfig(t *testing.T) {
 	dir := t.TempDir()
 	sourceDir := filepath.Join(dir, "src")
@@ -90,8 +86,7 @@ func TestLibrarySourceMapConfigFromTSConfig(t *testing.T) {
 	}
 }
 
-// TestLibrarySourceMapNoInlineSources checks that inlineSources=false removes
-// sourcesContent from both maps, matching tsc's default.
+// TestLibrarySourceMapNoInlineSources checks that inlineSources=false removes sourcesContent, matching tsc.
 func TestLibrarySourceMapNoInlineSources(t *testing.T) {
 	dir := t.TempDir()
 	sourceDir := filepath.Join(dir, "src")

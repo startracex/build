@@ -68,8 +68,7 @@ func run(args []string, stderr, stdout io.Writer) error {
 	return app.Run(append([]string{"build"}, args...))
 }
 
-// resolveMode reads the explicit --mode value. An empty value keeps the
-// layout derived from the output paths.
+// resolveMode reads --mode; an empty value keeps layout derived from output paths.
 func resolveMode(value string) (bundler.Mode, error) {
 	switch value {
 	case "":
@@ -321,8 +320,7 @@ func writeBuild(c *cli.Context, ctx context.Context, opts bundler.Options, docs 
 	return nil
 }
 
-// writeFileString writes an output without converting it to a byte slice, which
-// would copy the whole file.
+// writeFileString avoids a byte-slice conversion that would copy the whole file.
 func writeFileString(path, data string) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {

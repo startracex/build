@@ -19,8 +19,7 @@ const (
 	FormatUMD  = "umd"
 )
 
-// DeriveOutFile picks an extension for dual-format outfile emission. The result
-// is an output path, so it uses the host separator.
+// DeriveOutFile picks an extension for dual-format outfile emission; the result uses the host separator.
 func DeriveOutFile(base string, format string) string {
 	dir := filepath.Dir(base)
 	stem := modpath.BaseStem(base)
@@ -41,8 +40,7 @@ func DeriveOutFile(base string, format string) string {
 	}
 }
 
-// DeriveOutDir nests format under a shared outdir for multi-format lib builds.
-// The result is an output path, so it uses the host separator.
+// DeriveOutDir nests format under a shared outdir for multi-format lib builds; the result uses the host separator.
 func DeriveOutDir(base string, format string) string {
 	return filepath.Native(filepath.Join(base, string(format)))
 }
@@ -52,8 +50,7 @@ const DefaultHashLength = 8
 
 var hashPlaceholder = regexp.MustCompile(`\[hash(?::(\d+))?\]`)
 
-// HasHashPlaceholder reports whether pattern contains a well-formed [hash]
-// or [hash:N] placeholder.
+// HasHashPlaceholder reports whether pattern contains a well-formed [hash] or [hash:N] placeholder.
 func HasHashPlaceholder(pattern string) bool {
 	return hashPlaceholder.MatchString(pattern)
 }
@@ -83,10 +80,7 @@ type FileNameParts struct {
 	Hash   string
 }
 
-// RenderFileName expands the placeholders in pattern. A placeholder with no
-// value expands to an empty string, so a pattern can be built from optional
-// parts. When Hash is empty it is derived from the rendered text, which keeps
-// a [hash] pattern deterministic even without content.
+// RenderFileName expands placeholders; an unset one becomes empty so optional parts work, and an empty Hash is derived from the rendered text to keep [hash] deterministic.
 func RenderFileName(pattern string, parts FileNameParts) string {
 	rendered := strings.NewReplacer(
 		"[name]", parts.Name,
@@ -114,9 +108,7 @@ func RenderFileName(pattern string, parts FileNameParts) string {
 	})
 }
 
-// RenderEntryFileName expands [name], [path], [format], [hash], and [hash:N]
-// in an entry filename pattern. hash is usually the digest of the emitted content.
-// It is RenderFileName without the [ext] inputs, kept for callers that only name entry files.
+// RenderEntryFileName expands [name], [path], [format], [hash], and [hash:N]; it is RenderFileName without the [ext] inputs, for callers that only name entry files.
 func RenderEntryFileName(pattern, name, path, format, hash string) string {
 	return RenderFileName(pattern, FileNameParts{Name: name, Path: path, Format: format, Hash: hash})
 }

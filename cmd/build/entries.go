@@ -76,8 +76,7 @@ func expandEntries(patterns []string) ([]string, error) {
 	return uniqueFiles(out)
 }
 
-// expandDirectory turns a directory argument into its entry files. Non-existent
-// paths and regular files are returned unchanged so the bundler reports them.
+// expandDirectory turns a directory into entry files; other paths pass through so the bundler reports them.
 func expandDirectory(path, cwd string, excludes []*regexp.Regexp) ([]string, error) {
 	info, err := os.Stat(path)
 	if err != nil || !info.IsDir() {

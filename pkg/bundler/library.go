@@ -87,9 +87,7 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			wrapLines = cjsWrapLines
 		}
 		jsPath := b.outputPaths[id]
-		// mapDir is the directory that holds the emitted .map files. tsc writes
-		// sources relative to this location, not to the source root, so a file
-		// in src and output in build becomes "../src/index.ts".
+		// mapDir holds emitted .map files; tsc writes sources relative to it, so src + build yields "../src/index.ts".
 		mapDir := filepath.Dir(jsPath)
 		if !filepath.IsAbs(mapDir) {
 			mapDir = filepath.Join(b.cwd, mapDir)
@@ -154,8 +152,7 @@ func isCommonJSSource(code string) bool {
 	return strings.Contains(code, "module.exports") || strings.Contains(code, "exports.")
 }
 
-// cjsWrapLines is how many lines wrapCommonJSForESM adds before the module
-// body, so a source map for that body keeps its lines aligned.
+// cjsWrapLines counts wrapper lines added before the module body so its source map stays aligned.
 const cjsWrapLines = 2
 
 func wrapCommonJSForESM(code string) string {
@@ -165,16 +162,10 @@ func wrapCommonJSForESM(code string) string {
 		"export default __cjs_default;\n"
 }
 
-// libraryOutputRel returns a relative output path that never escapes the
-// output directory. A module inside rootDir keeps its relative path; a bundled
-// dependency is written under depsDir (node_modules when empty) using its path
-// below the innermost node_modules, so a pnpm store path does not leak. Any
-// other module falls back to its base name.
+// libraryOutputRel returns an output path that cannot escape OutDir; dependencies use depsDir and the path below node_modules to hide pnpm layout.
 func libraryOutputRel(root, abs, depsDir string) string {
 	jsAbs := modpath.JavascriptOutputAbs(abs)
-	// A dependency goes through the deps directory even when the project root
-	// contains node_modules itself: the relative path would otherwise keep the
-	// pnpm store layout (node_modules/.pnpm/<pkg>@<version>/node_modules/...).
+	// Dependencies go through depsDir even when the root contains node_modules, to avoid leaking pnpm store paths.
 	if pkgRel, inDeps := modpath.NodeModulesRel(jsAbs); inDeps {
 		if depsDir != "" {
 			return depsDir + "/" + pkgRel

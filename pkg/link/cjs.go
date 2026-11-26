@@ -38,9 +38,7 @@ type cjsAnalysis struct {
 	wholesaleObj bool
 }
 
-// attachCJSExports registers CommonJS exports on m after a single parse.
-// Static shapes become locals/exports without rewriting source. Unanalyzable
-// shapes fall back to a __commonJS runtime wrapper.
+// attachCJSExports registers CommonJS exports after one parse; static shapes become locals/exports, unanalyzable ones fall back to a __commonJS wrapper.
 func (m *esModule) attachCJSExports() {
 	if m.file == nil || hasESMModuleSyntax(m.file) {
 		return

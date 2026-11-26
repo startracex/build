@@ -100,8 +100,7 @@ func TestRemapEditsNoEdits(t *testing.T) {
 	}
 }
 
-// TestVLQRoundTrip guards the sign bit of the base64 VLQ decoder: every
-// negative delta must decode back to the value that produced it.
+// TestVLQRoundTrip guards the VLQ decoder's sign bit: every negative delta must decode back to its original value.
 func TestVLQRoundTrip(t *testing.T) {
 	for _, n := range []int{0, 1, -1, 2, -2, 31, -31, 1024, -1024} {
 		values, count := decodeVLQs(vlq(n))

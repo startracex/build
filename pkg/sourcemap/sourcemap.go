@@ -11,10 +11,8 @@ import (
 	"github.com/startracex/tsgo/pkg/vfs"
 )
 
-// marshalMap encodes a source map object with the settings the v1 encoder used:
-// sorted keys, '<', '>', '&', U+2028 and U+2029 escaped, and invalid UTF-8
-// replaced with U+FFFD. Source maps embed file contents, so keeping the same
-// escaping leaves the output byte-stable for the same input.
+// marshalMap encodes a map with the v1 encoder's settings: sorted keys, escaped HTML/JS chars, and invalid UTF-8 replaced with U+FFFD.
+// Matching that escaping keeps output byte-stable since maps embed file contents.
 func marshalMap(v any) ([]byte, error) {
 	return json.Marshal(v,
 		json.Deterministic(true),
@@ -24,9 +22,8 @@ func marshalMap(v any) ([]byte, error) {
 	)
 }
 
-// AppSourceMap builds a line-level source map from linker source comments. It
-// reads the marked sources through fs to fill sourcesContent; a nil fs reads the
-// OS file system.
+// AppSourceMap builds a line-level map from linker source comments, reading marked sources through fs to fill sourcesContent.
+// A nil fs reads the OS file system.
 func AppSourceMap(fs vfs.FS, js, file string) string {
 	lines := strings.Split(js, "\n")
 	var sources []string
@@ -163,10 +160,8 @@ func vlq(n int) string {
 	return string(out)
 }
 
-// sourceMapSource returns the path a source map stores for source, as seen
-// from outputDir (the directory holding the emitted .map file). This is the
-// layout tsc uses: a source under src and a map under build is written as
-// "../src/index.ts", not "index.ts" relative to the source root.
+// sourceMapSource returns the path stored for source relative to outputDir (holding the emitted .map), matching tsc.
+// A source under src with a map under build becomes "../src/index.ts", not "index.ts" relative to the source root.
 func sourceMapSource(outputDir, source string) string {
 	if outputDir == "" {
 		return filepath.ToSlash(source)
@@ -178,9 +173,8 @@ func sourceMapSource(outputDir, source string) string {
 	return filepath.ToSlash(rel)
 }
 
-// RetargetSourceMap rewrites file/sources for a per-module map. outputDir is
-// the directory of the emitted .map file; an empty value keeps sourceName as
-// given, for callers that have not resolved the output location yet.
+// RetargetSourceMap rewrites file/sources for a per-module map.
+// An empty outputDir keeps sourceName as given for callers that have not resolved the output location.
 func RetargetSourceMap(mapText, fileName, sourceName, sourceContent, outputDir, sourceAbs string) string {
 	if strings.TrimSpace(mapText) == "" {
 		return ""
@@ -204,8 +198,7 @@ func RetargetSourceMap(mapText, fileName, sourceName, sourceContent, outputDir, 
 	return string(buf)
 }
 
-// IdentitySourceMap maps every generated line to the same source line. It
-// describes output whose text is unchanged, such as a module kept verbatim.
+// IdentitySourceMap maps every generated line to the same source line for unchanged output, such as a verbatim module.
 // outputDir/sourceAbs, when set, place the source relative to the emitted map.
 func IdentitySourceMap(file, sourceName, sourceContent, outputDir, sourceAbs string) string {
 	lines := strings.Count(sourceContent, "\n") + 1
@@ -233,12 +226,9 @@ func IdentitySourceMap(file, sourceName, sourceContent, outputDir, sourceAbs str
 	return string(buf)
 }
 
-// RelativizeSourceMap rewrites a source map's sources to be relative to
-// outputDir, the directory containing the emitted .map file, matching tsc.
-// Relative sources in the input are resolved against sourceBase first (the
-// directory the sources were emitted relative to); an absolute source is used
-// as-is. sourceRoot here is NOT the tsconfig sourceRoot field — that is applied
-// by ApplySourceMapConfig.
+// RelativizeSourceMap rewrites sources relative to outputDir (holding the emitted .map), matching tsc.
+// Relative input sources resolve against sourceBase first; absolute sources are used as-is.
+// sourceRoot here is NOT the tsconfig field, which ApplySourceMapConfig applies.
 func RelativizeSourceMap(mapText, fileName, outputDir, sourceBase string) string {
 	if strings.TrimSpace(mapText) == "" {
 		return ""
@@ -268,11 +258,9 @@ func RelativizeSourceMap(mapText, fileName, outputDir, sourceBase string) string
 	return string(buf)
 }
 
-// ApplySourceMapConfig finalizes an emitted map with the tsconfig options that
-// affect map contents but not mapping positions. sourceRoot is written verbatim
-// (tsc does not resolve it). When inlineSources is false, sourcesContent is
-// removed to match tsc; when true, the field is filled from sourceContent if
-// the input map does not already carry it.
+// ApplySourceMapConfig finalizes a map with tsconfig options that change contents but not mapping positions.
+// sourceRoot is written verbatim (tsc does not resolve it).
+// inlineSources false removes sourcesContent to match tsc; true fills it from sourceContent when absent.
 func ApplySourceMapConfig(mapText, sourceRoot string, inlineSources bool, sourceContent string) string {
 	if strings.TrimSpace(mapText) == "" {
 		return ""

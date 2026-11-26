@@ -10,8 +10,7 @@ import (
 	"github.com/startracex/tsgo/pkg/vfs"
 )
 
-// TranspileCache stores transpile results keyed by content hash. The entries
-// live under dir, on fs when one is set and on the OS file system otherwise.
+// TranspileCache stores transpile results by content hash under dir, on fs when set or the OS file system otherwise.
 type TranspileCache struct {
 	fs  vfs.FS
 	mu  sync.Mutex
@@ -24,9 +23,8 @@ type Entry struct {
 	Map string `json:"map,omitempty"`
 }
 
-// NewTranspileCache returns a cache under dir, or nil when dir is empty. A nil
-// fs stores entries on the OS file system; an injected fs keeps them in the same
-// tree as the build, so a virtual or wasm build caches where it reads.
+// NewTranspileCache returns a cache under dir, or nil when dir is empty.
+// An injected fs caches in the build tree so a virtual or wasm build caches where it reads; nil uses the OS file system.
 func NewTranspileCache(fs vfs.FS, dir string) *TranspileCache {
 	if dir == "" {
 		return nil
@@ -34,8 +32,7 @@ func NewTranspileCache(fs vfs.FS, dir string) *TranspileCache {
 	return &TranspileCache{dir: dir, fs: fs}
 }
 
-// Get loads a cache entry when present. The file is decoded as it is read, so a
-// large transpile result is not first copied into a byte slice.
+// Get loads a cache entry, decoding as it reads so a large result is not first copied into a byte slice.
 func (c *TranspileCache) Get(key string) (Entry, bool) {
 	if c == nil {
 		return Entry{}, false
@@ -70,8 +67,7 @@ func (c *TranspileCache) Get(key string) (Entry, bool) {
 	return ent, true
 }
 
-// Put stores a cache entry. The entry is encoded straight to the file, so a
-// large transpile result is not first copied into a byte slice.
+// Put stores a cache entry, encoding straight to the file so a large result is not first copied into a byte slice.
 func (c *TranspileCache) Put(key string, ent Entry) {
 	if c == nil {
 		return
@@ -95,8 +91,7 @@ func (c *TranspileCache) Put(key string, ent Entry) {
 		return
 	}
 	_ = os.MkdirAll(c.dir, 0o755)
-	// A partial entry does not decode and is treated as a miss, but removing it
-	// keeps the cache directory clean.
+	// Removing a partial entry keeps the cache directory clean; it would decode as a miss anyway.
 	native := filepath.Native(path)
 	f, err := os.OpenFile(native, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {

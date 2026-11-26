@@ -15,11 +15,8 @@ type ModuleMap struct {
 	JSMap    string // transpile source map JSON (may be empty)
 }
 
-// Compose chains two source maps. inner maps the current text back to an
-// intermediate text (for example a plugin transform), and outer maps that
-// intermediate text back to the original source (the transpile). The result maps
-// the current text straight to the original source, so the module keeps a usable
-// map after a plugin rewrites it.
+// Compose chains two source maps: inner maps current text to an intermediate one (a plugin transform), outer maps that to the original (the transpile).
+// The result maps current text straight to the original, keeping a usable map after a plugin rewrite.
 func Compose(outerJSON, innerJSON, fallbackContent string) string {
 	outer := decodeMap(outerJSON, fallbackContent)
 	inner := decodeMap(innerJSON, fallbackContent)
@@ -85,8 +82,7 @@ func Compose(outerJSON, innerJSON, fallbackContent string) string {
 	return string(buf)
 }
 
-// lookupSegment returns the outer segment that covers generated position
-// line:col: the last segment on that line starting at or before the column.
+// lookupSegment returns the outer segment covering line:col: the last one starting at or before the column.
 func lookupSegment(m *decodedMap, line, col int) (seg, bool) {
 	segs := append([]seg(nil), m.segs[line]...)
 	if len(segs) == 0 {
@@ -104,15 +100,13 @@ func lookupSegment(m *decodedMap, line, col int) (seg, bool) {
 	return best, found
 }
 
-// ComposeLinked builds a source map for linked output by combining per-module
-// transpile maps with "// path" section markers. Generated columns map to
-// original columns when a transpile map is present; otherwise line identity. A
-// nil fs reads source contents from the OS file system.
+// ComposeLinked builds a linked-output source map from per-module maps and "// path" section markers.
+// Generated columns map to original columns when a transpile map exists, otherwise by line identity.
+// A nil fs reads source contents from the OS file system.
 func ComposeLinked(fs vfs.FS, js, fileName string, modules []ModuleMap) string {
 	byDisplay := map[string]ModuleMap{}
 	for _, m := range modules {
 		byDisplay[m.Display] = m
-		// also allow slash-normalized lookup
 		byDisplay[strings.ReplaceAll(m.Display, "\\", "/")] = m
 	}
 
@@ -169,7 +163,7 @@ func ComposeLinked(fs vfs.FS, js, fileName string, modules []ModuleMap) string {
 			continue
 		}
 		if dm := decodedMaps[currentDisplay]; dm != nil {
-			// Map this generated line relative to section using transpile map's gen lines.
+			// Map the generated line relative to the section using the transpile map's gen lines.
 			rel := max(i-sectionStart, 0)
 			if segs := dm.segs[rel]; len(segs) > 0 {
 				for _, s := range segs {

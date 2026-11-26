@@ -1,40 +1,10 @@
-// Package bundler builds a JavaScript or TypeScript program.
-//
-// TypeScript and TSX are parsed, bound, and transpiled with
-// github.com/startracex/tsgo. Imports are resolved with tsgo's bundler
-// resolver: relative specifiers, node_modules, and package.json "exports"
-// and "main". For ESM output, a package.json "module" field is preferred
-// when "exports" is absent.
-//
-// App mode links the local graph into one file. ESM output
-// uses real import and export declarations. CommonJS output uses the same
-// link and assigns the entry exports to module.exports. Unused side-effect-free
-// exports are dropped. Node built-ins and packages listed in Options.External
-// stay as import or require calls.
-//
-// Library mode writes one JavaScript file per local module and leaves bare
-// package imports external. Relative specifiers point at the emitted files.
-//
-// Source maps, declarations, and declaration maps follow TypeScript: off unless
-// set. Library mode can write a .d.ts and .d.ts.map for each file, using tsgo's
-// type checker. App mode does not write declarations. Options.Resolve can
-// replace a specifier with a file.
-//
-// Multiple Outputs emit the same input in several formats (for example ESM and
-// CJS). Define/Drop, Alias, asset queries (?raw/?url), CSS, and a transpile
-// cache are available through Options.
-//
-// App mode with an OutDir splits the graph: modules shared by several entries
-// go to chunks/shared-*.js and every import() target becomes chunks/*.js.
-//
-// The compiler options read from tsconfig.json reach the build through the
-// context, see Options.CompilerOptions. They decide the emitted JavaScript,
-// the declaration output, and how module specifiers are resolved.
-//
-// A build reads no files through the os package when Options.FS is set: every
-// source, asset, package.json, and map falls back to that file system instead.
-// Together with Options.CWD this lets the bundler run on a virtual file system,
-// for example a js/wasm build with an in-memory FS.
+// Package bundler builds a JavaScript or TypeScript program with tsgo and resolves imports through its bundler resolver.
+// App mode links one bundle per entry; library mode emits one file per local module and leaves bare imports external.
+// Externals stay as import/require calls, and source maps and declarations are off unless set, as in tsc.
+// Options supports multiple outputs, Define/Drop, Alias, asset queries, CSS, a resolve hook, and a transpile cache.
+// App mode with OutDir splits shared modules and import() targets into chunk files.
+// Compiler options from tsconfig reach emit through Options.CompilerOptions.
+// With Options.FS and Options.CWD, a build never uses the OS file system and can run on a virtual FS in wasm.
 package bundler
 
 import (
@@ -72,11 +42,9 @@ import (
 type Mode string
 
 const (
-	// ModeApp writes one bundle per entry. Package imports are inlined, and no
-	// declaration files are emitted.
+	// ModeApp writes one bundle per entry with inlined packages and no declarations.
 	ModeApp Mode = "app"
-	// ModeLib writes one JavaScript file per local module, and leaves bare
-	// package imports external. This is the multi-file library layout.
+	// ModeLib writes one file per local module and leaves bare package imports external.
 	ModeLib Mode = "lib"
 )
 
@@ -84,10 +52,9 @@ const (
 type Format string
 
 const (
-	// FormatESM emits a JavaScript module with import and export statements.
-	// Load it from a .mjs file or a package whose type is "module".
+	// FormatESM emits import/export syntax; load it from .mjs or a "type":"module" package.
 	FormatESM Format = "esm"
-	// FormatCJS emits a script. Under Node, the entry exports are module.exports.
+	// FormatCJS emits a script whose entry exports become module.exports under Node.
 	FormatCJS Format = "cjs"
 	// FormatIIFE wraps the bundle in an immediately-invoked function.
 	FormatIIFE Format = "iife"
@@ -99,11 +66,9 @@ const (
 type JSX string
 
 const (
-	// JSXReact emits React.createElement calls. It is the default because
-	// that transform does not import another package.
+	// JSXReact is the default: it emits React.createElement without importing another package.
 	JSXReact JSX = "react"
-	// JSXAutomatic emits the react/jsx-runtime import used by modern TypeScript.
-	// That package is resolved and bundled like any other dependency.
+	// JSXAutomatic emits the react/jsx-runtime import, resolved and bundled like any dependency.
 	JSXAutomatic JSX = "react-jsx"
 	// JSXReactJSXDev emits the development react/jsx-dev-runtime import.
 	JSXReactJSXDev JSX = "react-jsxdev"
@@ -117,63 +82,43 @@ const (
 type Options struct {
 	// Alias maps import prefixes to filesystem paths (longest prefix wins).
 	Alias map[string]string
-	// CompilerOptions holds the compiler options read from tsconfig.json. They
-	// decide the emitted JavaScript, the declaration output, and how module
-	// specifiers are resolved. The bundler owns module kind, target, JSX
-	// transform, and source maps; the rest comes from here.
+	// CompilerOptions holds tsconfig options affecting emit and resolution; the bundler owns module kind, target, JSX, and source maps.
 	CompilerOptions *core.CompilerOptions
-	// Declaration writes .d.ts files in library mode. Nil means no, matching tsc.
-	// App mode does not write declarations.
+	// Declaration writes .d.ts files in library mode only; nil disables it, matching tsc.
 	Declaration *bool
-	// DeclarationMap writes .d.ts.map files when Declaration is on. Nil means no.
+	// DeclarationMap writes .d.ts.map files when Declaration is on; nil disables it.
 	DeclarationMap *bool
 	// Define replaces free identifiers / process.env.* at emit time.
 	Define map[string]string
-	// ManualChunks maps a module path substring to a chunk base name under
-	// chunks/ (e.g. "node_modules/lodash" -> "vendor-lodash"). App mode only.
+	// ManualChunks maps a module path substring to a chunk name under chunks/; app mode only.
 	ManualChunks map[string]string
-	// Resolve, when it reports ok, supplies the file that specifier refers to.
-	// Return ok false to keep the built-in resolver. The hook is how aliases
-	// and, later, plugins replace resolution.
+	// Resolve supplies the resolved file for a specifier; return ok=false to keep the built-in resolver.
 	Resolve func(importer, specifier string) (resolved string, ok bool, err error)
 	// SourceMap writes .map files. Nil means no, matching tsc.
 	SourceMap *bool
-	// BaseURL stands in for the removed tsconfig "baseUrl" option. TypeScript
-	// 5 resolved bare specifiers against it, so a tsconfig that still uses it
-	// keeps working.
+	// BaseURL stands in for the removed tsconfig "baseUrl" option so old configs still resolve bare specifiers.
 	BaseURL resolve.BaseURLFallback
 	// Format selects ESM or CommonJS output. Empty means FormatESM.
 	Format Format
-	// FS reads sources, assets, and the paths the resolver probes. Nil uses the
-	// OS file system. A build that targets wasm or runs on a virtual file
-	// system supplies its own implementation.
+	// FS reads sources, assets, and resolver probes; nil uses the OS file system, virtual builds supply their own.
 	FS vfs.FS
 	// JSX selects the JSX transform. Empty means JSXReact.
 	JSX JSX
-	// Mode selects app (one bundle per entry) or lib (one file per module).
-	// It must be set; there is no default layout.
+	// Mode selects app or lib layout; it must be set.
 	Mode Mode
 	// Target is the TypeScript emit target. Empty means ESNext.
 	Target core.ScriptTarget
-	// AssetFileNames is a filename pattern for emitted assets (?url imports) and
-	// entry CSS. Empty keeps the source-relative path with a content hash.
+	// AssetFileNames names emitted assets and entry CSS; empty keeps the source path with a content hash.
 	AssetFileNames string
-	// CacheDir stores transpile results keyed by content hash. It is resolved
-	// against CWD and written through Options.FS, so a virtual build caches in
-	// its own tree; empty disables the cache.
+	// CacheDir stores content-hashed transpile results relative to CWD through FS; empty disables the cache.
 	CacheDir string
-	// ChunkFileNames is a filename pattern for split chunks (shared, async, and
-	// manual) in app mode. Empty keeps the built-in chunks/ layout.
+	// ChunkFileNames names split chunks in app mode; empty keeps the built-in chunks/ layout.
 	ChunkFileNames string
-	// CWD resolves relative entry paths and display paths. Empty falls back to
-	// the process working directory, which a wasm build may not have.
+	// CWD resolves relative entry and display paths; a wasm build may need to supply it.
 	CWD string
-	// DepsDir is the directory bundled packages are written under in library
-	// mode, so "vendor" emits vendor/<package>/... instead of
-	// node_modules/<package>/.... Empty keeps node_modules.
+	// DepsDir moves bundled packages under this directory in library mode; empty keeps node_modules.
 	DepsDir string
-	// Entry is the file the bundle starts from. Entries lists more roots.
-	// A single-file build allows only one of them.
+	// Entry is the primary build root; Entries adds more, but single-file builds allow only one.
 	Entry string
 	// EntryFileNames is a per-entry filename pattern joined with OutDir.
 	EntryFileNames string
@@ -183,31 +128,23 @@ type Options struct {
 	NameTemplate string
 	// OutDir is the directory used by per-module output.
 	OutDir string
-	// OutFile is the JavaScript path used by app mode. The declaration and
-	// source map are written beside it.
+	// OutFile is the app-mode JavaScript path; its map is written beside it.
 	OutFile string
 	// PublicPath prefixes emitted asset URLs for ?url and file imports.
 	PublicPath string
-	// RootDir is the base for paths written under OutDir. When empty, the
-	// rootDir from CompilerOptions is used, then the deepest directory shared
-	// by the entry files.
+	// RootDir bases paths under OutDir; it falls back to tsconfig rootDir, then the entries' deepest shared directory.
 	RootDir string
-	// Conditions are extra package.json "exports" conditions. The resolver
-	// always adds import or require from the format, always matches default,
-	// and always includes module. These values are appended on top.
+	// Conditions appends package.json "exports" conditions; import/require, default, and module are always included.
 	Conditions []string
 	// Drop removes console.* calls and/or debugger statements ("console", "debugger").
 	Drop []string
-	// Entries are additional root files. Library output emits every root and
-	// the modules each one imports.
+	// Entries adds root files; library mode emits every root and its imported modules.
 	Entries []string
 	// External package names or specifiers are left as import/require calls.
 	External []string
-	// Outputs lists Rollup-style emit targets. The module graph is loaded once;
-	// each output is linked/emitted from that shared graph.
+	// Outputs lists Rollup-style emit targets sharing one loaded module graph.
 	Outputs []OutputOptions
-	// Plugins run Resolve/Load/Transform/GenerateBundle hooks (first ok wins
-	// for resolve/load; transform and generate chain).
+	// Plugins run Resolve/Load/Transform/GenerateBundle hooks; resolve/load take the first ok, others chain.
 	Plugins []plugin.Plugin
 	// BundleNodeModules keeps bare package imports inside library-mode output.
 	BundleNodeModules bool
@@ -215,8 +152,7 @@ type Options struct {
 	Manifest bool
 }
 
-// Bundle reads Entry and returns the entry JavaScript.
-// Declarations and source maps are included in [Build].
+// Bundle returns the entry JavaScript; use Build to get declarations and source maps too.
 func Bundle(ctx context.Context, opts Options) (string, error) {
 	result, err := Build(ctx, opts)
 	if err != nil {
@@ -231,8 +167,7 @@ type Output struct {
 	Data string
 }
 
-// Result is every file a build wrote logically, including JavaScript,
-// TypeScript declarations, and source maps.
+// Result holds every file a build wrote logically, including JavaScript, declarations, and maps.
 type Result struct {
 	Manifest map[string]string
 	// Sources maps absolute source paths (slash separated) to emitted files.
@@ -278,8 +213,7 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 			return nil, err
 		}
 		b.emitAssetFiles(result)
-		// A split build (OutDir set) writes entry CSS from emitSplit, where the
-		// rendered entry path is known; only the single-file layout needs it here.
+		// Only single-file output emits entry CSS here; split builds do it in emitSplit.
 		if b.outMode == ModeApp && outputs[0].OutDir == "" {
 			for _, root := range roots {
 				b.emitEntryCSS(result, outputs[0].OutFile, root)
@@ -332,9 +266,7 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 	return merged, nil
 }
 
-// nativePaths converts the emitted paths to the host separator. A build works
-// on slash-separated paths throughout, but the result is handed to os or to a
-// host caller, which follows the host layout.
+// nativePaths converts emitted slash paths to host separators for callers and os use.
 func nativePaths(result *Result) {
 	if result == nil {
 		return
@@ -373,8 +305,7 @@ type unit struct {
 	source string
 	asset  bool
 	json   bool
-	// verbatim marks a module whose code is its source text: the emitter only
-	// reformatted it, so it keeps the original formatting and an identity map.
+	// verbatim marks a module whose emit only reformatted the source, keeping its text and identity map.
 	verbatim bool
 }
 
@@ -383,27 +314,22 @@ type bundler struct {
 	cache  *cache.TranspileCache
 	// chunkPaths maps module id -> relative chunk path for splitting.
 	chunkPaths map[string]string
-	// compilerOpts holds the compiler options read from tsconfig.json. They
-	// change the emitted JavaScript, the declaration output, and how module
-	// specifiers are resolved.
+	// compilerOpts holds tsconfig options that affect emit and resolution.
 	compilerOpts *core.CompilerOptions
 	// linkedMaps are per-module source maps remapped through the last Link.
 	linkedMaps map[string]string
 	loading    map[string]bool
-	// outputPaths maps module id -> rendered output path when using a
-	// filename template. It keeps relative imports aligned with hashed names.
+	// outputPaths maps module id -> rendered output path so relative imports follow hashed names.
 	outputPaths map[string]string
 	res         *resolve.Resolver
 	// sources maps source paths to rendered output paths.
 	sources map[string]string
 	units   map[string]*unit
-	// usedOutputPaths tracks every rendered path across outputs so duplicate
-	// names are renamed deterministically instead of overwriting files.
+	// usedOutputPaths deduplicates rendered names across outputs deterministically.
 	usedOutputPaths map[string]bool
 	ctx             context.Context
 	format          Format
-	// fs reads every source and asset; cwd resolves relative paths. Both come
-	// from Options, defaulting to the OS file system and working directory.
+	// fs and cwd come from Options, defaulting to the OS file system and working directory.
 	fs      vfs.FS
 	jsx     core.JsxEmit
 	mode    core.ResolutionMode
@@ -413,8 +339,7 @@ type bundler struct {
 	// linkingChunk is the chunk path currently being linked (empty for entry).
 	linkingChunk string
 	rootDir      string
-	// transformKey fingerprints the plugin transform settings. They are fixed
-	// for a build, so the key is computed once and reused by every module.
+	// transformKey fingerprints plugin transform settings once per build.
 	transformKey string
 	opts         Options
 	decl         bool
@@ -566,23 +491,20 @@ func (b *bundler) load(path string) error {
 	}
 	verbatim := false
 	if b.outMode == ModeLib && moduleKind == core.ModuleKindCommonJS {
-		// The module was converted to CommonJS, so the emitted text stands.
+		// A CommonJS conversion makes the emitted text authoritative.
 	} else {
 		emitted := jsedit.ParseEmittedJS(js)
 		if err := errorFromDiagnostics(path, js, emitted.Diagnostics()); err != nil {
 			return fmt.Errorf("parse emitted javascript: %w", err)
 		}
 		if body, ok := b.verbatimModule(path, src, file, js, emitted); ok {
-			// The emitter only reprinted the module. Keeping the source text
-			// preserves hand-minified code, comments, and formatting.
+			// Keeping the source text preserves hand-minified code, comments, and formatting.
 			js, jsMap, verbatim = body, "", true
 		}
 	}
 
-	// Plugins transform the emitted JavaScript. This runs before imports are
-	// collected, so an import a plugin adds is resolved and bundled like any
-	// other one. A plugin map is composed onto the transpile map so the module
-	// still points at its source.
+	// Plugins run before imports are collected, so plugin-added imports are bundled like any other.
+	// A plugin map composes onto the transpile map to keep the module pointing at its source.
 	js, jsMap, transformed, err := b.runTransform(id, sourceText, js, jsMap)
 	if err != nil {
 		return err
@@ -616,9 +538,7 @@ func (b *bundler) load(path string) error {
 	return nil
 }
 
-// verbatimModule returns the source text of a JavaScript module whose emit is
-// only a reprint. Downleveling, a module format change, or a removed comment
-// all make the emit load-bearing, and then the emitted text is used instead.
+// verbatimModule returns source text only when emit is a pure reprint; downleveling, format changes, or removed comments make emit load-bearing.
 func (b *bundler) verbatimModule(path, src string, file *ast.SourceFile, emittedText string, emitted *ast.SourceFile) (string, bool) {
 	if !modpath.IsJavaScriptSource(path) {
 		return "", false
@@ -703,10 +623,8 @@ func manifestOutput(opts Options, manifest map[string]string) []Output {
 	return []Output{{Path: path, Data: buf.String() + "\n"}}
 }
 
-// runTransform runs the plugin transform hooks on an emitted module. It reports
-// whether the text changed and returns the map that describes the new text: a
-// plugin map is composed onto the transpile map, and without one the transpile
-// map stays as the best information available.
+// runTransform applies plugin transforms and reports whether the text changed.
+// A plugin map composes onto the transpile map; without one the transpile map is retained.
 func (b *bundler) runTransform(id, sourceText, code, mapData string) (string, string, bool, error) {
 	if len(b.opts.Plugins) == 0 {
 		return code, mapData, false, nil
@@ -723,16 +641,14 @@ func (b *bundler) runTransform(id, sourceText, code, mapData string) (string, st
 		if strings.TrimSpace(mapData) != "" {
 			mapData = sourcemap.Compose(mapData, outMap, sourceText)
 		} else {
-			// A verbatim module has no transpile map; the plugin map already
-			// points at the source text, so it only needs the file name.
+			// A verbatim module has no transpile map, so only the file name needs retargeting.
 			mapData = sourcemap.RetargetSourceMap(outMap, "", id, sourceText, "", "")
 		}
 	}
 	return out, mapData, out != code, nil
 }
 
-// specifiersFromCode lists the imports of an emitted module. Plugin output is
-// validated, because a syntax error there must not silently drop imports.
+// specifiersFromCode lists emitted imports; plugin output is checked so a syntax error cannot silently drop imports.
 func (b *bundler) specifiersFromCode(path, code string, strict bool) ([]string, error) {
 	parsed := jsedit.ParseEmittedJS(code)
 	if strict {
@@ -833,23 +749,18 @@ func errorFromDiagnostics(path, src string, diags []*ast.Diagnostic) error {
 	return errorFromDiagnosticsFiltered(path, src, diags, nil)
 }
 
-// errorFromSyntaxDiagnostics ignores semantic (@typedef, lib conflicts, etc.)
-// diagnostics. JavaScript sources are transformed, not type checked.
+// errorFromSyntaxDiagnostics ignores semantic diagnostics because JavaScript is transformed, not type checked.
 func errorFromSyntaxDiagnostics(path, src string, diags []*ast.Diagnostic) error {
 	return errorFromDiagnosticsFiltered(path, src, diags, func(d *ast.Diagnostic) bool {
 		return d.Code() < 2000
 	})
 }
 
-// transpileOptionsFor collects everything that affects the emitted text for
-// one module of this build. The projections live in compileropts, so the
-// options and their cache fingerprint share one definition.
+// transpileOptionsFor collects emit-affecting options; compileropts shares one definition for options and cache fingerprint.
 func (b *bundler) transpileOptionsFor(moduleKind core.ModuleKind, sourceMap core.Tristate) compileropts.Transpile {
 	return compileropts.NewTranspile(moduleKind, b.target, b.jsx, sourceMap, b.compilerOpts)
 }
 
-// transpileCompilerOptions returns the compiler options used to emit the
-// JavaScript of one module.
 func (b *bundler) transpileCompilerOptions(moduleKind core.ModuleKind, sourceMap core.Tristate) *core.CompilerOptions {
 	return b.transpileOptionsFor(moduleKind, sourceMap).CompilerOptions()
 }

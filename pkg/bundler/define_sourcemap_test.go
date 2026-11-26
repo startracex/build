@@ -16,9 +16,7 @@ export function label(): string {
 }
 `
 
-// TestDefineDropKeepsSourceMapAligned checks that a define replacement and a
-// dropped console statement leave every kept position mapped to its original
-// line.
+// TestDefineDropKeepsSourceMapAligned checks that define/drop leaves kept positions mapped to their original lines.
 func TestDefineDropKeepsSourceMapAligned(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), defineMapSource)
@@ -51,8 +49,7 @@ func TestDefineDropKeepsSourceMapAligned(t *testing.T) {
 	}
 }
 
-// TestDefineDropSplitBuild checks that a rewritten module still drives the
-// split graph and keeps its source map when output goes to OutDir.
+// TestDefineDropSplitBuild checks that rewritten modules still drive splitting and keep their source maps.
 func TestDefineDropSplitBuild(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "src", "shared.ts"), `export const shared = "SHARED";`)
@@ -165,9 +162,7 @@ func decodeTestSourceMap(t *testing.T, mapData string) testSourceMap {
 	return out
 }
 
-// assertMappedTo finds the first occurrence of generated in the bundle and
-// checks that the closest segment at or before it points at a source line that
-// holds original.
+// assertMappedTo checks that the closest mapping before generated points at a source line containing original.
 func assertMappedTo(t *testing.T, code string, parsed testSourceMap, generated, original string) {
 	t.Helper()
 	offset := strings.Index(code, generated)

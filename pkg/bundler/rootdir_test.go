@@ -9,8 +9,7 @@ import (
 	"github.com/startracex/tsgo/pkg/tspath"
 )
 
-// TestRootDirFromCompilerOptions checks that a library caller (which does not
-// go through cmd/build) still gets the tsconfig rootDir applied to emit paths.
+// TestRootDirFromCompilerOptions checks that library builds apply tsconfig rootDir without cmd/build.
 func TestRootDirFromCompilerOptions(t *testing.T) {
 	dir := t.TempDir()
 	sourceDir := filepath.Join(dir, "src")
@@ -37,8 +36,7 @@ func TestRootDirFromCompilerOptions(t *testing.T) {
 	t.Fatalf("rootDir from compiler options was ignored; got %v", result.Files)
 }
 
-// TestRootDirOptionWinsOverCompilerOptions checks that an explicit RootDir wins
-// over the one carried by compiler options.
+// TestRootDirOptionWinsOverCompilerOptions checks that an explicit RootDir overrides tsconfig rootDir.
 func TestRootDirOptionWinsOverCompilerOptions(t *testing.T) {
 	dir := t.TempDir()
 	sourceDir := filepath.Join(dir, "src")

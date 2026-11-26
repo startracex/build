@@ -8,8 +8,7 @@ import (
 	"github.com/startracex/tsgo/pkg/tspath"
 )
 
-// baseSource returns fresh options; core.CompilerOptions contains a noCopy
-// marker, so tests never copy it.
+// baseSource returns fresh options; CompilerOptions has a noCopy marker, so tests never copy it.
 func baseSource() *core.CompilerOptions {
 	return &core.CompilerOptions{JsxFactory: "h"}
 }
@@ -41,8 +40,7 @@ func TestEmitKeyTracksSwitches(t *testing.T) {
 	}
 }
 
-// TestEmitKeyIgnoresTypeCheckOptions checks that options that only affect type
-// checking do not invalidate the transpile cache.
+// TestEmitKeyIgnoresTypeCheckOptions checks that type-only options do not invalidate the cache.
 func TestEmitKeyIgnoresTypeCheckOptions(t *testing.T) {
 	want := EmitFrom(baseSource()).Key()
 	opts := baseSource()
@@ -54,9 +52,7 @@ func TestEmitKeyIgnoresTypeCheckOptions(t *testing.T) {
 	}
 }
 
-// TestEmitKeyQuotesValues checks that a separator inside a value cannot collide
-// with another field. The hand-rolled "jf=%s;jff=%s" format produced the same
-// text for both cases below.
+// TestEmitKeyQuotesValues checks that a separator inside a value cannot collide with another field, as the old hand-rolled format did.
 func TestEmitKeyQuotesValues(t *testing.T) {
 	a := &core.CompilerOptions{JsxFactory: "x;jff="}
 	b := &core.CompilerOptions{JsxFactory: "x", JsxFragmentFactory: ";jff="}
@@ -65,8 +61,7 @@ func TestEmitKeyQuotesValues(t *testing.T) {
 	}
 }
 
-// TestEmitApplyCopiesEverySwitch checks that apply copies every switch and
-// leaves the line ending alone when the tsconfig did not pick one.
+// TestEmitApplyCopiesEverySwitch checks that apply copies every switch and leaves NewLine alone when unset.
 func TestEmitApplyCopiesEverySwitch(t *testing.T) {
 	src := &core.CompilerOptions{
 		ExperimentalDecorators:  core.TSTrue,
@@ -102,10 +97,7 @@ func TestEmitApplyCopiesEverySwitch(t *testing.T) {
 	}
 }
 
-// TestTranspileKeyTracksBundlerSwitches checks that the options the bundler
-// derives per emit are part of the cache key, not only the tsconfig switches.
-// Without this, two outputs (for example ESM and CJS) that share a cache
-// directory would reuse each other's transpiled text.
+// TestTranspileKeyTracksBundlerSwitches checks that bundler-derived per-emit options are in the cache key; otherwise ESM and CJS sharing a cache dir would reuse each other's text.
 func TestTranspileKeyTracksBundlerSwitches(t *testing.T) {
 	base := Transpile{
 		Module:    core.ModuleKindESNext,
@@ -131,8 +123,7 @@ func TestTranspileKeyTracksBundlerSwitches(t *testing.T) {
 	}
 }
 
-// TestTranspileCompilerOptions checks that the same value that fills the cache
-// key also fills the compiler options.
+// TestTranspileCompilerOptions checks that the cache-key value also fills the compiler options.
 func TestTranspileCompilerOptions(t *testing.T) {
 	opts := Transpile{
 		Module:    core.ModuleKindCommonJS,
@@ -148,9 +139,7 @@ func TestTranspileCompilerOptions(t *testing.T) {
 	}
 }
 
-// TestSyntaxApplySkipsJavaScriptOnlySwitches checks the split behind Emit:
-// declaration emit applies Syntax and must not pick up JavaScript-only text
-// switches such as comments and line endings.
+// TestSyntaxApplySkipsJavaScriptOnlySwitches checks that declaration emit applies Syntax but not JavaScript-only text switches.
 func TestSyntaxApplySkipsJavaScriptOnlySwitches(t *testing.T) {
 	src := &core.CompilerOptions{
 		JsxFactory:      "h",
@@ -172,8 +161,7 @@ func TestSyntaxApplySkipsJavaScriptOnlySwitches(t *testing.T) {
 	}
 }
 
-// TestTypesApplyCopiesTypeCheckOptions checks that the type-checking projection
-// copies the strict family and the library settings, and nothing else.
+// TestTypesApplyCopiesTypeCheckOptions checks that the projection copies strict and library settings, and nothing else.
 func TestTypesApplyCopiesTypeCheckOptions(t *testing.T) {
 	src := &core.CompilerOptions{
 		Strict:                   core.TSTrue,
@@ -196,8 +184,7 @@ func TestTypesApplyCopiesTypeCheckOptions(t *testing.T) {
 	}
 }
 
-// TestResolutionApply checks that the resolution projection normalizes the
-// module resolution kind and keeps the baseUrl fallback mapping.
+// TestResolutionApply checks that the projection normalizes the resolution kind and keeps the baseUrl fallback.
 func TestResolutionApply(t *testing.T) {
 	src := &core.CompilerOptions{
 		ModuleResolution: core.ModuleResolutionKindClassic,

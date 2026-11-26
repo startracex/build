@@ -2,8 +2,7 @@ package compileropts
 
 import "github.com/startracex/tsgo/pkg/core"
 
-// Syntax holds the tsconfig switches that shape both the transpiled JavaScript
-// and the declaration output: decorators, JSX, and module syntax.
+// Syntax holds the tsconfig switches that shape both transpiled JavaScript and declaration output: decorators, JSX, and module syntax.
 type Syntax struct {
 	ExperimentalDecorators  core.Tristate `json:"experimentalDecorators"`
 	EmitDecoratorMetadata   core.Tristate `json:"emitDecoratorMetadata"`
@@ -16,8 +15,7 @@ type Syntax struct {
 	ReactNamespace          string        `json:"reactNamespace"`
 }
 
-// SyntaxFrom reads the shared switches. A nil source yields the zero value,
-// which leaves the destination at its defaults.
+// SyntaxFrom reads the shared switches; a nil source yields the zero value.
 func SyntaxFrom(src *core.CompilerOptions) Syntax {
 	if src == nil {
 		return Syntax{}
@@ -48,8 +46,7 @@ func (o Syntax) Apply(dst *core.CompilerOptions) {
 	dst.ReactNamespace = o.ReactNamespace
 }
 
-// JavaScript holds the switches that only change JavaScript text. A declaration
-// file carries no implementation, so these never reach declaration emit.
+// JavaScript holds the switches that only change JavaScript text; a declaration carries no implementation, so these never reach declaration emit.
 type JavaScript struct {
 	IsolatedModules core.Tristate    `json:"isolatedModules"`
 	ImportHelpers   core.Tristate    `json:"importHelpers"`
@@ -72,8 +69,7 @@ func JavaScriptFrom(src *core.CompilerOptions) JavaScript {
 	}
 }
 
-// Apply copies the switches onto dst. A line ending is left at its default when
-// the tsconfig did not choose one.
+// Apply copies the switches onto dst, leaving NewLine at its default when the tsconfig did not choose one.
 func (o JavaScript) Apply(dst *core.CompilerOptions) {
 	dst.IsolatedModules = o.IsolatedModules
 	dst.ImportHelpers = o.ImportHelpers

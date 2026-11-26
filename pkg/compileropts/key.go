@@ -7,15 +7,11 @@ import (
 	"fmt"
 )
 
-// key fingerprints an options projection by streaming its JSON straight into
-// the hash, so no intermediate buffer is built. JSON quotes and separates every
-// value, so a value that contains a hand-rolled separator cannot collide with
-// another field, and the result stays stable across runs.
+// key fingerprints a projection by hashing its JSON directly, avoiding a buffer and field collisions from hand-rolled separators.
 func key(v any) string {
 	h := sha256.New()
 	if err := json.MarshalWrite(h, v); err != nil {
-		// The projections hold only scalars, so this cannot happen; keep the
-		// fields distinct instead of dropping the key if it ever does.
+		// Projections hold only scalars, so this cannot happen; keep fields distinct rather than dropping the key.
 		h = sha256.New()
 		_, _ = fmt.Fprintf(h, "%#v", v)
 	}

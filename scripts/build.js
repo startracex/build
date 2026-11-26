@@ -1,5 +1,4 @@
-// Builds the npm package: the Go wasm bridge, plus ESM modules and their
-// declarations emitted straight from npm/src by cmd/build.
+// Builds the npm package: the Go wasm bridge and ESM modules with declarations emitted from npm/src by cmd/build.
 import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";

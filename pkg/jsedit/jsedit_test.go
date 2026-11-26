@@ -35,8 +35,7 @@ func TestStripSourceMappingComment(t *testing.T) {
 	}
 }
 
-// TestStripSourceMappingCommentNoAlloc guards the fast path: a module without
-// a source map comment must not be copied.
+// TestStripSourceMappingCommentNoAlloc guards the fast path: a module without a map comment must not be copied.
 func TestStripSourceMappingCommentNoAlloc(t *testing.T) {
 	src := "const a = 1;\nconst b = 2;\n"
 	if allocs := testing.AllocsPerRun(100, func() { _ = StripSourceMappingComment(src) }); allocs != 0 {

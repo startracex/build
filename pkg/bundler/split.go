@@ -16,10 +16,7 @@ import (
 	"github.com/startracex/tsgo/pkg/ast"
 )
 
-// emitSplit builds entry bundles plus shared/dynamic chunks for an app graph.
-//
-// Every import() target becomes its own chunk, so the dynamic import stays
-// lazy. Modules reachable from several entries go to a shared chunk.
+// emitSplit builds entry bundles plus shared/dynamic chunks; import() targets stay lazy and multi-entry modules are shared.
 func (b *bundler) emitSplit(entries []string) (*Result, error) {
 	b.chunkPaths = map[string]string{}
 	graph := b.staticDeps()
@@ -33,7 +30,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 		entrySync[id] = reach(graph, id)
 	}
 
-	// Modules reachable from ≥2 entry roots (static) are shared across entries.
+	// Modules reachable from multiple entries are shared.
 	entryOwner := map[string]int{}
 	for _, set := range entrySync {
 		for id := range set {
@@ -43,7 +40,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 	sharedMods := map[string]bool{}
 	for id, n := range entryOwner {
 		if n > 1 {
-			// Entry roots themselves stay in their entry files.
+			// Entry roots stay in their own entry files.
 			isEntry := slices.Contains(entryIDs, id)
 			if !isEntry {
 				sharedMods[id] = true
@@ -92,7 +89,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 	var files []Output
 	manifest := map[string]string{}
 
-	// Manual chunk assignments override automatic shared/async placement.
+	// Manual chunk assignments override automatic placement.
 	manualGroups := map[string][]string{}
 	for id := range b.units {
 		if name := b.manualChunkName(id); name != "" {
@@ -198,9 +195,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 		if linkFmt == FormatIIFE || linkFmt == FormatUMD {
 			b.format = FormatCJS
 		}
-		// Chunk imports are relative to the entry's output directory, which a
-		// name pattern can move below the output root. The directory is known
-		// before linking because a hash only changes the file name.
+		// Chunk imports resolve from the entry's output directory, which a name pattern can move; hashing changes only the file name.
 		entryRel, fullPath := b.renderedEntryRel(rel, emitFmt, "")
 		entryDir := filepath.Dir(entryRel)
 		if fullPath {
@@ -253,9 +248,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 	return result, nil
 }
 
-// entryOutputPath returns the full output path for one entry. A name template
-// (from --outfile) is a full path; EntryFileNames is joined with OutDir; without
-// either the built-in rootDir-relative layout applies.
+// entryOutputPath resolves a name template, EntryFileNames, or the rootDir-relative layout.
 func (b *bundler) entryOutputPath(defaultRel string, format Format, js string) string {
 	pattern := b.entryPattern()
 	if pattern == "" {
@@ -272,8 +265,7 @@ func (b *bundler) entryOutputPath(defaultRel string, format Format, js string) s
 	return filepath.Join(b.opts.OutDir, filepath.FromSlash(rel))
 }
 
-// entryPattern returns the entry filename pattern, preferring the full-path
-// template produced by --outfile over the OutDir-joined EntryFileNames.
+// entryPattern prefers the full-path --outfile template over OutDir-joined EntryFileNames.
 func (b *bundler) entryPattern() string {
 	if b.opts.NameTemplate != "" {
 		return b.opts.NameTemplate
@@ -281,9 +273,7 @@ func (b *bundler) entryPattern() string {
 	return b.opts.EntryFileNames
 }
 
-// renderedEntryRel renders the entry path without joining OutDir. fullPath
-// reports that the pattern is a complete path (NameTemplate), so the caller
-// must not prepend OutDir.
+// renderedEntryRel renders an entry path without OutDir; fullPath marks a complete NameTemplate path.
 func (b *bundler) renderedEntryRel(defaultRel string, format Format, hash string) (string, bool) {
 	pattern := b.entryPattern()
 	if pattern == "" {
@@ -300,8 +290,7 @@ func (b *bundler) renderedEntryRel(defaultRel string, format Format, hash string
 	return filepath.ToSlash(rendered), b.opts.NameTemplate != ""
 }
 
-// chunkOutputRel returns the OutDir-relative path of a chunk. Empty
-// ChunkFileNames keeps the built-in fallback layout used by each chunk kind.
+// chunkOutputRel returns an OutDir-relative chunk path, using the built-in layout when ChunkFileNames is empty.
 func (b *bundler) chunkOutputRel(name, path string, mods []string, fallback string) string {
 	if b.opts.ChunkFileNames == "" {
 		return fallback
@@ -320,8 +309,7 @@ func (b *bundler) chunkOutputRel(name, path string, mods []string, fallback stri
 	}))
 }
 
-// entryRelPath returns the rootDir-relative path of an entry without its
-// extension, used as the [path] value in a filename pattern.
+// entryRelPath returns the rootDir-relative entry path without extension for [path] patterns.
 func entryRelPath(rootDir, abs string) string {
 	p := modpath.JavascriptOutputAbs(abs)
 	if r, err := filepath.Rel(rootDir, p); err == nil {
@@ -355,8 +343,7 @@ func (b *bundler) staticDeps() map[string][]string {
 			}
 			dep := modpath.ModuleID(resolved)
 			if _, loaded := b.units[dep]; !loaded {
-				// The graph must not point at a module that was never loaded:
-				// a chunk built from such an id has no entry module.
+				// A chunk must not point at a module that was never loaded, which has no entry module.
 				continue
 			}
 			out[id] = append(out[id], dep)
@@ -365,8 +352,7 @@ func (b *bundler) staticDeps() map[string][]string {
 	return out
 }
 
-// dynamicImportEdges lists the import() targets of each module. A require call
-// is synchronous and stays in its bundle, so it must not become a chunk root.
+// dynamicImportEdges lists import() targets; require() is synchronous and must not become a chunk root.
 func (b *bundler) dynamicImportEdges() map[string]map[string]bool {
 	edges := map[string]map[string]bool{}
 	for id, unit := range b.units {

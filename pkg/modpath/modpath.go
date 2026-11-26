@@ -17,14 +17,9 @@ func ModuleID(path string) string {
 	return filepath.ToSlash(path)
 }
 
-// NodeModulesRel returns the path of abs inside its package, using the
-// innermost node_modules directory. A package manager can nest its store
-// (node_modules/.pnpm/<pkg>@<version>/node_modules/<pkg>/...), so the last match
-// decides where the package root is.
-//
-// The comparison ignores case because Windows and macOS resolve a differently
-// cased directory to the same place, and a query or fragment is dropped so a
-// cache-busting suffix cannot end up in an output file name.
+// NodeModulesRel returns the path of abs inside its package, using the innermost node_modules directory.
+// The last match wins because package managers nest stores (node_modules/.pnpm/<pkg>@<version>/node_modules/<pkg>).
+// Comparison ignores case (Windows/macOS) and drops query or fragment so a cache-busting suffix cannot reach an output name.
 func NodeModulesRel(abs string) (string, bool) {
 	if abs == "" {
 		return "", false
@@ -33,8 +28,7 @@ func NodeModulesRel(abs string) (string, bool) {
 	if i := strings.IndexAny(slash, "?#"); i >= 0 {
 		slash = slash[:i]
 	}
-	// A trailing separator would otherwise leave an empty last segment and make
-	// "node_modules/" look like a package root with an empty relative path.
+	// Trimming the trailing separator avoids an empty last segment treating "node_modules/" as a package root.
 	slash = strings.TrimRight(slash, "/")
 	if slash == "" {
 		return "", false
@@ -52,16 +46,13 @@ func NodeModulesRel(abs string) (string, bool) {
 	return "", false
 }
 
-// AbsPath returns path as a clean absolute path. A relative path is resolved
-// against cwd, so a caller that knows the project root does not have to rely on
-// the process working directory.
+// AbsPath returns a clean absolute path, resolving relative paths against cwd so callers can supply the project root.
 func AbsPath(cwd, path string) (string, error) {
 	return filepath.AbsIn(cwd, path)
 }
 
-// AbsFile resolves path to a clean absolute path and asks fs whether it is a
-// file. A relative path is resolved against cwd. Passing the nil FS reads the
-// OS file system.
+// AbsFile resolves path to a clean absolute path and asks fs whether it is a file, resolving relative paths against cwd.
+// A nil FS reads the OS file system.
 func AbsFile(fs vfs.FS, cwd, path string) (string, error) {
 	abs, err := AbsPath(cwd, path)
 	if err != nil {
@@ -84,9 +75,8 @@ func AbsFile(fs vfs.FS, cwd, path string) (string, error) {
 	return abs, nil
 }
 
-// ReadFile reads path through fs. A missing file reports fs.ErrNotExist, so a
-// caller does not depend on the wording of an fs specific error. Passing the
-// nil FS reads the OS file system.
+// ReadFile reads path through fs; a missing file reports fs.ErrNotExist so callers do not depend on fs-specific error text.
+// A nil FS reads the OS file system.
 func ReadFile(fs vfs.FS, path string) ([]byte, error) {
 	if fs == nil {
 		return os.ReadFile(path)
@@ -102,9 +92,7 @@ func ReadFile(fs vfs.FS, path string) ([]byte, error) {
 	return []byte(text), nil
 }
 
-// DisplayRoot picks a filesystem root for relative display paths. A path below
-// cwd is displayed relative to it; without a usable cwd the deepest common
-// directory of paths is used instead.
+// DisplayRoot picks cwd as the display root when all paths lie below it, otherwise their deepest common directory.
 func DisplayRoot(cwd string, paths []string) string {
 	if cwd != "" && len(paths) > 0 {
 		inside := true

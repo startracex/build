@@ -5,9 +5,7 @@ import { webcrypto } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import type { Bridge } from "./types.js";
 
-// wasm_exec.js is a script, not a module: it installs Go on globalThis. Load it
-// through a runtime URL so the bundler keeps it as a separate file beside the
-// wasm instead of trying to inline it.
+// wasm_exec.js installs Go on globalThis as a script, not a module, so load it by URL to keep it beside the wasm instead of inlined.
 const wasmExecURL = new URL("./wasm_exec.js", import.meta.url);
 const wasmURL = new URL("./main.wasm", import.meta.url);
 

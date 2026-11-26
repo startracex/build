@@ -15,8 +15,7 @@ const (
 	FormatUMD  = "umd"
 )
 
-// WrapFormat converts a CJS-style linked body (module.exports) into IIFE or UMD.
-// ESM and CJS pass through unchanged.
+// WrapFormat converts a CJS-style linked body into IIFE or UMD; ESM and CJS pass through unchanged.
 func WrapFormat(js string, format string, globalName string) string {
 	switch format {
 	case FormatIIFE:

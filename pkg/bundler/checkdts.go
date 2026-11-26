@@ -10,9 +10,7 @@ import (
 	"github.com/startracex/build/pkg/resolve"
 )
 
-// attachDeclarations fills library units from a tsgo program emit so inferred
-// types come from the checker. A file the program does not emit falls back to
-// single-file declaration transpile.
+// attachDeclarations fills library units from the checker's program emit, falling back to single-file transpile.
 func (b *bundler) attachDeclarations() error {
 	if !b.decl {
 		return nil

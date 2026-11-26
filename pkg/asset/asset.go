@@ -61,8 +61,7 @@ func ParseQuery(spec string) Query {
 	return iq
 }
 
-// ModuleKey is the graph id for an asset, including ?raw / ?url when needed so
-// the same file can be imported under different query kinds.
+// ModuleKey is the graph id for an asset, including ?raw / ?url so one file can be imported under different kinds.
 func ModuleKey(abs string, kind Kind) string {
 	id := tspath.NormalizeSlashes(abs)
 	switch kind {
@@ -117,10 +116,8 @@ func JoinPublicPath(public, rel string) string {
 	return public + "/" + strings.TrimPrefix(rel, "/")
 }
 
-// Load reads an asset file through fs and returns the unit plus synthetic ESM
-// source. A nil fs reads the OS file system. assetFileNames, when set, is a
-// filename pattern for the emitted asset and is used in place of the default
-// source-relative hashed name.
+// Load reads an asset through fs and returns the unit plus synthetic ESM; a nil fs reads the OS file system.
+// assetFileNames overrides the default source-relative hashed name with a filename pattern.
 func Load(fs vfs.FS, abs string, kind Kind, rootDir, publicPath, assetFileNames string) (*Unit, string, error) {
 	data, err := modpath.ReadFile(fs, abs)
 	if err != nil {

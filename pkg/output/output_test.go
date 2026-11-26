@@ -59,8 +59,7 @@ func TestContentHashStable(t *testing.T) {
 	}
 }
 
-// TestRenderFileNamePlaceholders checks every supported placeholder. [ext]
-// expands without the leading dot, so a pattern writes ".[ext]" for ".js".
+// TestRenderFileNamePlaceholders checks every placeholder; [ext] expands without the dot, so ".[ext]" yields ".js".
 func TestRenderFileNamePlaceholders(t *testing.T) {
 	cases := []struct {
 		pattern string
@@ -83,8 +82,7 @@ func TestRenderFileNamePlaceholders(t *testing.T) {
 	}
 }
 
-// TestRenderEntryFileNameKeepsOldShape checks the compatibility wrapper still
-// expands the placeholders it always supported.
+// TestRenderEntryFileNameKeepsOldShape checks the compatibility wrapper still expands its original placeholders.
 func TestRenderEntryFileNameKeepsOldShape(t *testing.T) {
 	got := RenderEntryFileName("[name]-[hash:3].[format].js", "index", "sub/index", "esm", "123456789")
 	if got != "index-123.esm.js" {

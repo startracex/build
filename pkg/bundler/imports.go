@@ -4,9 +4,7 @@ import (
 	"github.com/startracex/tsgo/pkg/ast"
 )
 
-// specifiers lists module names that must be loaded for value imports,
-// re-exports, dynamic import(), and require() calls. Type-only imports are
-// omitted because they are erased and do not exist at runtime.
+// specifiers lists modules loaded by value imports, re-exports, dynamic import(), and require(); type-only imports are erased.
 func specifiers(file *ast.SourceFile) []string {
 	if file == nil || file.Statements == nil {
 		return nil

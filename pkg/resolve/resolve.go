@@ -18,8 +18,7 @@ import (
 	"github.com/startracex/tsgo/pkg/vfs/osvfs"
 )
 
-// nodeBuiltins are Node's core modules. They stay external so the bundle can
-// import them instead of trying to find a package of the same name.
+// nodeBuiltins are Node's core modules, kept external so the bundle imports them instead of searching for a same-named package.
 var nodeBuiltins = map[string]struct{}{
 	"assert": {}, "assert/strict": {}, "async_hooks": {}, "buffer": {},
 	"child_process": {}, "cluster": {}, "console": {}, "constants": {},
@@ -38,8 +37,7 @@ var nodeBuiltins = map[string]struct{}{
 // Config holds resolver options supplied by the bundler.
 type Config struct {
 	Alias map[string]string
-	// CompilerOptions carries the tsconfig options that change how module
-	// specifiers are resolved: "moduleResolution" and "paths".
+	// CompilerOptions carries the tsconfig options affecting resolution: "moduleResolution" and "paths".
 	CompilerOptions *core.CompilerOptions
 	OnAsset         func(abs string, q asset.Query) error
 	ResolveHook     func(importer, spec string) (path string, external bool, ok bool, err error)
@@ -47,26 +45,20 @@ type Config struct {
 	FS vfs.FS
 	// Mode is the resolution mode tsgo uses for the import graph.
 	Mode core.ResolutionMode
-	// BaseURL stands in for the removed tsconfig "baseUrl" option. TypeScript
-	// 5 resolved bare specifiers against it, so a tsconfig that still uses it
-	// keeps working. It is kept apart from the mappings the user wrote so
-	// library mode still treats bare package imports as external.
+	// BaseURL stands in for the removed tsconfig "baseUrl" so bare specifiers still resolve as in TypeScript 5; it is kept apart from user mappings so library mode treats bare package imports as external.
 	BaseURL BaseURLFallback
-	// CWD resolves relative paths. Empty falls back to the process working
-	// directory.
+	// CWD resolves relative paths; empty falls back to the process working directory.
 	CWD string
 	// EntryDir is the directory of the entry file. Resolution starts here.
 	EntryDir string
 	Format   string // "esm", "cjs", ...
-	// Conditions are the extra package.json "exports" conditions. They are used
-	// as given: no platform-specific condition is added.
+	// Conditions are extra package.json "exports" conditions, used as given with no platform-specific condition added.
 	Conditions []string
 	External   []string
 	LibBuild   bool // library mode: bare package imports are external
 }
 
-// BaseURLFallback describes the project root that stands in for the removed
-// tsconfig "baseUrl" option.
+// BaseURLFallback describes the project root standing in for the removed tsconfig "baseUrl" option.
 type BaseURLFallback struct {
 	// Directory is the project root bare specifiers fall back to.
 	Directory tspath.RootedDirectoryPath
@@ -125,11 +117,7 @@ func New(cfg Config) (*Resolver, error) {
 	}, nil
 }
 
-// resolutionCompilerOptions builds the compiler options used to resolve module
-// specifiers for the JavaScript graph. The tsconfig options that steer
-// resolution are honoured; everything else keeps the bundler defaults.
-// Config.Conditions is used as given: no platform-specific condition is added
-// and the module resolution kind is never changed.
+// resolutionCompilerOptions honours tsconfig options that steer resolution and keeps bundler defaults otherwise; Config.Conditions is used as given, with no platform condition added and no change to the resolution kind.
 func resolutionCompilerOptions(conditions []string, src *core.CompilerOptions, baseURL BaseURLFallback) *core.CompilerOptions {
 	opts := &core.CompilerOptions{
 		Module:                     core.ModuleKindESNext,
@@ -152,11 +140,7 @@ func resolutionCompilerOptions(conditions []string, src *core.CompilerOptions, b
 	return opts
 }
 
-// WithPathsFallback returns the path mappings with the wildcard fallback
-// mapping added. The fallback stands in for the removed "baseUrl" option: it
-// sends every bare specifier to the project root, the way TypeScript 5 did.
-// Mappings the user wrote keep their own priority, so an explicit alias still
-// wins over the fallback.
+// WithPathsFallback adds a "*" mapping standing in for the removed "baseUrl" option, sending bare specifiers to the project root as TypeScript 5 did; user mappings keep priority so explicit aliases still win.
 func WithPathsFallback(paths *collections.OrderedMap[string, []string], baseURL BaseURLFallback, basePath tspath.RootedDirectoryPath) *collections.OrderedMap[string, []string] {
 	if baseURL.IsZero() {
 		return paths
@@ -174,8 +158,7 @@ func WithPathsFallback(paths *collections.OrderedMap[string, []string], baseURL 
 	return result
 }
 
-// RelativeTo returns the path of target relative to basePath. It falls back
-// to the target itself when the two cannot be related.
+// RelativeTo returns target relative to basePath, falling back to target itself when they cannot be related.
 func RelativeTo(target tspath.RootedFilePath, basePath tspath.RootedDirectoryPath, caseSensitivity tspath.CaseSensitivity) string {
 	if basePath == "" {
 		return target.AsString()
@@ -187,9 +170,7 @@ func RelativeTo(target tspath.RootedFilePath, basePath tspath.RootedDirectoryPat
 	return relative.AsString()
 }
 
-// NormalizeModuleResolution maps a tsconfig "moduleResolution" value to the
-// kind tsgo understands. The removed "classic" and "node10" kinds fall back to
-// "bundler", which is what tsgo does for them as well.
+// NormalizeModuleResolution maps a tsconfig "moduleResolution" value to a tsgo kind; removed "classic" and "node10" kinds fall back to "bundler".
 func NormalizeModuleResolution(kind core.ModuleResolutionKind) core.ModuleResolutionKind {
 	switch kind {
 	case core.ModuleResolutionKindNode16, core.ModuleResolutionKindNodeNext, core.ModuleResolutionKindBundler:
@@ -197,8 +178,7 @@ func NormalizeModuleResolution(kind core.ModuleResolutionKind) core.ModuleResolu
 	case core.ModuleResolutionKindUnknown:
 		return core.ModuleResolutionKindBundler
 	default:
-		// "classic" and "node10" were removed in TypeScript 7. Their enum
-		// values are deprecated, so they are matched by the default branch.
+		// "classic" and "node10" were removed in TS7; their deprecated enum values fall into the default branch.
 		return core.ModuleResolutionKindBundler
 	}
 }
@@ -244,8 +224,7 @@ func (r *Resolver) resolveSpec(importer, spec string, allowModuleField bool) (st
 			}
 			abs, err := modpath.AbsFile(r.fs, r.cwd, path)
 			if err != nil {
-				// A hook may name a file the injected FS does not report, for
-				// example a virtual id; keep the cleaned path.
+				// A hook may name a virtual file the injected FS does not report; keep the cleaned path.
 				abs, err = modpath.AbsPath(r.cwd, path)
 				if err != nil {
 					return "", false, fmt.Errorf("resolve %q from %s: %w", spec, importer, err)
@@ -267,9 +246,7 @@ func (r *Resolver) resolveSpec(importer, spec string, allowModuleField bool) (st
 	}
 	if r.cfg.LibBuild && !r.cfg.BaseURL.IsZero() && !r.matchesPathsAlias(specPath) {
 		if _, _, ok := packageSpecifier(specPath); ok {
-			// Library mode leaves bare package imports external, but the
-			// project root fallback may still point at a local file. Give it
-			// a chance before the specifier is left external.
+			// Library mode leaves bare package imports external, but the project root fallback may point at a local file; give it a chance first.
 			abs, resolved, err := r.resolveWithCompiler(importer, specPath)
 			if err != nil {
 				return "", false, err
@@ -346,8 +323,7 @@ func (r *Resolver) resolveWithCompiler(importer, spec string) (string, bool, err
 	if resolved == nil || !resolved.IsResolved() {
 		return "", false, nil
 	}
-	// Later reads use this path as the module id, so it must not cross a
-	// reparse point the file system refuses to traverse.
+	// Later reads use this path as the module id, so it must not cross a reparse point the file system refuses to traverse.
 	raw := r.fs.realNative(filepath.FromSlash(resolved.ResolvedFileName.AsString()))
 	abs, err := modpath.AbsFile(r.fs, r.cwd, raw)
 	if err != nil {
@@ -399,8 +375,7 @@ func (r *Resolver) IsUserExternal(spec string) bool {
 		return true
 	}
 	if r.cfg.LibBuild {
-		// A tsconfig "paths" alias points at a local file, so it is not a
-		// package import and stays in the bundle.
+		// A tsconfig "paths" alias points at a local file, so it is not a package import and stays in the bundle.
 		if r.matchesPathsAlias(spec) {
 			return false
 		}
@@ -423,8 +398,7 @@ func (r *Resolver) isListedExternal(spec string) bool {
 	return false
 }
 
-// matchesPathsAlias reports whether spec matches one of the tsconfig "paths"
-// patterns. Such a specifier resolves to a local file instead of a package.
+// matchesPathsAlias reports whether spec matches a tsconfig "paths" pattern, resolving to a local file instead of a package.
 func (r *Resolver) matchesPathsAlias(spec string) bool {
 	if r.cfg.CompilerOptions == nil {
 		return false
@@ -441,8 +415,7 @@ func (r *Resolver) matchesPathsAlias(spec string) bool {
 	return false
 }
 
-// matchPathPattern reports whether spec matches a tsconfig "paths" pattern.
-// A pattern holds at most one "*" wildcard.
+// matchPathPattern reports whether spec matches a tsconfig "paths" pattern holding at most one "*" wildcard.
 func matchPathPattern(pattern, spec string) bool {
 	before, after, ok := strings.Cut(pattern, "*")
 	if !ok {
@@ -513,8 +486,7 @@ func isExternalSpecifier(spec string) bool {
 	return ok
 }
 
-// isPackageFile reports whether path points into a package folder, so it
-// belongs to a dependency rather than to the project itself.
+// isPackageFile reports whether path points into a package folder, i.e. a dependency rather than the project itself.
 func isPackageFile(path string) bool {
 	_, ok := modpath.NodeModulesRel(path)
 	return ok

@@ -8,8 +8,7 @@ import (
 	"github.com/startracex/tsgo/pkg/ast"
 )
 
-// rewrite collects the define and drop edits for one module. The edits never
-// overlap: a dropped subtree is not visited again.
+// rewrite collects the define and drop edits for one module; edits never overlap because a dropped subtree is not revisited.
 func rewrite(src string, rules map[string]rule, dropConsole, dropDebugger bool) []jsedit.Edit {
 	file := jsedit.ParseEmittedJS(src)
 	if file.Statements == nil {
@@ -32,8 +31,7 @@ type rewriter struct {
 	rules map[string]rule
 	src   string
 	edits []jsedit.Edit
-	// scopes is the lexical scope stack, innermost last. A define key is only
-	// replaced where no enclosing scope declares the same name.
+	// scopes is the lexical scope stack, innermost last; a define key is replaced only where no enclosing scope declares its name.
 	scopes       []map[string]bool
 	dropConsole  bool
 	dropDebugger bool
@@ -85,7 +83,6 @@ func (w *rewriter) visit(n *ast.Node) {
 	})
 }
 
-// isConsoleCall reports whether expr is a console.* call.
 func (w *rewriter) isConsoleCall(expr *ast.Node) bool {
 	if expr == nil || expr.Kind != ast.KindCallExpression {
 		return false
@@ -93,8 +90,7 @@ func (w *rewriter) isConsoleCall(expr *ast.Node) bool {
 	return w.isConsoleAccess(expr.AsCallExpression().Expression)
 }
 
-// isConsoleAccess reports whether n is a console.* member access whose console
-// is not shadowed, so a local `console` object is left alone.
+// isConsoleAccess reports an unshadowed console.* member access, leaving a local `console` object alone.
 func (w *rewriter) isConsoleAccess(n *ast.Node) bool {
 	if n == nil || n.Kind != ast.KindPropertyAccessExpression {
 		return false
@@ -110,9 +106,7 @@ func (w *rewriter) isConsoleAccess(n *ast.Node) bool {
 	return nodeText(w.src, root) == "console" && w.unbound(root)
 }
 
-// replaceWithVoid clears a console reference that sits inside an expression.
-// The call's value is undefined and its side effects are gone, and the
-// expression around it keeps working.
+// replaceWithVoid clears an in-expression console reference: the value becomes undefined, side effects are gone, and the surrounding expression still works.
 func (w *rewriter) replaceWithVoid(n *ast.Node) {
 	text := voidExpr
 	if tightPosition(n) {
@@ -125,8 +119,7 @@ func (w *rewriter) replaceWithVoid(n *ast.Node) {
 	})
 }
 
-// match returns the define rule that n is exactly. Property chains are matched
-// as a whole so the longest key wins.
+// match returns the define rule n is exactly; property chains match whole so the longest key wins.
 func (w *rewriter) match(n *ast.Node) (rule, bool) {
 	switch n.Kind {
 	case ast.KindIdentifier:
@@ -146,8 +139,7 @@ func (w *rewriter) match(n *ast.Node) (rule, bool) {
 	return rule{}, false
 }
 
-// chain renders a static property chain ("process.env.NODE_ENV"). It fails for
-// optional access, computed access, and roots that are not free identifiers.
+// chain renders a static property chain ("process.env.NODE_ENV"), failing for optional/computed access and non-free roots.
 func (w *rewriter) chain(n *ast.Node) (string, bool) {
 	var parts []string
 	for cur := n; cur != nil; {
@@ -204,7 +196,6 @@ func (w *rewriter) freeReference(n *ast.Node) bool {
 	return isReferencePosition(n) && w.unbound(n)
 }
 
-// unbound reports whether no enclosing scope declares the identifier.
 func (w *rewriter) unbound(n *ast.Node) bool {
 	name := nodeText(w.src, n)
 	for _, v := range slices.Backward(w.scopes) {
@@ -226,8 +217,7 @@ func (w *rewriter) replace(n *ast.Node, r rule) {
 	})
 }
 
-// replaceShorthand expands { __DEV__ } into { __DEV__: <value> }, because
-// replacing only the name would also rename the property.
+// replaceShorthand expands { __DEV__ } into { __DEV__: <value> } because replacing only the name would rename the property too.
 func (w *rewriter) replaceShorthand(n *ast.Node) bool {
 	shorthand := n.AsShorthandPropertyAssignment()
 	if shorthand.ObjectAssignmentInitializer != nil {
@@ -257,17 +247,13 @@ func replacement(r rule) string {
 	return r.value
 }
 
-// removeStatement deletes stmt, or replaces it with an empty block where the
-// grammar requires a statement. The trivia before the statement goes too, so
-// the surrounding lines stay free of blank holes; a comment there is kept and
-// only the statement is removed.
+// removeStatement deletes stmt, or leaves an empty block where the grammar requires one; leading trivia goes too unless it holds a comment, which is kept.
 func (w *rewriter) removeStatement(n *ast.Node) {
 	start := n.Pos()
 	tokenStart := jsedit.TokenStart(w.src, n)
 	text := statementSeparator(w.src, n.End())
 	if requiresStatementSlot(n) {
-		// Keep the whitespace before the statement so the empty block stays
-		// separated from the header.
+		// Keep preceding whitespace so the empty block stays separated from the header.
 		start = tokenStart
 		text = "{}"
 	} else if start < 0 || start > tokenStart || leadingComment(w.src[start:tokenStart]) {
@@ -276,14 +262,11 @@ func (w *rewriter) removeStatement(n *ast.Node) {
 	w.edits = append(w.edits, jsedit.Edit{Start: start, End: n.End(), Text: text})
 }
 
-// leadingComment reports whether trivia holds a comment.
 func leadingComment(trivia string) bool {
 	return strings.Contains(trivia, "//") || strings.Contains(trivia, "/*")
 }
 
-// statementSeparator returns the text that must remain at a deletion point so
-// the next line cannot join the previous statement through automatic semicolon
-// insertion.
+// statementSeparator returns text that must remain at a deletion point so the next line cannot join the previous statement via automatic semicolon insertion.
 func statementSeparator(src string, end int) string {
 	if asiHazard(src, end) {
 		return ";"
@@ -291,8 +274,7 @@ func statementSeparator(src string, end int) string {
 	return ""
 }
 
-// asiHazard reports whether deleting text at end would let the following token
-// continue the previous expression.
+// asiHazard reports whether deleting text at end would let the following token continue the previous expression.
 func asiHazard(src string, end int) bool {
 	if end < 0 || end >= len(src) {
 		return false
@@ -341,8 +323,7 @@ func asiHazard(src string, end int) bool {
 	return false
 }
 
-// tightPosition reports whether a value at n binds tighter than a member, call,
-// tag, or non-null expression, so the replacement must keep its parentheses.
+// tightPosition reports whether a value at n binds tighter than a member, call, tag, or non-null expression, so the replacement keeps its parentheses.
 func tightPosition(n *ast.Node) bool {
 	parent := n.Parent
 	if parent == nil {
@@ -379,9 +360,7 @@ func requiresStatementSlot(n *ast.Node) bool {
 	return false
 }
 
-// isReferencePosition reports whether n is read as a value rather than used as
-// a name: property keys, declaration names, labels, and import specifiers are
-// not references.
+// isReferencePosition reports whether n is read as a value; property keys, declaration names, labels, and import specifiers are not references.
 func isReferencePosition(n *ast.Node) bool {
 	parent := n.Parent
 	if parent == nil {
@@ -403,8 +382,7 @@ func isReferencePosition(n *ast.Node) bool {
 	return !isDeclarationName(parent, n)
 }
 
-// isDeclarationName reports whether parent stores n as its name. An initializer
-// or a default value is a reference, so the node position decides.
+// isDeclarationName reports whether parent stores n as its name; an initializer or default is a reference, so node position decides.
 func isDeclarationName(parent, n *ast.Node) bool {
 	switch parent.Kind {
 	case ast.KindVariableDeclaration, ast.KindParameter, ast.KindBindingElement,
@@ -425,8 +403,7 @@ func isDeclarationName(parent, n *ast.Node) bool {
 	return false
 }
 
-// isWriteTarget reports whether n is assigned to. Replacing an assignment
-// target with a value would produce an invalid assignment.
+// isWriteTarget reports whether n is assigned to; replacing an assignment target with a value would be invalid.
 func isWriteTarget(n *ast.Node) bool {
 	parent := n.Parent
 	if parent == nil {
@@ -462,7 +439,6 @@ func isAssignmentOperator(kind ast.Kind) bool {
 	return false
 }
 
-// nodeText returns the source text of n without leading trivia.
 func nodeText(src string, n *ast.Node) string {
 	start := jsedit.TokenStart(src, n)
 	end := n.End()

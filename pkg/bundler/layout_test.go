@@ -12,8 +12,7 @@ import (
 
 const minifiedPackage = `export function mega(a,b){return a+b}export const tiny={x:1,y:2};`
 
-// TestLibDepsDir checks that bundled packages move under --deps-dir and that
-// the rewritten import specifiers follow them.
+// TestLibDepsDir checks that --deps-dir moves bundled packages and rewrites their import specifiers.
 func TestLibDepsDir(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "src", "index.ts"), `import { helper } from "deep-pkg";
@@ -90,8 +89,7 @@ func TestNodeModulesRel(t *testing.T) {
 	}
 }
 
-// TestLibKeepsMinifiedDependency checks that a dependency that only needs a
-// reprint keeps its original text, and that its source map still lines up.
+// TestLibKeepsMinifiedDependency checks that a reprint-only dependency keeps its text and aligned map.
 func TestLibKeepsMinifiedDependency(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "src", "index.ts"), `import { tiny } from "mini-pkg";
@@ -135,8 +133,7 @@ export const out = tiny.x;
 	assertMappedTo(t, dep, parsed, "const tiny", "export const tiny")
 }
 
-// TestAppBundleKeepsTreeShakingOfMinifiedDependency checks that a minified
-// dependency keeps its text while unused exports and properties still go.
+// TestAppBundleKeepsTreeShakingOfMinifiedDependency checks that minified text stays while unused exports and properties go.
 func TestAppBundleKeepsTreeShakingOfMinifiedDependency(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `import { tiny } from "mini-pkg";
@@ -159,9 +156,7 @@ export const out = tiny.x;
 	}
 }
 
-// TestAppBundleSeparatesStatements guards the join between module bodies when a
-// module keeps its text: a body without a trailing semicolon must not swallow
-// the next body, which starts with a parenthesis.
+// TestAppBundleSeparatesStatements checks that bodies without a trailing semicolon do not swallow the next parenthesized body.
 func TestAppBundleSeparatesStatements(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `import { first } from "./first.js";

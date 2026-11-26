@@ -2,8 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { FSAdapter } from "./types.js";
 
-// The Go bridge passes slash-separated rooted paths. Map them back to host
-// paths here; on Windows a leading slash belongs to the current drive.
+// The Go bridge passes slash-separated rooted paths; map them back to host paths (on Windows a leading slash is the current drive).
 const windows = process.platform === "win32";
 
 function toHost(p: string): string {
@@ -23,8 +22,7 @@ const nodeFS: FSAdapter = {
 
 	readFile(p) {
 		try {
-			// A Buffer is a Uint8Array; the Go side copies bytes out of it, so
-			// binary assets survive the bridge.
+			// A Buffer is a Uint8Array; the Go side copies bytes out, so binary assets survive the bridge.
 			return fs.readFileSync(toHost(p));
 		} catch {
 			return null;

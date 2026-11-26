@@ -5,10 +5,7 @@ import (
 	"github.com/startracex/tsgo/pkg/tspath"
 )
 
-// Types holds the tsconfig switches that change type checking and inference,
-// including the library files a program loads. They change diagnostics and
-// declaration types but never the emitted JavaScript text, so they are kept
-// apart from Emit and never fingerprint a transpile cache entry.
+// Types holds the tsconfig switches for type checking, inference, and library files; they change diagnostics and declaration types but never emitted JavaScript, so they stay apart from Emit and never fingerprint a cache entry.
 type Types struct {
 	AllowUnreachableCode               core.Tristate
 	AllowUnusedLabels                  core.Tristate
@@ -35,8 +32,7 @@ type Types struct {
 	Types                              []string
 }
 
-// TypesFrom reads the type-checking switches. A nil source yields the zero
-// value, which leaves the destination at its defaults.
+// TypesFrom reads the type-checking switches; a nil source yields the zero value.
 func TypesFrom(src *core.CompilerOptions) Types {
 	if src == nil {
 		return Types{}

@@ -35,9 +35,7 @@ func preferredLoadFormat(outputs []OutputOptions) Format {
 	return FormatCJS
 }
 
-// effectiveRootDir resolves the base used for paths written under the output
-// directory. An explicit option wins, then the rootDir from tsconfig, then the
-// deepest directory shared by the entry files.
+// effectiveRootDir prefers Options.RootDir, then tsconfig rootDir, then the deepest directory shared by entries.
 func effectiveRootDir(opts Options, cwd string) string {
 	if opts.RootDir != "" {
 		if abs, err := modpath.AbsPath(cwd, opts.RootDir); err == nil {
@@ -50,10 +48,7 @@ func effectiveRootDir(opts Options, cwd string) string {
 	return ""
 }
 
-// newTranspileCache builds the optional transpile cache. The directory is
-// resolved against the build root, so a virtual file system keeps its entries in
-// the same tree as the sources, and the OS file system gets the same absolute
-// directory it would have reached through the process working directory.
+// newTranspileCache resolves dir against cwd so virtual builds keep cache entries in their own tree.
 func newTranspileCache(fs vfs.FS, cwd, dir string) *cache.TranspileCache {
 	if dir == "" {
 		return nil
@@ -65,9 +60,7 @@ func newTranspileCache(fs vfs.FS, cwd, dir string) *cache.TranspileCache {
 	return cache.NewTranspileCache(fs, abs)
 }
 
-// transformKeyFor fingerprints the plugin names and define/drop values that
-// change the transform step. Only a plugin with a transform hook can rewrite
-// source text, so the others are left out.
+// transformKeyFor fingerprints transform plugins plus define/drop; other plugins cannot rewrite text.
 func transformKeyFor(opts Options) string {
 	names := make([]string, 0, len(opts.Plugins))
 	for _, p := range opts.Plugins {
@@ -81,8 +74,7 @@ func transformKeyFor(opts Options) string {
 func transformCacheKey(pluginNames []string, define map[string]string, drop []string) string {
 	h := sha256.New()
 	if err := transformCacheKeyWrite(h, pluginNames, define, drop); err != nil {
-		// The input is string slices and a string map, so this cannot fail;
-		// hashing a printable form keeps the key distinct if it ever does.
+		// Fallback hashing keeps the key distinct even if the impossible encoding error occurs.
 		h = sha256.New()
 		_, _ = fmt.Fprintf(h, "%#v|%#v|%#v", pluginNames, define, drop)
 	}
@@ -111,8 +103,7 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		// A wasm build has no working directory; the caller supplies CWD there.
 		cwd, _ = os.Getwd()
 	}
-	// A build compares every path as a slash-separated vfs path, so the root is
-	// normalized once here instead of at each call site.
+	// Paths are compared as slash-separated vfs paths, so normalize cwd once here.
 	cwd = filepath.ToSlash(cwd)
 	roots, err := opts.absRoots(cwd)
 	if err != nil {
@@ -161,8 +152,7 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		cache:        transpileCache,
 	}
 	if b.cache != nil {
-		// The transform settings are fixed for a build, so fingerprint them
-		// once instead of once per module.
+		// Transform settings are fixed per build, so fingerprint them once.
 		b.transformKey = transformKeyFor(opts)
 	}
 	res, err := resolve.New(resolve.Config{
@@ -189,8 +179,7 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 			return nil, nil, err
 		}
 	}
-	// Plugin transforms already ran per module while loading, so imports they
-	// add are part of the graph. Only the define/drop rewrite is left.
+	// Plugin transforms ran during load, so only the define/drop rewrite remains.
 	for id, unit := range b.units {
 		if unit.asset {
 			continue
@@ -202,12 +191,10 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		unit.code = rewritten
 		if len(stages) > 0 {
 			if unit.verbatim && strings.TrimSpace(unit.jsMap) == "" {
-				// A verbatim module maps line to line; the stages then move it
-				// along with the text they rewrite.
+				// A verbatim module maps line to line, so stages move it with the rewritten text.
 				unit.jsMap = sourcemap.IdentitySourceMap("", "", unit.source, "", "")
 			}
-			// The map describes the code before the rewrite, so each stage
-			// shifts it until it describes the emitted module again.
+			// Each define/drop stage shifts the map until it describes the emitted module again.
 			unit.jsMap = remapStages(unit.jsMap, stages)
 			unit.file = nil
 		}
@@ -252,8 +239,7 @@ func validateBuildOutputs(opts Options, outputs []OutputOptions, outMode Mode, r
 	return nil
 }
 
-// validateDepsDir keeps the bundled dependency directory inside the output
-// directory, so it cannot escape it or depend on the current drive.
+// validateDepsDir keeps bundled dependencies inside the output directory.
 func validateDepsDir(depsDir string) error {
 	if depsDir == "" {
 		return nil

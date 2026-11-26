@@ -29,9 +29,7 @@ func (f *jsFileInfo) ModTime() time.Time { return f.modified }
 func (f *jsFileInfo) IsDir() bool        { return f.dir }
 func (f *jsFileInfo) Sys() any           { return nil }
 
-// jsFS implements vfs.FS on top of a JS adapter. Missing optional methods
-// degrade to the neutral answer for that method, so an adapter only has to
-// implement the operations a build actually needs.
+// jsFS adapts a JS filesystem, defaulting missing methods to neutral answers so adapters need only build-relevant operations.
 type jsFS struct {
 	obj             js.Value
 	caseSensitivity tspath.CaseSensitivity
