@@ -40,6 +40,8 @@ package bundler
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
@@ -348,6 +350,20 @@ func nativePaths(result *Result) {
 	}
 }
 
+func genCacheKey(path, src, optionKey, transformKey string) string {
+	h := sha256.New()
+	h.Write([]byte(path))
+	h.Write([]byte{0})
+	h.Write([]byte(src))
+	h.Write([]byte{0})
+	h.Write([]byte(optionKey))
+	if transformKey != "" {
+		h.Write([]byte{0})
+		h.Write([]byte(transformKey))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 type unit struct {
 	file   *ast.SourceFile
 	code   string
@@ -520,7 +536,7 @@ func (b *bundler) load(path string) error {
 	var js, jsMap string
 	cached := false
 	if b.cache != nil {
-		cacheKey = b.cache.Key(path, src, emitOpts.Key(), b.transformKey)
+		cacheKey = genCacheKey(path, src, emitOpts.Key(), b.transformKey)
 		if ent, ok := b.cache.Get(cacheKey); ok {
 			js, jsMap = ent.JS, ent.Map
 			cached = true

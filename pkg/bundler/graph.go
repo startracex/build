@@ -2,9 +2,14 @@ package bundler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json/v2"
 	"fmt"
+	"io"
 	"os"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/startracex/build/pkg/asset"
@@ -70,7 +75,34 @@ func transformKeyFor(opts Options) string {
 			names = append(names, p.Name)
 		}
 	}
-	return cache.TransformCacheKey(names, opts.Define, opts.Drop)
+	return transformCacheKey(names, opts.Define, opts.Drop)
+}
+
+func transformCacheKey(pluginNames []string, define map[string]string, drop []string) string {
+	h := sha256.New()
+	if err := transformCacheKeyWrite(h, pluginNames, define, drop); err != nil {
+		// The input is string slices and a string map, so this cannot fail;
+		// hashing a printable form keeps the key distinct if it ever does.
+		h = sha256.New()
+		_, _ = fmt.Fprintf(h, "%#v|%#v|%#v", pluginNames, define, drop)
+	}
+	sum := h.Sum(nil)
+	return hex.EncodeToString(sum[:16])
+}
+
+func transformCacheKeyWrite(w io.Writer, pluginNames []string, define map[string]string, drop []string) error {
+	names := append([]string(nil), pluginNames...)
+	sort.Strings(names)
+	drops := make([]string, 0, len(drop))
+	for _, d := range drop {
+		drops = append(drops, strings.ToLower(strings.TrimSpace(d)))
+	}
+	sort.Strings(drops)
+	return json.MarshalWrite(w, struct {
+		Plugins []string          `json:"plugins"`
+		Define  map[string]string `json:"define"`
+		Drop    []string          `json:"drop"`
+	}{names, define, drops}, json.Deterministic(true))
 }
 
 func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bundler, []string, error) {
