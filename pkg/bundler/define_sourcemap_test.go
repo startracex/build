@@ -28,11 +28,11 @@ func TestDefineDropKeepsSourceMapAligned(t *testing.T) {
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Outputs: []OutputOptions{{
-			OutFile: filepath.Join(dir, "out", "bundle.mjs"),
+			OutFile:   filepath.Join(dir, "out", "bundle.mjs"),
+			SourceMap: &sourcemapFlag,
 		}},
-		SourceMap: &sourcemapFlag,
-		Define:    map[string]string{"__MODE__": `"prod"`},
-		Drop:      []string{"console"},
+		Define: map[string]string{"__MODE__": `"prod"`},
+		Drop:   []string{"console"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -67,11 +67,11 @@ console.log("drop-me");
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "src", "index.ts")},
 		Outputs: []OutputOptions{{
-			OutDir: filepath.Join(dir, "dist"),
+			OutDir:    filepath.Join(dir, "dist"),
+			SourceMap: &sourcemapFlag,
 		}},
-		SourceMap: &sourcemapFlag,
-		Define:    map[string]string{"__MODE__": `"prod"`},
-		Drop:      []string{"console"},
+		Define: map[string]string{"__MODE__": `"prod"`},
+		Drop:   []string{"console"},
 	})
 	if err != nil {
 		t.Fatal(err)

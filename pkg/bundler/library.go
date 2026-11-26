@@ -45,7 +45,7 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 	for _, id := range ids {
 		unit := b.units[id]
 		abs := filepath.FromSlash(id)
-		jsRel := libraryOutputRel(root, abs, b.opts.DepsDir)
+		jsRel := libraryOutputRel(root, abs, b.output.DepsDir)
 		outPath := jsRel
 		if b.output.OutDir != "" {
 			outPath = filepath.Join(b.output.OutDir, filepath.FromSlash(jsRel))
@@ -93,7 +93,7 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			mapDir = filepath.Join(b.cwd, mapDir)
 		}
 		mapName := filepath.Base(jsPath) + ".map"
-		hasMap := b.sourceMap && (!unit.jsMap.IsZero() || unit.verbatim)
+		hasMap := b.output.sourceMap() && (!unit.jsMap.IsZero() || unit.verbatim)
 		if hasMap {
 			js = strings.TrimRight(js, "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
 		}
@@ -114,18 +114,18 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			mapData = sourcemap.ApplySourceMapConfig(mapData, mapSourceRoot, inlineSources, unit.source)
 			files = append(files, Output{Path: jsPath + ".map", Data: mapData.JSON()})
 		}
-		if b.decl && strings.TrimSpace(unit.dts) != "" {
+		if b.output.declaration() && strings.TrimSpace(unit.dts) != "" {
 			dts, err := rewriteRelativeSpecifiers(unit.dts, abs, b, true)
 			if err != nil {
 				return nil, err
 			}
 			dtsPath := modpath.ReplaceExt(jsPath, ".d.ts")
 			mapName := filepath.Base(dtsPath) + ".map"
-			if b.declMap && !unit.dtsMap.IsZero() {
+			if b.output.declarationMap() && !unit.dtsMap.IsZero() {
 				dts = strings.TrimRight(jsedit.StripSourceMappingComment(dts), "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
 			}
 			files = append(files, Output{Path: dtsPath, Data: dts})
-			if b.declMap && !unit.dtsMap.IsZero() {
+			if b.output.declarationMap() && !unit.dtsMap.IsZero() {
 				mapData := sourcemap.RelativizeSourceMap(unit.dtsMap, filepath.Base(dtsPath), mapDir, root)
 				mapData = sourcemap.ApplySourceMapConfig(mapData, mapSourceRoot, inlineSources, unit.source)
 				files = append(files, Output{Path: dtsPath + ".map", Data: mapData.JSON()})

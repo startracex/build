@@ -91,8 +91,8 @@ func TestChunkFileNamesForManualChunk(t *testing.T) {
 		Outputs: []OutputOptions{{
 			OutDir:         out,
 			ChunkFileNames: "parts/[name].[ext]",
+			ManualChunks:   map[string]string{"vendor": "vendor"},
 		}},
-		ManualChunks: map[string]string{"vendor": "vendor"},
 	})
 	if err != nil {
 		t.Fatal(err)

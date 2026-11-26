@@ -25,18 +25,6 @@ func normalizeMode(mode Mode) (Mode, error) {
 	}
 }
 
-func (o Options) declaration() bool {
-	return o.Declaration != nil && *o.Declaration
-}
-
-func (o Options) declarationMap() bool {
-	return o.declaration() && o.DeclarationMap != nil && *o.DeclarationMap
-}
-
-func (o Options) sourceMap() bool {
-	return o.SourceMap != nil && *o.SourceMap
-}
-
 func (o Options) emitTarget() core.ScriptTarget {
 	if o.Target != core.ScriptTargetNone {
 		return o.Target
@@ -96,11 +84,11 @@ func (b *bundler) appResult(entry, js, linked string, emitFmt Format) (*Result, 
 		})
 	}
 	b.sources[filepath.ToSlash(filepath.FromSlash(entry))] = jsName
-	if b.sourceMap {
+	if b.output.sourceMap() {
 		js = strings.TrimRight(js, "\n") + "\n//# sourceMappingURL=" + filepath.Base(jsName) + ".map\n"
 	}
 	files := []Output{{Path: jsName, Data: js}}
-	if b.sourceMap {
+	if b.output.sourceMap() {
 		linkSrc := linked
 		if linkSrc == "" {
 			linkSrc = js

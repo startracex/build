@@ -26,10 +26,10 @@ export const out = helper();
 		Entries: []string{filepath.Join(dir, "src", "index.ts")},
 		Mode:    ModeLib,
 		Outputs: []OutputOptions{{
-			OutDir: out,
+			OutDir:  out,
+			DepsDir: "vendor",
 		}},
 		BundleNodeModules: true,
-		DepsDir:           "vendor",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -56,9 +56,9 @@ func TestLibDepsDirRejectsEscape(t *testing.T) {
 			Entries: []string{filepath.Join(dir, "index.ts")},
 			Mode:    ModeLib,
 			Outputs: []OutputOptions{{
-				OutDir: filepath.Join(dir, "dist"),
+				OutDir:  filepath.Join(dir, "dist"),
+				DepsDir: value,
 			}},
-			DepsDir: value,
 		})
 		if err == nil || !strings.Contains(err.Error(), "deps dir") {
 			t.Fatalf("DepsDir %q = %v, want an error", value, err)
@@ -110,10 +110,10 @@ export const out = tiny.x;
 		Entries: []string{filepath.Join(dir, "src", "index.ts")},
 		Mode:    ModeLib,
 		Outputs: []OutputOptions{{
-			OutDir: out,
+			OutDir:    out,
+			SourceMap: &sourcemapFlag,
 		}},
 		BundleNodeModules: true,
-		SourceMap:         &sourcemapFlag,
 		CompilerOptions:   compiler,
 		Drop:              []string{"console"},
 	})

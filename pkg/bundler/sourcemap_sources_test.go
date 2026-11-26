@@ -20,12 +20,12 @@ func TestLibrarySourceMapSourcesMatchTSC(t *testing.T) {
 		Entries: []string{filepath.Join(sourceDir, "index.ts")},
 		Mode:    ModeLib,
 		Outputs: []OutputOptions{{
-			OutDir: filepath.Join(dir, "dist"),
+			OutDir:         filepath.Join(dir, "dist"),
+			SourceMap:      new(true),
+			Declaration:    new(true),
+			DeclarationMap: new(true),
 		}},
-		RootDir:        sourceDir,
-		SourceMap:      new(true),
-		Declaration:    new(true),
-		DeclarationMap: new(true),
+		RootDir: sourceDir,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -62,12 +62,12 @@ func TestLibrarySourceMapConfigFromTSConfig(t *testing.T) {
 		Entries: []string{filepath.Join(sourceDir, "index.ts")},
 		Mode:    ModeLib,
 		Outputs: []OutputOptions{{
-			OutDir: filepath.Join(dir, "dist"),
+			OutDir:         filepath.Join(dir, "dist"),
+			SourceMap:      new(true),
+			Declaration:    new(true),
+			DeclarationMap: new(true),
 		}},
 		RootDir:         sourceDir,
-		SourceMap:       new(true),
-		Declaration:     new(true),
-		DeclarationMap:  new(true),
 		CompilerOptions: compiler,
 	})
 	if err != nil {
@@ -103,12 +103,12 @@ func TestLibrarySourceMapNoInlineSources(t *testing.T) {
 		Entries: []string{filepath.Join(sourceDir, "index.ts")},
 		Mode:    ModeLib,
 		Outputs: []OutputOptions{{
-			OutDir: filepath.Join(dir, "dist"),
+			OutDir:         filepath.Join(dir, "dist"),
+			SourceMap:      new(true),
+			Declaration:    new(true),
+			DeclarationMap: new(true),
 		}},
 		RootDir:         sourceDir,
-		SourceMap:       new(true),
-		Declaration:     new(true),
-		DeclarationMap:  new(true),
 		CompilerOptions: compiler,
 	})
 	if err != nil {

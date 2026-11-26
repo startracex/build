@@ -607,9 +607,9 @@ export { text, url };
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Outputs: []OutputOptions{{
-			OutFile: filepath.Join(out, "bundle.mjs"),
+			OutFile:  filepath.Join(out, "bundle.mjs"),
+			Manifest: true,
 		}},
-		Manifest: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -817,9 +817,9 @@ export function hello(name: string): string {
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Outputs: []OutputOptions{{
-			OutFile: filepath.Join(dir, "out", "bundle.mjs"),
+			OutFile:   filepath.Join(dir, "out", "bundle.mjs"),
+			SourceMap: &sm,
 		}},
-		SourceMap: &sm,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1079,10 +1079,10 @@ export const b = vend + "-b";
 		Entries: []string{filepath.Join(dir, "a.ts"), filepath.Join(dir, "b.ts")},
 		Outputs: []OutputOptions{{
 			OutDir: out,
+			ManualChunks: map[string]string{
+				"vendor": "vendor",
+			},
 		}},
-		ManualChunks: map[string]string{
-			"vendor": "vendor",
-		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1177,9 +1177,9 @@ func TestAppDeclarationsAndSourceMap(t *testing.T) {
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join("testdata", "app", "index.ts")},
 		Outputs: []OutputOptions{{
-			OutFile: filepath.Join("dist", "app.mjs"),
+			OutFile:   filepath.Join("dist", "app.mjs"),
+			SourceMap: new(true),
 		}},
-		SourceMap: new(true),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1240,11 +1240,11 @@ export const value = 7;
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Mode:    ModeLib,
 		Outputs: []OutputOptions{{
-			OutDir: out,
+			OutDir:         out,
+			SourceMap:      new(true),
+			Declaration:    new(true),
+			DeclarationMap: new(true),
 		}},
-		SourceMap:      new(true),
-		Declaration:    new(true),
-		DeclarationMap: new(true),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1482,6 +1482,47 @@ console.log("JS_SIDE_EFFECT");
 	}
 	if !hasCSS {
 		t.Fatal("CSS side-effect import was not kept")
+	}
+}
+
+func TestOutputsHaveIndependentEmitSettings(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
+	withMaps := filepath.Join(dir, "with-maps")
+	plain := filepath.Join(dir, "plain")
+	result, err := Build(context.Background(), Options{
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Mode:    ModeLib,
+		Outputs: []OutputOptions{
+			{
+				OutDir:         withMaps,
+				SourceMap:      new(true),
+				Declaration:    new(true),
+				DeclarationMap: new(true),
+			},
+			{OutDir: plain},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	maps, declarations, plainMaps := 0, 0, 0
+	for _, file := range result.Files {
+		path := filepath.ToSlash(file.Path)
+		switch {
+		case strings.HasPrefix(path, filepath.ToSlash(withMaps)+"/") && strings.HasSuffix(path, ".js.map"):
+			maps++
+		case strings.HasPrefix(path, filepath.ToSlash(withMaps)+"/") && strings.HasSuffix(path, ".d.ts"):
+			declarations++
+		case strings.HasPrefix(path, filepath.ToSlash(plain)+"/") && strings.HasSuffix(path, ".map"):
+			plainMaps++
+		}
+	}
+	if maps == 0 || declarations == 0 {
+		t.Fatalf("first output missing maps or declarations: %v", pathsOf(result.Files))
+	}
+	if plainMaps != 0 {
+		t.Fatalf("second output emitted maps: %v", pathsOf(result.Files))
 	}
 }
 

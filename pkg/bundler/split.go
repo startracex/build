@@ -217,7 +217,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 		}
 		js := wrap.WrapFormat(linked, string(emitFmt), b.output.Name)
 		out := b.entryOutputPath(rel, emitFmt, js)
-		if b.sourceMap {
+		if b.output.sourceMap() {
 			mapName := filepath.Base(out) + ".map"
 			js = strings.TrimRight(js, "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
 			mapData := b.composeAppSourceMap(linked, filepath.Base(out))
@@ -429,11 +429,11 @@ func shortHash(parts []string) string {
 }
 
 func (b *bundler) manualChunkName(moduleID string) string {
-	if b == nil || len(b.opts.ManualChunks) == 0 {
+	if b == nil || len(b.output.ManualChunks) == 0 {
 		return ""
 	}
 	bestKey, bestName := "", ""
-	for key, name := range b.opts.ManualChunks {
+	for key, name := range b.output.ManualChunks {
 		if key == "" || name == "" {
 			continue
 		}

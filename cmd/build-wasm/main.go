@@ -213,20 +213,13 @@ func optionsFromJS(value js.Value) (bundler.Options, error) {
 		JSX:               bundler.JSX(stringField(value, "jsx")),
 		Mode:              bundler.Mode(stringField(value, "mode")),
 		RootDir:           stringField(value, "rootDir"),
-		Declaration:       boolFieldOrNil(value, "declaration"),
-		DeclarationMap:    boolFieldOrNil(value, "declarationMap"),
-		SourceMap:         boolFieldOrNil(value, "sourceMap"),
 		External:          stringArray(value.Get("external")),
 		BundleNodeModules: boolField(value, "bundleNodeModules"),
-		DepsDir:           stringField(value, "depsDir"),
 		Conditions:        stringArray(value.Get("conditions")),
 		Define:            objectStringMap(value.Get("define")),
 		Drop:              stringArray(value.Get("drop")),
 		Alias:             objectStringMap(value.Get("alias")),
-		ManualChunks:      objectStringMap(value.Get("manualChunks")),
 		CacheDir:          stringField(value, "cacheDir"),
-		Manifest:          boolField(value, "manifest"),
-		PublicPath:        stringField(value, "publicPath"),
 		CWD:               stringField(value, "cwd"),
 	}
 
@@ -242,6 +235,13 @@ func optionsFromJS(value js.Value) (bundler.Options, error) {
 				EntryFileNames: stringField(item, "entryFileNames"),
 				ChunkFileNames: stringField(item, "chunkFileNames"),
 				AssetFileNames: stringField(item, "assetFileNames"),
+				SourceMap:      boolFieldOrNil(item, "sourceMap"),
+				Declaration:    boolFieldOrNil(item, "declaration"),
+				DeclarationMap: boolFieldOrNil(item, "declarationMap"),
+				Manifest:       boolField(item, "manifest"),
+				PublicPath:     stringField(item, "publicPath"),
+				ManualChunks:   objectStringMap(item.Get("manualChunks")),
+				DepsDir:        stringField(item, "depsDir"),
 			})
 		}
 	}

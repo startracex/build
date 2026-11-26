@@ -51,7 +51,7 @@ func applyTSConfig(c *cli.Context, opts *bundler.Options, out *bundler.OutputOpt
 		}
 	}
 	if !c.IsSet("map") {
-		opts.SourceMap = new(compiler.SourceMap == core.TSTrue)
+		out.SourceMap = new(compiler.SourceMap == core.TSTrue)
 	}
 	if !c.IsSet("dts") {
 		*declaration = compiler.Declaration == core.TSTrue || compiler.Composite == core.TSTrue

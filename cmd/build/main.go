@@ -83,14 +83,14 @@ func resolveMode(value string) (bundler.Mode, error) {
 }
 
 // warnIgnoredFlags reports flags that the selected layout makes pointless.
-func warnIgnoredFlags(c *cli.Context, opts *bundler.Options, declaration bool) {
+func warnIgnoredFlags(c *cli.Context, opts *bundler.Options, out bundler.OutputOptions, declaration bool) {
 	if opts.Mode != bundler.ModeApp {
 		return
 	}
 	if opts.BundleNodeModules {
 		fmt.Fprintln(c.App.ErrWriter, "build: warning: --bundle has no effect in app mode, package imports are bundled already")
 	}
-	if opts.DepsDir != "" {
+	if out.DepsDir != "" {
 		fmt.Fprintln(c.App.ErrWriter, "build: warning: --deps-dir has no effect in app mode, packages are inlined into the bundle")
 	}
 	switch {
@@ -130,19 +130,19 @@ func action(c *cli.Context) error {
 		EntryFileNames: c.String("entry-file-names"),
 		ChunkFileNames: c.String("chunk-file-names"),
 		AssetFileNames: c.String("asset-file-names"),
+		Manifest:       c.Bool("manifest"),
+		PublicPath:     c.String("public-path"),
+		DepsDir:        c.String("deps-dir"),
 	}
 	base := bundler.Options{
 		JSX:               bundler.JSX(flagOr(c, "jsx", string(bundler.JSXReact))),
 		External:          c.StringSlice("external"),
 		BundleNodeModules: c.Bool("bundle"),
-		DepsDir:           c.String("deps-dir"),
 		Conditions:        c.StringSlice("conditions"),
 		Alias:             alias,
 		Define:            define,
 		Drop:              c.StringSlice("drop"),
 		CacheDir:          c.String("cache-dir"),
-		Manifest:          c.Bool("manifest"),
-		PublicPath:        c.String("public-path"),
 		RootDir:           c.String("root-dir"),
 	}
 
@@ -163,7 +163,7 @@ func action(c *cli.Context) error {
 	if c.IsSet("jsx") {
 		base.JSX = bundler.JSX(c.String("jsx"))
 	}
-	applyEmitFlags(c, &base, &declaration, &declarationMap)
+	applyEmitFlags(c, &baseOutput, &declaration, &declarationMap)
 
 	if len(outfiles) > 0 {
 		baseOutput.EntryFileNames = ""
@@ -208,7 +208,7 @@ func action(c *cli.Context) error {
 			return err
 		}
 		applyOutputPlan(&base, plan)
-		warnIgnoredFlags(c, &base, declaration)
+		warnIgnoredFlags(c, &base, baseOutput, declaration)
 		return writeBuild(c, ctx, base, htmlDocs)
 	}
 
@@ -231,17 +231,17 @@ func action(c *cli.Context) error {
 	if len(base.Entries) == 0 {
 		return errors.New("tsconfig.json not found")
 	}
-	warnIgnoredFlags(c, &base, declaration)
+	warnIgnoredFlags(c, &base, baseOutput, declaration)
 	return writeBuild(c, ctx, base, htmlDocs)
 }
 
-func applyEmitFlags(c *cli.Context, opts *bundler.Options, declaration, declarationMap *bool) {
+func applyEmitFlags(c *cli.Context, out *bundler.OutputOptions, declaration, declarationMap *bool) {
 	mapSet := c.IsSet("map")
 	mapEnabled := c.Bool("map")
 	dtsSet := c.IsSet("dts")
 	dtsEnabled := c.Bool("dts")
 	if mapSet {
-		opts.SourceMap = new(mapEnabled)
+		out.SourceMap = new(mapEnabled)
 	}
 	if dtsSet {
 		*declaration = dtsEnabled
@@ -249,8 +249,8 @@ func applyEmitFlags(c *cli.Context, opts *bundler.Options, declaration, declarat
 	if mapSet && dtsSet {
 		*declarationMap = mapEnabled && dtsEnabled
 	}
-	opts.Declaration = new(*declaration)
-	opts.DeclarationMap = new(*declaration && *declarationMap)
+	out.Declaration = new(*declaration)
+	out.DeclarationMap = new(*declaration && *declarationMap)
 }
 
 func formatList(explicit []string, set bool, fallback bundler.Format) []bundler.Format {

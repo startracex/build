@@ -47,6 +47,13 @@ export interface OutputOptions {
 	entryFileNames?: string;
 	chunkFileNames?: string;
 	assetFileNames?: string;
+	declaration?: boolean;
+	declarationMap?: boolean;
+	sourceMap?: boolean;
+	manifest?: boolean;
+	publicPath?: string;
+	manualChunks?: Record<string, string>;
+	depsDir?: string;
 }
 
 export interface Plugin {
@@ -62,20 +69,13 @@ export interface BuildOptions {
 	mode?: Mode;
 	jsx?: string;
 	rootDir?: string;
-	declaration?: boolean;
-	declarationMap?: boolean;
-	sourceMap?: boolean;
 	external?: string[];
 	bundleNodeModules?: boolean;
-	depsDir?: string;
 	conditions?: string[];
 	define?: Record<string, string>;
 	drop?: string[];
 	alias?: Record<string, string>;
-	manualChunks?: Record<string, string>;
 	cacheDir?: string;
-	manifest?: boolean;
-	publicPath?: string;
 	outputs?: OutputOptions[];
 	plugins?: Plugin[];
 	/** Defaults to the Node file system adapter. */

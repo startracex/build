@@ -122,7 +122,7 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		return nil, nil, err
 	}
 	loadFormat := preferredLoadFormat(outputs)
-	if err := validateBuildOutputs(opts, outputs, outMode, roots); err != nil {
+	if err := validateBuildOutputs(outputs, outMode, roots); err != nil {
 		return nil, nil, err
 	}
 	entry := roots[0]
@@ -145,9 +145,7 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		loading:      map[string]bool{},
 		units:        map[string]*unit{},
 		assets:       map[string]*asset.Unit{},
-		decl:         opts.declaration() && outMode == ModeLib,
-		declMap:      opts.declarationMap() && outMode == ModeLib,
-		sourceMap:    opts.sourceMap(),
+		sourceMap:    anySourceMap(outputs),
 		target:       opts.emitTarget(),
 		compilerOpts: opts.CompilerOptions,
 		cache:        transpileCache,
@@ -215,11 +213,11 @@ func remapStages(mapData *sourcemap.Map, stages []define.Stage) *sourcemap.Map {
 	return mapData
 }
 
-func validateBuildOutputs(opts Options, outputs []OutputOptions, outMode Mode, roots []string) error {
-	if err := validateDepsDir(opts.DepsDir); err != nil {
-		return err
-	}
+func validateBuildOutputs(outputs []OutputOptions, outMode Mode, roots []string) error {
 	for _, out := range outputs {
+		if err := validateDepsDir(out.DepsDir); err != nil {
+			return err
+		}
 		if err := output.ValidateOutputPaths(out.OutFile, out.OutDir); err != nil {
 			return err
 		}

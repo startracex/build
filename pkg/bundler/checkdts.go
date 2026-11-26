@@ -14,7 +14,7 @@ import (
 
 // attachDeclarations fills library units from the checker's program emit, falling back to single-file transpile.
 func (b *bundler) attachDeclarations() error {
-	if !b.decl {
+	if !b.output.declaration() {
 		return nil
 	}
 	var absPaths []string
@@ -27,7 +27,7 @@ func (b *bundler) attachDeclarations() error {
 	checked, err := dts.EmitProgram(b.ctx, absPaths, dts.Options{
 		Target:           b.target,
 		Jsx:              b.jsx,
-		DeclarationMap:   b.declMap,
+		DeclarationMap:   b.output.declarationMap(),
 		CustomConditions: resolve.ExportConditions(b.opts.Conditions),
 		CompilerOptions:  b.compilerOpts,
 		BaseURL:          b.opts.BaseURL,

@@ -84,18 +84,10 @@ type Options struct {
 	Alias map[string]string
 	// CompilerOptions holds tsconfig options affecting emit and resolution; the bundler owns module kind, target, JSX, and source maps.
 	CompilerOptions *core.CompilerOptions
-	// Declaration writes .d.ts files in library mode only; nil disables it, matching tsc.
-	Declaration *bool
-	// DeclarationMap writes .d.ts.map files when Declaration is on; nil disables it.
-	DeclarationMap *bool
 	// Define replaces free identifiers / process.env.* at emit time.
 	Define map[string]string
-	// ManualChunks maps a module path substring to a chunk name under chunks/; app mode only.
-	ManualChunks map[string]string
 	// Resolve supplies the resolved file for a specifier; return ok=false to keep the built-in resolver.
 	Resolve func(importer, specifier string) (resolved string, ok bool, err error)
-	// SourceMap writes .map files. Nil means no, matching tsc.
-	SourceMap *bool
 	// BaseURL stands in for the removed tsconfig "baseUrl" option so old configs still resolve bare specifiers.
 	BaseURL resolve.BaseURLFallback
 	// FS reads sources, assets, and resolver probes; nil uses the OS file system, virtual builds supply their own.
@@ -110,10 +102,6 @@ type Options struct {
 	CacheDir string
 	// CWD resolves relative entry and display paths; a wasm build may need to supply it.
 	CWD string
-	// DepsDir moves bundled packages under this directory in library mode; empty keeps node_modules.
-	DepsDir string
-	// PublicPath prefixes emitted asset URLs for ?url and file imports.
-	PublicPath string
 	// RootDir bases paths under the output directory; it falls back to tsconfig rootDir, then the entries' deepest shared directory.
 	RootDir string
 	// Conditions appends package.json "exports" conditions; import/require, default, and module are always included.
@@ -130,8 +118,6 @@ type Options struct {
 	Plugins []plugin.Plugin
 	// BundleNodeModules keeps bare package imports inside library-mode output.
 	BundleNodeModules bool
-	// Manifest writes a JSON map of source assets to emitted paths.
-	Manifest bool
 }
 
 // Bundle returns the entry JavaScript; use Build to get declarations and source maps too.
@@ -201,7 +187,7 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 				b.emitEntryCSS(result, outputs[0].OutFile, root)
 			}
 		}
-		if opts.Manifest {
+		if outputs[0].Manifest {
 			result.Files = append(result.Files, manifestOutput(outputs[0], result.Manifest)...)
 		}
 		hookCtx := plugin.HookCtx{Context: ctx}
@@ -228,6 +214,12 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 			}
 		}
 		merged.Files = append(merged.Files, sub.Files...)
+		if out.Manifest {
+			for _, file := range manifestOutput(out, sub.Manifest) {
+				file.Path = b.uniqueOutputPath(file.Path)
+				merged.Files = append(merged.Files, file)
+			}
+		}
 		if merged.entry == "" {
 			merged.entry = sub.entry
 		}
@@ -237,9 +229,6 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 	b.output = outputs[0]
 	b.emitAssetFiles(merged)
 	b.output = prevOutput
-	if opts.Manifest {
-		merged.Files = append(merged.Files, manifestOutput(outputs[0], merged.Manifest)...)
-	}
 	hookCtx := plugin.HookCtx{Context: ctx}
 	if err := applyGenerateBundle(opts.Plugins, hookCtx, merged); err != nil {
 		return nil, err
@@ -325,9 +314,8 @@ type bundler struct {
 	transformKey string
 	opts         Options
 	output       OutputOptions
-	decl         bool
-	declMap      bool
-	sourceMap    bool
+	// sourceMap keeps maps from transpile when any output needs them; each output still decides whether to emit them.
+	sourceMap bool
 }
 
 func (b *bundler) load(path string) error {
@@ -571,7 +559,7 @@ func (b *bundler) loadAsset(abs string, kind asset.Kind) error {
 	if _, ok := b.assets[id]; ok {
 		return nil
 	}
-	au, js, err := asset.Load(b.fs, abs, kind, b.rootDir, b.opts.PublicPath, b.output.AssetFileNames)
+	au, js, err := asset.Load(b.fs, abs, kind, b.rootDir, b.output.PublicPath, b.output.AssetFileNames)
 	if err != nil {
 		return err
 	}
