@@ -11,6 +11,7 @@ import (
 
 	"github.com/startracex/build/pkg/bundler"
 	"github.com/startracex/build/pkg/plugin"
+	"github.com/startracex/build/pkg/sourcemap"
 	"github.com/startracex/tsgo/pkg/tspath"
 	"github.com/startracex/tsgo/pkg/vfs"
 )
@@ -295,15 +296,19 @@ func pluginsFromJS(value js.Value) ([]plugin.Plugin, error) {
 			}
 		}
 		if fn, ok := hookFn(item, "transform"); ok {
-			p.Transform = func(_ plugin.HookCtx, code, id string) (string, string, error) {
+			p.Transform = func(_ plugin.HookCtx, code, id string) (string, *sourcemap.Map, error) {
 				v, err := callJS(fn, js.ValueOf(code), js.ValueOf(id))
 				if err != nil {
-					return "", "", err
+					return "", nil, err
 				}
 				if v.IsUndefined() || v.IsNull() {
-					return code, "", nil
+					return code, nil, nil
 				}
-				return stringField(v, "code"), stringField(v, "map"), nil
+				m, err := sourcemap.ParseMap(stringField(v, "map"))
+				if err != nil {
+					return "", nil, err
+				}
+				return stringField(v, "code"), m, nil
 			}
 		}
 		if fn, ok := hookFn(item, "generateBundle"); ok {

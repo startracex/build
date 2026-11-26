@@ -1,6 +1,16 @@
 export type Format = "esm" | "cjs" | "iife" | "umd";
 export type Mode = "app" | "lib";
 
+export interface SourceMap {
+	version: number;
+	sources: string[];
+	names?: string[];
+	mappings: string;
+	sourcesContent?: (string | null)[];
+	file?: string;
+	sourceRoot?: string;
+}
+
 export interface File {
 	path: string;
 	data: string;
@@ -43,7 +53,7 @@ export interface Plugin {
 	name?: string;
 	resolve?(source: string, importer: string): { id?: string; external?: boolean; ok?: boolean } | null | undefined;
 	load?(id: string): { code: string } | null | undefined;
-	transform?(code: string, id: string): { code?: string; map?: string } | null | undefined;
+	transform?(code: string, id: string): { code?: string; map?: SourceMap | string } | null | undefined;
 	generateBundle?(files: File[]): File[];
 }
 

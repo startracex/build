@@ -298,8 +298,8 @@ type unit struct {
 	file   *ast.SourceFile
 	code   string
 	dts    string
-	dtsMap string
-	jsMap  string
+	dtsMap *sourcemap.Map
+	jsMap  *sourcemap.Map
 	source string
 	asset  bool
 	json   bool
@@ -315,7 +315,7 @@ type bundler struct {
 	// compilerOpts holds tsconfig options that affect emit and resolution.
 	compilerOpts *core.CompilerOptions
 	// linkedMaps are per-module source maps remapped through the last Link.
-	linkedMaps map[string]string
+	linkedMaps map[string]*sourcemap.Map
 	loading    map[string]bool
 	// outputPaths maps module id -> rendered output path so relative imports follow hashed names.
 	outputPaths map[string]string
@@ -456,12 +456,17 @@ func (b *bundler) load(path string) error {
 	}
 	emitOpts := b.transpileOptionsFor(moduleKind, sourceMapFlag)
 	cacheKey := ""
-	var js, jsMap string
+	var js string
+	var jsMap *sourcemap.Map
 	cached := false
 	if b.cache != nil {
 		cacheKey = genCacheKey(path, src, emitOpts.Key(), b.transformKey)
 		if ent, ok := b.cache.Get(cacheKey); ok {
-			js, jsMap = ent.JS, ent.Map
+			js = ent.JS
+			jsMap, err = sourcemap.ParseMap(ent.Map)
+			if err != nil {
+				return fmt.Errorf("parse cached source map for %s: %w", path, err)
+			}
 			cached = true
 		}
 	}
@@ -482,9 +487,12 @@ func (b *bundler) load(path string) error {
 			return err
 		}
 		js = jsedit.StripSourceMappingComment(jsedit.StripShebang(out.OutputText))
-		jsMap = out.SourceMapText
+		jsMap, err = sourcemap.ParseMap(out.SourceMapText)
+		if err != nil {
+			return fmt.Errorf("parse source map for %s: %w", path, err)
+		}
 		if b.cache != nil && cacheKey != "" {
-			b.cache.Put(cacheKey, cache.Entry{JS: js, Map: jsMap})
+			b.cache.Put(cacheKey, cache.Entry{JS: js, Map: jsMap.JSON()})
 		}
 	}
 	verbatim := false
@@ -497,7 +505,7 @@ func (b *bundler) load(path string) error {
 		}
 		if body, ok := b.verbatimModule(path, src, file, js, emitted); ok {
 			// Keeping the source text preserves hand-minified code, comments, and formatting.
-			js, jsMap, verbatim = body, "", true
+			js, jsMap, verbatim = body, nil, true
 		}
 	}
 
@@ -623,20 +631,20 @@ func manifestOutput(opts Options, manifest map[string]string) []Output {
 
 // runTransform applies plugin transforms and reports whether the text changed.
 // A plugin map composes onto the transpile map; without one the transpile map is retained.
-func (b *bundler) runTransform(id, sourceText, code, mapData string) (string, string, bool, error) {
+func (b *bundler) runTransform(id, sourceText, code string, mapData *sourcemap.Map) (string, *sourcemap.Map, bool, error) {
 	if len(b.opts.Plugins) == 0 {
 		return code, mapData, false, nil
 	}
 	hookCtx := plugin.HookCtx{Context: b.ctx}
-	out, outMap, err := plugin.RunTransform(b.opts.Plugins, hookCtx, code, id)
+	out, outMap, err := plugin.RunTransform(b.opts.Plugins, hookCtx, code, sourceText, id)
 	if err != nil {
-		return "", "", false, err
+		return "", nil, false, err
 	}
-	if out == code && outMap == "" {
+	if out == code && outMap.IsZero() {
 		return code, mapData, false, nil
 	}
-	if strings.TrimSpace(outMap) != "" {
-		if strings.TrimSpace(mapData) != "" {
+	if !outMap.IsZero() {
+		if !mapData.IsZero() {
 			mapData = sourcemap.Compose(mapData, outMap, sourceText)
 		} else {
 			// A verbatim module has no transpile map, so only the file name needs retargeting.

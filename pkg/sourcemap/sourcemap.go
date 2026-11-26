@@ -24,7 +24,7 @@ func marshalMap(v any) ([]byte, error) {
 
 // AppSourceMap builds a line-level map from linker source comments, reading marked sources through fs to fill sourcesContent.
 // A nil fs reads the OS file system.
-func AppSourceMap(fs vfs.FS, js, file string) string {
+func AppSourceMap(fs vfs.FS, js, file string) *Map {
 	lines := strings.Split(js, "\n")
 	var sources []string
 	index := map[string]int{}
@@ -67,9 +67,9 @@ func AppSourceMap(fs vfs.FS, js, file string) string {
 	}
 	buf, err := marshalMap(raw)
 	if err != nil {
-		return "{}"
+		return newMap("{}")
 	}
-	return string(buf)
+	return newMap(string(buf))
 }
 
 type mapPoint struct {
@@ -175,13 +175,13 @@ func sourceMapSource(outputDir, source string) string {
 
 // RetargetSourceMap rewrites file/sources for a per-module map.
 // An empty outputDir keeps sourceName as given for callers that have not resolved the output location.
-func RetargetSourceMap(mapText, fileName, sourceName, sourceContent, outputDir, sourceAbs string) string {
-	if strings.TrimSpace(mapText) == "" {
-		return ""
+func RetargetSourceMap(m *Map, fileName, sourceName, sourceContent, outputDir, sourceAbs string) *Map {
+	if m.IsZero() {
+		return nil
 	}
 	var raw map[string]any
-	if json.Unmarshal([]byte(mapText), &raw) != nil {
-		return mapText
+	if json.Unmarshal([]byte(m.JSON()), &raw) != nil {
+		return m
 	}
 	name := sourceName
 	if outputDir != "" && sourceAbs != "" {
@@ -193,14 +193,14 @@ func RetargetSourceMap(mapText, fileName, sourceName, sourceContent, outputDir, 
 	raw["sourcesContent"] = []string{sourceContent}
 	buf, err := marshalMap(raw)
 	if err != nil {
-		return mapText
+		return m
 	}
-	return string(buf)
+	return newMap(string(buf))
 }
 
 // IdentitySourceMap maps every generated line to the same source line for unchanged output, such as a verbatim module.
 // outputDir/sourceAbs, when set, place the source relative to the emitted map.
-func IdentitySourceMap(file, sourceName, sourceContent, outputDir, sourceAbs string) string {
+func IdentitySourceMap(file, sourceName, sourceContent, outputDir, sourceAbs string) *Map {
 	lines := strings.Count(sourceContent, "\n") + 1
 	points := make([]mapPointCol, 0, lines)
 	for i := range lines {
@@ -221,21 +221,21 @@ func IdentitySourceMap(file, sourceName, sourceContent, outputDir, sourceAbs str
 	}
 	buf, err := marshalMap(raw)
 	if err != nil {
-		return "{}"
+		return newMap("{}")
 	}
-	return string(buf)
+	return newMap(string(buf))
 }
 
 // RelativizeSourceMap rewrites sources relative to outputDir (holding the emitted .map), matching tsc.
 // Relative input sources resolve against sourceBase first; absolute sources are used as-is.
 // sourceRoot here is NOT the tsconfig field, which ApplySourceMapConfig applies.
-func RelativizeSourceMap(mapText, fileName, outputDir, sourceBase string) string {
-	if strings.TrimSpace(mapText) == "" {
-		return ""
+func RelativizeSourceMap(m *Map, fileName, outputDir, sourceBase string) *Map {
+	if m.IsZero() {
+		return nil
 	}
 	var raw map[string]any
-	if json.Unmarshal([]byte(mapText), &raw) != nil {
-		return mapText
+	if json.Unmarshal([]byte(m.JSON()), &raw) != nil {
+		return m
 	}
 	raw["file"] = fileName
 	sources, _ := raw["sources"].([]any)
@@ -253,21 +253,21 @@ func RelativizeSourceMap(mapText, fileName, outputDir, sourceBase string) string
 	raw["sources"] = sources
 	buf, err := marshalMap(raw)
 	if err != nil {
-		return mapText
+		return m
 	}
-	return string(buf)
+	return newMap(string(buf))
 }
 
 // ApplySourceMapConfig finalizes a map with tsconfig options that change contents but not mapping positions.
 // sourceRoot is written verbatim (tsc does not resolve it).
 // inlineSources false removes sourcesContent to match tsc; true fills it from sourceContent when absent.
-func ApplySourceMapConfig(mapText, sourceRoot string, inlineSources bool, sourceContent string) string {
-	if strings.TrimSpace(mapText) == "" {
-		return ""
+func ApplySourceMapConfig(m *Map, sourceRoot string, inlineSources bool, sourceContent string) *Map {
+	if m.IsZero() {
+		return nil
 	}
 	var raw map[string]any
-	if json.Unmarshal([]byte(mapText), &raw) != nil {
-		return mapText
+	if json.Unmarshal([]byte(m.JSON()), &raw) != nil {
+		return m
 	}
 	raw["sourceRoot"] = sourceRoot
 	if inlineSources {
@@ -279,7 +279,7 @@ func ApplySourceMapConfig(mapText, sourceRoot string, inlineSources bool, source
 	}
 	buf, err := marshalMap(raw)
 	if err != nil {
-		return mapText
+		return m
 	}
-	return string(buf)
+	return newMap(string(buf))
 }

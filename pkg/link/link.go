@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/startracex/build/pkg/sourcemap"
 	"github.com/startracex/build/pkg/treeshake"
 	"github.com/startracex/tsgo/pkg/vfs"
 )
@@ -23,7 +24,7 @@ type Module struct {
 	ID    string // slash path id
 	Code  string
 	Path  string // os path if needed
-	JSMap string
+	JSMap *sourcemap.Map
 }
 
 // Options configure a Link call.
@@ -105,8 +106,8 @@ func Link(mods map[string]Module, entryID string, opts Options) (Result, error) 
 	code := renderLinked(parsed, order, entry, format, helper, opts.CWD, opts.RootDir)
 	maps := map[string]string{}
 	for id, m := range parsed {
-		if m.linkedMap != "" {
-			maps[id] = m.linkedMap
+		if !m.linkedMap.IsZero() {
+			maps[id] = m.linkedMap.JSON()
 		}
 	}
 	return Result{Code: code, Maps: maps}, nil

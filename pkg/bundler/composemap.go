@@ -6,7 +6,7 @@ import (
 	"github.com/startracex/build/pkg/sourcemap"
 )
 
-func (b *bundler) composeAppSourceMap(js, file string) string {
+func (b *bundler) composeAppSourceMap(js, file string) *sourcemap.Map {
 	var paths []string
 	for id := range b.units {
 		paths = append(paths, filepath.FromSlash(id))
@@ -24,7 +24,7 @@ func (b *bundler) composeAppSourceMap(js, file string) string {
 		display := modpath.DisplayRel(root, abs)
 		jsMap := unit.jsMap
 		if b.linkedMaps != nil {
-			if remapped, ok := b.linkedMaps[id]; ok && remapped != "" {
+			if remapped, ok := b.linkedMaps[id]; ok && !remapped.IsZero() {
 				jsMap = remapped
 			}
 		}

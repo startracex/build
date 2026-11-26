@@ -15,8 +15,24 @@ export type {
 
 // Normalize once here so the Go side never has to know about host specifics.
 function normalizeOptions(options: BuildOptions) {
+	const plugins = options.plugins?.map((plugin) => {
+		const transform = plugin.transform;
+		return {
+			...plugin,
+			transform: transform
+				? (code: string, id: string) => {
+					const result = transform(code, id);
+					if (!result || typeof result.map !== "object" || result.map === null) {
+						return result;
+					}
+					return { ...result, map: JSON.stringify(result.map) };
+				}
+				: undefined,
+		};
+	});
 	return {
 		...options,
+		plugins,
 		fs: options.fs ?? nodeFS,
 		cwd: options.cwd ?? process.cwd().replace(/\\/g, "/"),
 	};

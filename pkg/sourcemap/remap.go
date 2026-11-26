@@ -7,11 +7,11 @@ import (
 	"github.com/startracex/build/pkg/jsedit"
 )
 
-// RemapEdits rewrites generated positions in mapJSON after edits to genSource, the file the map describes.
+// RemapEdits rewrites generated positions in m after edits to genSource, the file the map describes.
 // Points in a deleted range are dropped, points in a replaced range move to the replacement, and later points shift by the net byte delta.
-func RemapEdits(mapJSON, genSource string, edits []jsedit.Edit) string {
-	if strings.TrimSpace(mapJSON) == "" || len(edits) == 0 {
-		return mapJSON
+func RemapEdits(m *Map, genSource string, edits []jsedit.Edit) *Map {
+	if m.IsZero() || len(edits) == 0 {
+		return m
 	}
 	var raw struct {
 		Version        int       `json:"version"`
@@ -21,12 +21,12 @@ func RemapEdits(mapJSON, genSource string, edits []jsedit.Edit) string {
 		Names          []string  `json:"names"`
 		Mappings       string    `json:"mappings"`
 	}
-	if json.Unmarshal([]byte(mapJSON), &raw) != nil || raw.Mappings == "" {
-		return mapJSON
+	if json.Unmarshal([]byte(m.JSON()), &raw) != nil || raw.Mappings == "" {
+		return m
 	}
 	points := decodeAllPoints(raw.Mappings)
 	if len(points) == 0 {
-		return mapJSON
+		return m
 	}
 	sorted := append([]jsedit.Edit(nil), edits...)
 	for i := range sorted {
@@ -38,7 +38,7 @@ func RemapEdits(mapJSON, genSource string, edits []jsedit.Edit) string {
 	}
 	newSrc, err := jsedit.ApplyEdits(genSource, sorted)
 	if err != nil {
-		return mapJSON
+		return m
 	}
 	oldStarts := lineStartOffsets(genSource)
 	newStarts := lineStartOffsets(newSrc)
@@ -75,19 +75,19 @@ func RemapEdits(mapJSON, genSource string, edits []jsedit.Edit) string {
 	}
 	buf, err := marshalMap(out)
 	if err != nil {
-		return mapJSON
+		return m
 	}
-	return string(buf)
+	return newMap(string(buf))
 }
 
-// OffsetColumns shifts every generated column in a source map by n (wrap indent).
-func OffsetColumns(mapJSON string, n int) string {
-	if n == 0 || strings.TrimSpace(mapJSON) == "" {
-		return mapJSON
+// OffsetColumns shifts every generated column in m by n (wrap indent).
+func OffsetColumns(m *Map, n int) *Map {
+	if n == 0 || m.IsZero() {
+		return m
 	}
 	var raw map[string]any
-	if json.Unmarshal([]byte(mapJSON), &raw) != nil {
-		return mapJSON
+	if json.Unmarshal([]byte(m.JSON()), &raw) != nil {
+		return m
 	}
 	mappings, _ := raw["mappings"].(string)
 	points := decodeAllPoints(mappings)
@@ -100,9 +100,9 @@ func OffsetColumns(mapJSON string, n int) string {
 	raw["mappings"] = encodeMappingsCol(points)
 	buf, err := marshalMap(raw)
 	if err != nil {
-		return mapJSON
+		return m
 	}
-	return string(buf)
+	return newMap(string(buf))
 }
 
 func mapOffsetThroughEdits(src string, off int, sorted []jsedit.Edit) (newOff int, drop bool) {

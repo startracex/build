@@ -229,7 +229,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 					mapData = sourcemap.OffsetColumns(mapData, indent)
 				}
 			}
-			files = append(files, Output{Path: out + ".map", Data: mapData})
+			files = append(files, Output{Path: out + ".map", Data: mapData.JSON()})
 		}
 		files = append(files, Output{Path: out, Data: js})
 		entryOut[e] = out

@@ -93,7 +93,7 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			mapDir = filepath.Join(b.cwd, mapDir)
 		}
 		mapName := filepath.Base(jsPath) + ".map"
-		hasMap := b.sourceMap && (strings.TrimSpace(unit.jsMap) != "" || unit.verbatim)
+		hasMap := b.sourceMap && (!unit.jsMap.IsZero() || unit.verbatim)
 		if hasMap {
 			js = strings.TrimRight(js, "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
 		}
@@ -105,14 +105,14 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 		if hasMap {
 			fallback := modpath.DisplayRel(root, abs)
 			mapData := sourcemap.IdentitySourceMap(filepath.Base(jsPath), fallback, unit.source, mapDir, abs)
-			if strings.TrimSpace(unit.jsMap) != "" {
+			if !unit.jsMap.IsZero() {
 				mapData = sourcemap.RetargetSourceMap(unit.jsMap, filepath.Base(jsPath), fallback, unit.source, mapDir, abs)
 			}
 			if wrapLines > 0 {
 				mapData = sourcemap.OffsetLines(mapData, wrapLines)
 			}
 			mapData = sourcemap.ApplySourceMapConfig(mapData, mapSourceRoot, inlineSources, unit.source)
-			files = append(files, Output{Path: jsPath + ".map", Data: mapData})
+			files = append(files, Output{Path: jsPath + ".map", Data: mapData.JSON()})
 		}
 		if b.decl && strings.TrimSpace(unit.dts) != "" {
 			dts, err := rewriteRelativeSpecifiers(unit.dts, abs, b, true)
@@ -121,14 +121,14 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			}
 			dtsPath := modpath.ReplaceExt(jsPath, ".d.ts")
 			mapName := filepath.Base(dtsPath) + ".map"
-			if b.declMap && strings.TrimSpace(unit.dtsMap) != "" {
+			if b.declMap && !unit.dtsMap.IsZero() {
 				dts = strings.TrimRight(jsedit.StripSourceMappingComment(dts), "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
 			}
 			files = append(files, Output{Path: dtsPath, Data: dts})
-			if b.declMap && strings.TrimSpace(unit.dtsMap) != "" {
+			if b.declMap && !unit.dtsMap.IsZero() {
 				mapData := sourcemap.RelativizeSourceMap(unit.dtsMap, filepath.Base(dtsPath), mapDir, root)
 				mapData = sourcemap.ApplySourceMapConfig(mapData, mapSourceRoot, inlineSources, unit.source)
-				files = append(files, Output{Path: dtsPath + ".map", Data: mapData})
+				files = append(files, Output{Path: dtsPath + ".map", Data: mapData.JSON()})
 			}
 		}
 	}

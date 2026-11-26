@@ -12,6 +12,7 @@ import (
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/plugin"
 	"github.com/startracex/build/pkg/resolve"
+	"github.com/startracex/build/pkg/sourcemap"
 	"github.com/startracex/tsgo/pkg/core"
 )
 
@@ -304,8 +305,8 @@ export const sum = fromFile + virtualVal;
 			}
 			return "", false, nil
 		},
-		Transform: func(_ plugin.HookCtx, code, _ string) (string, string, error) {
-			return code + "\n" + markerTransform + "\n", "", nil
+		Transform: func(_ plugin.HookCtx, code, _ string) (string, *sourcemap.Map, error) {
+			return code + "\n" + markerTransform + "\n", nil, nil
 		},
 		GenerateBundle: func(_ plugin.HookCtx, files []plugin.File) ([]plugin.File, error) {
 			for i := range files {

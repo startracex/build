@@ -1,6 +1,7 @@
 package bundler
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/startracex/build/pkg/dts"
@@ -8,6 +9,7 @@ import (
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/resolve"
+	"github.com/startracex/build/pkg/sourcemap"
 )
 
 // attachDeclarations fills library units from the checker's program emit, falling back to single-file transpile.
@@ -40,7 +42,10 @@ func (b *bundler) attachDeclarations() error {
 		abs := filepath.FromSlash(id)
 		if got, ok := checked[dts.Key(abs)]; ok && strings.TrimSpace(got.Text) != "" {
 			unit.dts = jsedit.StripSourceMappingComment(got.Text)
-			unit.dtsMap = got.SourceMap
+			unit.dtsMap, err = sourcemap.ParseMap(got.SourceMap)
+			if err != nil {
+				return fmt.Errorf("parse declaration map for %s: %w", abs, err)
+			}
 			continue
 		}
 		if !modpath.IsTypeScript(abs) || strings.TrimSpace(unit.dts) != "" {

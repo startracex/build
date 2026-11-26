@@ -190,7 +190,7 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		}
 		unit.code = rewritten
 		if len(stages) > 0 {
-			if unit.verbatim && strings.TrimSpace(unit.jsMap) == "" {
+			if unit.verbatim && unit.jsMap.IsZero() {
 				// A verbatim module maps line to line, so stages move it with the rewritten text.
 				unit.jsMap = sourcemap.IdentitySourceMap("", "", unit.source, "", "")
 			}
@@ -204,8 +204,8 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 }
 
 // remapStages applies the define/drop edit stages to a module source map.
-func remapStages(mapData string, stages []define.Stage) string {
-	if strings.TrimSpace(mapData) == "" {
+func remapStages(mapData *sourcemap.Map, stages []define.Stage) *sourcemap.Map {
+	if mapData.IsZero() {
 		return mapData
 	}
 	for _, stage := range stages {

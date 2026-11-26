@@ -114,7 +114,7 @@ func (b *bundler) appResult(entry, js, linked string, emitFmt Format) (*Result, 
 				mapData = sourcemap.OffsetColumns(mapData, indent)
 			}
 		}
-		files = append(files, Output{Path: jsName + ".map", Data: mapData})
+		files = append(files, Output{Path: jsName + ".map", Data: mapData.JSON()})
 	}
 	return &Result{Files: files, entry: js}, nil
 }

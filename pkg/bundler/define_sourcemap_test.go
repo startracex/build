@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/startracex/build/pkg/plugin"
+	"github.com/startracex/build/pkg/sourcemap"
 )
 
 const defineMapSource = `export const mode = __MODE__;
@@ -222,4 +225,39 @@ func decodeTestVLQ(s string) []int {
 		value, shift = 0, 0
 	}
 	return out
+}
+
+// TestTransformPluginMapsChain checks that transform maps compose across plugins instead of overwriting each other.
+func TestTransformPluginMapsChain(t *testing.T) {
+	const source = `export const a = "ORIGINAL";`
+	maps := []string{
+		`{"version":3,"sources":["input.js"],"names":[],"mappings":";AAAA"}`,
+		`{"version":3,"sources":["input.js"],"names":[],"mappings":";;AACA"}`,
+	}
+	wants := []string{`"mappings":";AAAA"`, `"mappings":";;AAAA"`}
+	for _, count := range []int{1, 2} {
+		plugins := make([]plugin.Plugin, 0, count)
+		for i := 0; i < count; i++ {
+			idx := i
+			plugins = append(plugins, plugin.Plugin{
+				Transform: func(_ plugin.HookCtx, code, _ string) (string, *sourcemap.Map, error) {
+					m, err := sourcemap.ParseMap(maps[idx])
+					if err != nil {
+						return "", nil, err
+					}
+					return "// p\n" + code, m, nil
+				},
+			})
+		}
+		code, m, err := plugin.RunTransform(plugins, plugin.HookCtx{}, source, source, "id")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(code, `"ORIGINAL"`) {
+			t.Fatalf("transform output lost the source:\n%s", code)
+		}
+		if mapJSON := m.JSON(); !strings.Contains(mapJSON, wants[count-1]) {
+			t.Fatalf("chained map = %q, want mappings %q", mapJSON, wants[count-1])
+		}
+	}
 }

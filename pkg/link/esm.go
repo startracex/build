@@ -29,8 +29,8 @@ type esModule struct {
 	scanning      map[string]bool
 	cjsMode       cjsMode
 	id            string
-	jsMap         string
-	linkedMap     string
+	jsMap         *sourcemap.Map
+	linkedMap     *sourcemap.Map
 	path          string // os path for resolve importer
 	src           string
 	cjsNamedOrder []string
@@ -1645,14 +1645,14 @@ func (m *esModule) renderBody(mods map[string]*esModule, helper string) string {
 			edits = append(edits, m.statementEdits(mods, stmt)...)
 		}
 		if text, err := jsedit.ApplyEdits(m.src, edits); err == nil {
-			if m.jsMap != "" && len(edits) > 0 {
+			if !m.jsMap.IsZero() && len(edits) > 0 {
 				m.linkedMap = sourcemap.RemapEdits(m.jsMap, m.src, edits)
-			} else if m.jsMap != "" {
+			} else if !m.jsMap.IsZero() {
 				m.linkedMap = m.jsMap
 			}
 			if trimmed := strings.TrimSpace(text); trimmed != "" {
 				// Account for leading trim when remapping was based on full edited text.
-				if m.linkedMap != "" {
+				if !m.linkedMap.IsZero() {
 					if lead := strings.Index(text, trimmed); lead > 0 {
 						leadLines := strings.Count(text[:lead], "\n")
 						if leadLines > 0 {
@@ -1664,7 +1664,7 @@ func (m *esModule) renderBody(mods map[string]*esModule, helper string) string {
 				chunks = append(chunks, trimmed)
 			}
 		}
-	} else if m.jsMap != "" {
+	} else if !m.jsMap.IsZero() {
 		m.linkedMap = m.jsMap
 	}
 	if m.cjsMode == cjsStatic {
