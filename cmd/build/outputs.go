@@ -15,13 +15,11 @@ const (
 	outputDir  outputMode = "dir"
 )
 
-// outputPlan describes CLI emit targets; when Outputs is empty, Base and Format define one scalar output.
+// outputPlan describes CLI emit targets. Outputs always holds concrete targets.
 type outputPlan struct {
-	Mode     outputMode
-	Base     string
-	Format   bundler.Format
-	Template string
-	Outputs  []bundler.OutputOptions
+	Mode    outputMode
+	Base    string
+	Outputs []bundler.OutputOptions
 }
 
 func templateOf(path string) string {
@@ -31,26 +29,40 @@ func templateOf(path string) string {
 	return ""
 }
 
-// planOutputs pairs paths with formats from the right, filling gaps with fallbackFormat.
-// Missing paths are derived from fallbackBase or the first explicit path.
-func planOutputs(mode outputMode, paths []string, formats []bundler.Format, fallbackFormat bundler.Format, fallbackBase, name string) (outputPlan, error) {
+func outputTarget(out bundler.OutputOptions, mode outputMode, format bundler.Format, target string) bundler.OutputOptions {
+	out.Format = format
+	out.OutFile = ""
+	out.OutDir = ""
+	out.NameTemplate = ""
+	if mode == outputFile {
+		out.OutFile = target
+		out.NameTemplate = templateOf(target)
+	} else {
+		out.OutDir = target
+	}
+	return out
+}
+
+// planOutputs pairs paths with formats from the right, filling gaps with the fallback output.
+func planOutputs(mode outputMode, paths []string, formats []bundler.Format, fallback bundler.OutputOptions, fallbackBase string) (outputPlan, error) {
 	if mode != outputFile && mode != outputDir {
 		return outputPlan{}, fmt.Errorf("unsupported output mode %q", mode)
 	}
-	if len(formats) == 0 {
-		formats = []bundler.Format{fallbackFormat}
-	}
+	fallbackFormat := fallback.Format
 	if fallbackFormat == "" {
 		fallbackFormat = bundler.FormatESM
 	}
-
-	if len(paths) == 0 {
-		return derivedPlan(mode, fallbackBase, formats, name), nil
+	fallback.Format = fallbackFormat
+	if len(formats) == 0 {
+		formats = []bundler.Format{fallbackFormat}
 	}
 
+	if len(paths) == 0 {
+		return derivedPlan(mode, fallbackBase, formats, fallback), nil
+	}
 	// One explicit path with several formats is a derivation base, not a literal output path.
 	if len(paths) == 1 && len(formats) > 1 {
-		return derivedPlan(mode, paths[0], formats, name), nil
+		return derivedPlan(mode, paths[0], formats, fallback), nil
 	}
 
 	target := max(len(paths), len(formats))
@@ -65,7 +77,7 @@ func planOutputs(mode outputMode, paths []string, formats []bundler.Format, fall
 	}
 
 	base := fallbackBase
-	if base == "" {
+	if len(paths) >= len(formats) || base == "" {
 		base = paths[0]
 	}
 	pathOffset := target - len(paths)
@@ -78,38 +90,21 @@ func planOutputs(mode outputMode, paths []string, formats []bundler.Format, fall
 		alignedPaths[i] = paths[i-pathOffset]
 	}
 
-	if target == 1 {
-		return outputPlan{Mode: mode, Base: alignedPaths[0], Format: alignedFormats[0], Template: templateOf(alignedPaths[0])}, nil
-	}
-
-	outs := make([]bundler.OutputOptions, 0, target)
-	for i := range target {
-		out := bundler.OutputOptions{Format: alignedFormats[i], Name: name}
-		if mode == outputFile {
-			out.OutFile = alignedPaths[i]
-			out.NameTemplate = templateOf(alignedPaths[i])
-		} else {
-			out.OutDir = alignedPaths[i]
-		}
-		outs = append(outs, out)
+	outs := make([]bundler.OutputOptions, target)
+	for i := range outs {
+		outs[i] = outputTarget(fallback, mode, alignedFormats[i], alignedPaths[i])
 	}
 	return outputPlan{Mode: mode, Base: base, Outputs: outs}, nil
 }
 
-func derivedPlan(mode outputMode, base string, formats []bundler.Format, name string) outputPlan {
-	if len(formats) == 1 {
-		return outputPlan{Mode: mode, Base: base, Format: formats[0], Template: templateOf(base)}
-	}
+func derivedPlan(mode outputMode, base string, formats []bundler.Format, fallback bundler.OutputOptions) outputPlan {
 	outs := make([]bundler.OutputOptions, 0, len(formats))
 	for _, format := range formats {
-		out := bundler.OutputOptions{Format: format, Name: name}
-		if mode == outputFile {
-			out.OutFile = derivePath(mode, base, format)
-			out.NameTemplate = templateOf(out.OutFile)
-		} else {
-			out.OutDir = derivePath(mode, base, format)
+		target := base
+		if len(formats) > 1 {
+			target = derivePath(mode, base, format)
 		}
-		outs = append(outs, out)
+		outs = append(outs, outputTarget(fallback, mode, format, target))
 	}
 	return outputPlan{Mode: mode, Base: base, Outputs: outs}
 }
@@ -123,15 +118,4 @@ func derivePath(mode outputMode, base string, format bundler.Format) string {
 
 func applyOutputPlan(opts *bundler.Options, plan outputPlan) {
 	opts.Outputs = plan.Outputs
-	opts.NameTemplate = plan.Template
-	opts.OutFile = ""
-	opts.OutDir = ""
-	if plan.Mode == outputFile {
-		opts.OutFile = plan.Base
-	} else {
-		opts.OutDir = plan.Base
-	}
-	if len(plan.Outputs) == 0 {
-		opts.Format = plan.Format
-	}
 }

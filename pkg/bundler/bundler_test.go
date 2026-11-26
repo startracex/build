@@ -21,7 +21,9 @@ func TestBuildRequiresMode(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
 	_, err := Build(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "index.ts")},
-		OutDir:  filepath.Join(dir, "dist"),
+		Outputs: []OutputOptions{{
+			OutDir: filepath.Join(dir, "dist"),
+		}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "unsupported mode") {
 		t.Fatalf("error = %v", err)
@@ -121,9 +123,11 @@ func TestBundleNodeModulesLibrary(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "node_modules", "pkg", "index.js"), `export const secret = "BUNDLED_SECRET";`)
 	out := filepath.Join(dir, "dist")
 	result, err := Build(context.Background(), Options{
-		Entries:           []string{filepath.Join(dir, "index.ts")},
-		Mode:              ModeLib,
-		OutDir:            out,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Mode:    ModeLib,
+		Outputs: []OutputOptions{{
+			OutDir: out,
+		}},
 		BundleNodeModules: true,
 	})
 	if err != nil {
@@ -321,7 +325,9 @@ export const sum = fromFile + virtualVal;
 	result, err := Build(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{entry},
-		OutFile: outFile,
+		Outputs: []OutputOptions{{
+			OutFile: outFile,
+		}},
 		Plugins: plugs,
 	})
 	if err != nil {
@@ -403,7 +409,9 @@ func TestCJSFormat(t *testing.T) {
 	code, err := Bundle(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join("testdata", "app", "index.ts")},
-		Format:  FormatCJS,
+		Outputs: []OutputOptions{{
+			Format: FormatCJS,
+		}},
 	})
 	if err != nil {
 		t.Fatalf("bundle: %v", err)
@@ -477,7 +485,9 @@ console.log(JSON.stringify({
 	cjs, err := Bundle(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join("testdata", "pkgapp", "src", "index.ts")},
-		Format:  FormatCJS,
+		Outputs: []OutputOptions{{
+			Format: FormatCJS,
+		}},
 	})
 	if err != nil {
 		t.Fatalf("cjs bundle: %v", err)
@@ -594,9 +604,11 @@ export { text, url };
 `)
 	out := filepath.Join(dir, "dist")
 	result, err := Build(context.Background(), Options{
-		Mode:     ModeApp,
-		Entries:  []string{filepath.Join(dir, "index.ts")},
-		OutFile:  filepath.Join(out, "bundle.mjs"),
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			OutFile: filepath.Join(out, "bundle.mjs"),
+		}},
 		Manifest: true,
 	})
 	if err != nil {
@@ -677,10 +689,12 @@ func TestIIFEFormat(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 42;`)
 	code, err := Bundle(context.Background(), Options{
-		Mode:       ModeApp,
-		Entries:    []string{filepath.Join(dir, "index.ts")},
-		Format:     FormatIIFE,
-		GlobalName: "App",
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			Format: FormatIIFE,
+			Name:   "App",
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -711,10 +725,12 @@ export const named = 3;
 export default 9;
 `)
 	code, err := Bundle(context.Background(), Options{
-		Mode:       ModeApp,
-		Entries:    []string{filepath.Join(dir, "index.ts")},
-		Format:     FormatUMD,
-		GlobalName: "Pkg",
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			Format: FormatUMD,
+			Name:   "Pkg",
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -739,10 +755,12 @@ func TestUMDFormat(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 7;`)
 	code, err := Bundle(context.Background(), Options{
-		Mode:       ModeApp,
-		Entries:    []string{filepath.Join(dir, "index.ts")},
-		Format:     FormatUMD,
-		GlobalName: "Lib",
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			Format: FormatUMD,
+			Name:   "Lib",
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -796,9 +814,11 @@ export function hello(name: string): string {
 `)
 	sm := true
 	result, err := Build(context.Background(), Options{
-		Mode:      ModeApp,
-		Entries:   []string{filepath.Join(dir, "index.ts")},
-		OutFile:   filepath.Join(dir, "out", "bundle.mjs"),
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			OutFile: filepath.Join(dir, "out", "bundle.mjs"),
+		}},
 		SourceMap: &sm,
 	})
 	if err != nil {
@@ -836,7 +856,9 @@ func TestIIFERequiresGlobalName(t *testing.T) {
 	_, err := Bundle(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "index.ts")},
-		Format:  FormatIIFE,
+		Outputs: []OutputOptions{{
+			Format: FormatIIFE,
+		}},
 	})
 	if err == nil {
 		t.Fatal("expected error for missing global name")
@@ -858,7 +880,9 @@ export const fromB = shared;
 	result, err := Build(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "a.ts"), filepath.Join(dir, "b.ts")},
 		Mode:    ModeApp,
-		OutDir:  out,
+		Outputs: []OutputOptions{{
+			OutDir: out,
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -902,7 +926,9 @@ export async function load() {
 	result, err := Build(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Mode:    ModeApp,
-		OutDir:  out,
+		Outputs: []OutputOptions{{
+			OutDir: out,
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -927,9 +953,11 @@ func TestTranspileCache(t *testing.T) {
 	cache := filepath.Join(dir, "cache")
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const n = 1;`)
 	opts := Options{
-		Mode:     ModeApp,
-		Entries:  []string{filepath.Join(dir, "index.ts")},
-		OutFile:  filepath.Join(dir, "a.mjs"),
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			OutFile: filepath.Join(dir, "a.mjs"),
+		}},
 		CacheDir: cache,
 	}
 	if _, err := Build(context.Background(), opts); err != nil {
@@ -1004,7 +1032,9 @@ func TestEmitDefaultsMatchTSC(t *testing.T) {
 	result, err := Build(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Mode:    ModeLib,
-		OutDir:  filepath.Join(dir, "dist"),
+		Outputs: []OutputOptions{{
+			OutDir: filepath.Join(dir, "dist"),
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1047,7 +1077,9 @@ export const b = vend + "-b";
 	result, err := Build(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "a.ts"), filepath.Join(dir, "b.ts")},
-		OutDir:  out,
+		Outputs: []OutputOptions{{
+			OutDir: out,
+		}},
 		ManualChunks: map[string]string{
 			"vendor": "vendor",
 		},
@@ -1142,9 +1174,11 @@ func pathsOf(files []Output) []string {
 
 func TestAppDeclarationsAndSourceMap(t *testing.T) {
 	result, err := Build(context.Background(), Options{
-		Mode:      ModeApp,
-		Entries:   []string{filepath.Join("testdata", "app", "index.ts")},
-		OutFile:   filepath.Join("dist", "app.mjs"),
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join("testdata", "app", "index.ts")},
+		Outputs: []OutputOptions{{
+			OutFile: filepath.Join("dist", "app.mjs"),
+		}},
 		SourceMap: new(true),
 	})
 	if err != nil {
@@ -1203,9 +1237,11 @@ export const value = 7;
 `)
 	out := filepath.Join(dir, "dist")
 	result, err := Build(context.Background(), Options{
-		Entries:        []string{filepath.Join(dir, "index.ts")},
-		Mode:           ModeLib,
-		OutDir:         out,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Mode:    ModeLib,
+		Outputs: []OutputOptions{{
+			OutDir: out,
+		}},
 		SourceMap:      new(true),
 		Declaration:    new(true),
 		DeclarationMap: new(true),
@@ -1319,9 +1355,11 @@ export default data;
 `)
 	result, err := Build(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "index.ts")},
-		OutDir:  filepath.Join(dir, "out"),
-		Format:  FormatCJS,
-		Mode:    ModeLib,
+		Outputs: []OutputOptions{{
+			OutDir: filepath.Join(dir, "out"),
+			Format: FormatCJS,
+		}},
+		Mode: ModeLib,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1422,7 +1460,9 @@ console.log("JS_SIDE_EFFECT");
 	result, err := Build(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "index.ts")},
-		OutDir:  filepath.Join(dir, "out"),
+		Outputs: []OutputOptions{{
+			OutDir: filepath.Join(dir, "out"),
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)

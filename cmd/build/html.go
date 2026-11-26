@@ -92,12 +92,15 @@ func parseHTMLDocument(path string) (*htmlDocument, error) {
 }
 
 func renderHTMLDocuments(docs []*htmlDocument, opts bundler.Options, result *bundler.Result) ([]bundler.Output, error) {
-	outRoot := opts.OutDir
-	if outRoot == "" && opts.OutFile != "" {
-		outRoot = filepath.Dir(opts.OutFile)
-	}
-	if outRoot == "" {
-		outRoot = "."
+	outRoot := "."
+	if len(opts.Outputs) > 0 {
+		out := opts.Outputs[0]
+		switch {
+		case out.OutDir != "":
+			outRoot = out.OutDir
+		case out.OutFile != "":
+			outRoot = filepath.Dir(out.OutFile)
+		}
 	}
 	root := opts.RootDir
 	if root == "" && len(docs) > 0 {

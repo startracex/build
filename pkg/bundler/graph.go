@@ -134,6 +134,7 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 	b := &bundler{
 		ctx:          ctx,
 		opts:         opts,
+		output:       outputs[0],
 		format:       loadFormat,
 		outMode:      outMode,
 		jsx:          jsx,
@@ -252,14 +253,13 @@ func validateDepsDir(depsDir string) error {
 	return nil
 }
 
-func (b *bundler) emitForFormat(opts Options, out OutputOptions, roots []string) (*Result, error) {
-	prevOpts := b.opts
+func (b *bundler) emitForFormat(out OutputOptions, roots []string) (*Result, error) {
+	prevOutput := b.output
 	prevFormat := b.format
-	b.opts = withOutput(opts, out)
-	b.opts.Outputs = nil
+	b.output = out
 	b.format = out.Format
 	defer func() {
-		b.opts = prevOpts
+		b.output = prevOutput
 		b.format = prevFormat
 	}()
 
@@ -269,7 +269,7 @@ func (b *bundler) emitForFormat(opts Options, out OutputOptions, roots []string)
 	var err error
 	if b.outMode == ModeLib {
 		result, err = b.emitLibrary(entry)
-	} else if b.opts.OutDir != "" {
+	} else if b.output.OutDir != "" {
 		result, err = b.emitSplit(roots)
 	} else {
 		linkFmt := b.format
@@ -283,11 +283,7 @@ func (b *bundler) emitForFormat(opts Options, out OutputOptions, roots []string)
 		}
 		b.format = linkFmt
 		linked := js
-		global := out.Name
-		if global == "" {
-			global = opts.GlobalName
-		}
-		js = wrap.WrapFormat(js, string(linkFmt), global)
+		js = wrap.WrapFormat(js, string(linkFmt), out.Name)
 		result, err = b.appResult(entry, js, linked, linkFmt)
 	}
 	if err != nil {

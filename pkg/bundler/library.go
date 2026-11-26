@@ -34,10 +34,10 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	pattern := b.opts.NameTemplate
+	pattern := b.output.NameTemplate
 	fullPathPattern := pattern != ""
 	if !fullPathPattern {
-		pattern = b.opts.EntryFileNames
+		pattern = b.output.EntryFileNames
 	}
 	templated := pattern != ""
 	hasHash := templated && output.HasHashPlaceholder(pattern)
@@ -47,8 +47,8 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 		abs := filepath.FromSlash(id)
 		jsRel := libraryOutputRel(root, abs, b.opts.DepsDir)
 		outPath := jsRel
-		if b.opts.OutDir != "" {
-			outPath = filepath.Join(b.opts.OutDir, filepath.FromSlash(jsRel))
+		if b.output.OutDir != "" {
+			outPath = filepath.Join(b.output.OutDir, filepath.FromSlash(jsRel))
 		}
 		if templated {
 			name := modpath.BaseStem(jsRel)
@@ -67,7 +67,7 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			})
 			outPath = rendered
 			if !fullPathPattern {
-				outPath = filepath.Join(b.opts.OutDir, filepath.FromSlash(rendered))
+				outPath = filepath.Join(b.output.OutDir, filepath.FromSlash(rendered))
 			}
 		}
 		b.outputPaths[id] = b.uniqueOutputPath(outPath)

@@ -59,16 +59,9 @@ export interface Plugin {
 
 export interface BuildOptions {
 	entries?: string[];
-	format?: Format;
 	mode?: Mode;
 	jsx?: string;
-	outFile?: string;
-	outDir?: string;
 	rootDir?: string;
-	nameTemplate?: string;
-	entryFileNames?: string;
-	chunkFileNames?: string;
-	assetFileNames?: string;
 	declaration?: boolean;
 	declarationMap?: boolean;
 	sourceMap?: boolean;
@@ -76,7 +69,6 @@ export interface BuildOptions {
 	bundleNodeModules?: boolean;
 	depsDir?: string;
 	conditions?: string[];
-	globalName?: string;
 	define?: Record<string, string>;
 	drop?: string[];
 	alias?: Record<string, string>;

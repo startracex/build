@@ -115,7 +115,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 		if err != nil {
 			return nil, err
 		}
-		out := filepath.Join(b.opts.OutDir, filepath.FromSlash(rel))
+		out := filepath.Join(b.output.OutDir, filepath.FromSlash(rel))
 		files = append(files, Output{Path: out, Data: js})
 		manifest[rel] = out
 	}
@@ -134,7 +134,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 		if err != nil {
 			return nil, err
 		}
-		out := filepath.Join(b.opts.OutDir, filepath.FromSlash(sharedRel))
+		out := filepath.Join(b.output.OutDir, filepath.FromSlash(sharedRel))
 		files = append(files, Output{Path: out, Data: js})
 		manifest[sharedRel] = out
 	}
@@ -178,7 +178,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 		if err != nil {
 			return nil, err
 		}
-		out := filepath.Join(b.opts.OutDir, filepath.FromSlash(chunkRel))
+		out := filepath.Join(b.output.OutDir, filepath.FromSlash(chunkRel))
 		files = append(files, Output{Path: out, Data: js})
 		manifest[root] = out
 	}
@@ -199,7 +199,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 		entryRel, fullPath := b.renderedEntryRel(rel, emitFmt, "")
 		entryDir := filepath.Dir(entryRel)
 		if fullPath {
-			if r, err := filepath.Rel(b.opts.OutDir, entryRel); err == nil {
+			if r, err := filepath.Rel(b.output.OutDir, entryRel); err == nil {
 				entryDir = filepath.Dir(r)
 			}
 		}
@@ -215,7 +215,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 		if err != nil {
 			return nil, err
 		}
-		js := wrap.WrapFormat(linked, string(emitFmt), b.opts.GlobalName)
+		js := wrap.WrapFormat(linked, string(emitFmt), b.output.Name)
 		out := b.entryOutputPath(rel, emitFmt, js)
 		if b.sourceMap {
 			mapName := filepath.Base(out) + ".map"
@@ -252,7 +252,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 func (b *bundler) entryOutputPath(defaultRel string, format Format, js string) string {
 	pattern := b.entryPattern()
 	if pattern == "" {
-		return filepath.Join(b.opts.OutDir, filepath.FromSlash(defaultRel))
+		return filepath.Join(b.output.OutDir, filepath.FromSlash(defaultRel))
 	}
 	hash := ""
 	if output.HasHashPlaceholder(pattern) {
@@ -262,15 +262,15 @@ func (b *bundler) entryOutputPath(defaultRel string, format Format, js string) s
 	if fullPath {
 		return rel
 	}
-	return filepath.Join(b.opts.OutDir, filepath.FromSlash(rel))
+	return filepath.Join(b.output.OutDir, filepath.FromSlash(rel))
 }
 
 // entryPattern prefers the full-path --outfile template over OutDir-joined EntryFileNames.
 func (b *bundler) entryPattern() string {
-	if b.opts.NameTemplate != "" {
-		return b.opts.NameTemplate
+	if b.output.NameTemplate != "" {
+		return b.output.NameTemplate
 	}
-	return b.opts.EntryFileNames
+	return b.output.EntryFileNames
 }
 
 // renderedEntryRel renders an entry path without OutDir; fullPath marks a complete NameTemplate path.
@@ -287,19 +287,19 @@ func (b *bundler) renderedEntryRel(defaultRel string, format Format, hash string
 		Format: string(format),
 		Hash:   hash,
 	})
-	return filepath.ToSlash(rendered), b.opts.NameTemplate != ""
+	return filepath.ToSlash(rendered), b.output.NameTemplate != ""
 }
 
 // chunkOutputRel returns an OutDir-relative chunk path, using the built-in layout when ChunkFileNames is empty.
 func (b *bundler) chunkOutputRel(name, path string, mods []string, fallback string) string {
-	if b.opts.ChunkFileNames == "" {
+	if b.output.ChunkFileNames == "" {
 		return fallback
 	}
 	hash := ""
-	if output.HasHashPlaceholder(b.opts.ChunkFileNames) {
+	if output.HasHashPlaceholder(b.output.ChunkFileNames) {
 		hash = shortHash(mods)
 	}
-	return filepath.ToSlash(output.RenderFileName(b.opts.ChunkFileNames, output.FileNameParts{
+	return filepath.ToSlash(output.RenderFileName(b.output.ChunkFileNames, output.FileNameParts{
 		Name:   name,
 		Path:   path,
 		Ext:    ".js",

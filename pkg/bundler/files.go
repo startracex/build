@@ -72,21 +72,21 @@ func (b *bundler) declarationText(path, src string) (string, error) {
 }
 
 func (b *bundler) appResult(entry, js, linked string, emitFmt Format) (*Result, error) {
-	jsName := b.opts.OutFile
+	jsName := b.output.OutFile
 	if jsName == "" {
 		jsName = "bundle.js"
 	}
-	if b.opts.NameTemplate != "" {
+	if b.output.NameTemplate != "" {
 		name := modpath.BaseStem(entry)
 		hash := ""
-		if output.HasHashPlaceholder(b.opts.NameTemplate) {
+		if output.HasHashPlaceholder(b.output.NameTemplate) {
 			hash = output.ContentHash(js)
 		}
 		ext := modpath.Ext(jsName)
 		if ext == "" {
 			ext = ".js"
 		}
-		jsName = output.RenderFileName(b.opts.NameTemplate, output.FileNameParts{
+		jsName = output.RenderFileName(b.output.NameTemplate, output.FileNameParts{
 			Name:   name,
 			Path:   name,
 			Ext:    ext,

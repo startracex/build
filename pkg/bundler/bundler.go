@@ -98,8 +98,6 @@ type Options struct {
 	SourceMap *bool
 	// BaseURL stands in for the removed tsconfig "baseUrl" option so old configs still resolve bare specifiers.
 	BaseURL resolve.BaseURLFallback
-	// Format selects ESM or CommonJS output. Empty means FormatESM.
-	Format Format
 	// FS reads sources, assets, and resolver probes; nil uses the OS file system, virtual builds supply their own.
 	FS vfs.FS
 	// JSX selects the JSX transform. Empty means JSXReact.
@@ -108,29 +106,15 @@ type Options struct {
 	Mode Mode
 	// Target is the TypeScript emit target. Empty means ESNext.
 	Target core.ScriptTarget
-	// AssetFileNames names emitted assets and entry CSS; empty keeps the source path with a content hash.
-	AssetFileNames string
 	// CacheDir stores content-hashed transpile results relative to CWD through FS; empty disables the cache.
 	CacheDir string
-	// ChunkFileNames names split chunks in app mode; empty keeps the built-in chunks/ layout.
-	ChunkFileNames string
 	// CWD resolves relative entry and display paths; a wasm build may need to supply it.
 	CWD string
 	// DepsDir moves bundled packages under this directory in library mode; empty keeps node_modules.
 	DepsDir string
-	// EntryFileNames is a per-entry filename pattern joined with OutDir.
-	EntryFileNames string
-	// GlobalName is the IIFE/UMD global variable when Outputs is empty.
-	GlobalName string
-	// NameTemplate marks OutFile as a full per-entry filename pattern.
-	NameTemplate string
-	// OutDir is the directory used by per-module output.
-	OutDir string
-	// OutFile is the app-mode JavaScript path; its map is written beside it.
-	OutFile string
 	// PublicPath prefixes emitted asset URLs for ?url and file imports.
 	PublicPath string
-	// RootDir bases paths under OutDir; it falls back to tsconfig rootDir, then the entries' deepest shared directory.
+	// RootDir bases paths under the output directory; it falls back to tsconfig rootDir, then the entries' deepest shared directory.
 	RootDir string
 	// Conditions appends package.json "exports" conditions; import/require, default, and module are always included.
 	Conditions []string
@@ -206,7 +190,7 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 	b.usedOutputPaths = map[string]bool{}
 	b.sources = map[string]string{}
 	if len(outputs) == 1 {
-		result, err := b.emitForFormat(opts, outputs[0], roots)
+		result, err := b.emitForFormat(outputs[0], roots)
 		if err != nil {
 			return nil, err
 		}
@@ -217,8 +201,8 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 				b.emitEntryCSS(result, outputs[0].OutFile, root)
 			}
 		}
-		if opts.Manifest && len(opts.Outputs) == 0 {
-			result.Files = append(result.Files, manifestOutput(opts, result.Manifest)...)
+		if opts.Manifest {
+			result.Files = append(result.Files, manifestOutput(outputs[0], result.Manifest)...)
 		}
 		hookCtx := plugin.HookCtx{Context: ctx}
 		if err := applyGenerateBundle(opts.Plugins, hookCtx, result); err != nil {
@@ -230,7 +214,7 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 	}
 	merged := &Result{Manifest: map[string]string{}, Sources: b.sources}
 	for _, out := range outputs {
-		sub, err := b.emitForFormat(opts, out, roots)
+		sub, err := b.emitForFormat(out, roots)
 		if err != nil {
 			return nil, err
 		}
@@ -249,12 +233,12 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 		}
 		maps.Copy(merged.Manifest, sub.Manifest)
 	}
-	save := b.opts
-	b.opts = withOutput(opts, outputs[0])
+	prevOutput := b.output
+	b.output = outputs[0]
 	b.emitAssetFiles(merged)
-	b.opts = save
+	b.output = prevOutput
 	if opts.Manifest {
-		merged.Files = append(merged.Files, manifestOutput(opts, merged.Manifest)...)
+		merged.Files = append(merged.Files, manifestOutput(outputs[0], merged.Manifest)...)
 	}
 	hookCtx := plugin.HookCtx{Context: ctx}
 	if err := applyGenerateBundle(opts.Plugins, hookCtx, merged); err != nil {
@@ -340,6 +324,7 @@ type bundler struct {
 	// transformKey fingerprints plugin transform settings once per build.
 	transformKey string
 	opts         Options
+	output       OutputOptions
 	decl         bool
 	declMap      bool
 	sourceMap    bool
@@ -586,7 +571,7 @@ func (b *bundler) loadAsset(abs string, kind asset.Kind) error {
 	if _, ok := b.assets[id]; ok {
 		return nil
 	}
-	au, js, err := asset.Load(b.fs, abs, kind, b.rootDir, b.opts.PublicPath, b.opts.AssetFileNames)
+	au, js, err := asset.Load(b.fs, abs, kind, b.rootDir, b.opts.PublicPath, b.output.AssetFileNames)
 	if err != nil {
 		return err
 	}
@@ -599,9 +584,9 @@ func (b *bundler) emitAssetFiles(result *Result) {
 	if result.Manifest == nil {
 		result.Manifest = map[string]string{}
 	}
-	outRoot := b.opts.OutDir
-	if outRoot == "" && b.opts.OutFile != "" {
-		outRoot = filepath.Dir(b.opts.OutFile)
+	outRoot := b.output.OutDir
+	if outRoot == "" && b.output.OutFile != "" {
+		outRoot = filepath.Dir(b.output.OutFile)
 	}
 	for _, au := range b.assets {
 		if au.Kind == asset.CSS && b.outMode == ModeApp {
@@ -617,7 +602,7 @@ func (b *bundler) emitAssetFiles(result *Result) {
 	}
 }
 
-func manifestOutput(opts Options, manifest map[string]string) []Output {
+func manifestOutput(out OutputOptions, manifest map[string]string) []Output {
 	if len(manifest) == 0 {
 		manifest = map[string]string{}
 	}
@@ -625,7 +610,7 @@ func manifestOutput(opts Options, manifest map[string]string) []Output {
 	if err := json.MarshalWrite(&buf, manifest, json.Deterministic(true), jsontext.WithIndent("  ")); err != nil {
 		buf.Reset()
 	}
-	path := asset.ManifestPath(opts.OutDir, opts.OutFile)
+	path := asset.ManifestPath(out.OutDir, out.OutFile)
 	return []Output{{Path: path, Data: buf.String() + "\n"}}
 }
 

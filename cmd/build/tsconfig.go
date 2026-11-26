@@ -24,7 +24,7 @@ import (
 )
 
 // applyTSConfig applies tsconfig.json and returns compiler options affecting emitted code, declarations and module resolution.
-func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration, declarationMap *bool) (*core.CompilerOptions, error) {
+func applyTSConfig(c *cli.Context, opts *bundler.Options, out *bundler.OutputOptions, declaration, declarationMap *bool) (*core.CompilerOptions, error) {
 	// Files on the command line (without -p) ignore tsconfig.json, matching classic tsc CLI behavior.
 	if c.String("project") == "" && len(opts.Entries) > 0 {
 		return nil, nil
@@ -43,7 +43,7 @@ func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration, declarati
 	compiler := parsed.CompilerOptions()
 	opts.BaseURL = applyBaseURL(compiler, parsed, configFileName)
 	if !c.IsSet("format") {
-		opts.Format = formatFromModule(compiler.Module)
+		out.Format = formatFromModule(compiler.Module)
 	}
 	if !c.IsSet("jsx") {
 		if jsx, ok := jsxFromCompiler(compiler.Jsx); ok {
@@ -63,8 +63,8 @@ func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration, declarati
 	if !c.IsSet("conditions") && len(compiler.CustomConditions) > 0 {
 		opts.Conditions = append([]string{}, compiler.CustomConditions...)
 	}
-	if opts.OutDir == "" && compiler.OutDir != "" {
-		opts.OutDir = filepath.FromSlash(compiler.OutDir.AsString())
+	if out.OutDir == "" && compiler.OutDir != "" {
+		out.OutDir = filepath.FromSlash(compiler.OutDir.AsString())
 	}
 	if !c.IsSet("root-dir") {
 		if compiler.RootDir != "" {

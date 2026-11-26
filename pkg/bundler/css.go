@@ -19,17 +19,17 @@ func (b *bundler) emitEntryCSS(result *Result, jsOut, entryAbs string) {
 		return
 	}
 	cssPath := jsOut
-	if b.opts.AssetFileNames != "" {
+	if b.output.AssetFileNames != "" {
 		root := b.rootDir
 		if root == "" {
 			root = modpath.DisplayRoot(b.cwd, []string{entryAbs})
 		}
 		rel := entryRelPath(root, entryAbs)
 		hash := ""
-		if output.HasHashPlaceholder(b.opts.AssetFileNames) {
+		if output.HasHashPlaceholder(b.output.AssetFileNames) {
 			hash = output.ContentHash(css)
 		}
-		rendered := output.RenderFileName(b.opts.AssetFileNames, output.FileNameParts{
+		rendered := output.RenderFileName(b.output.AssetFileNames, output.FileNameParts{
 			Name:   modpath.BaseStem(rel),
 			Path:   rel,
 			Ext:    ".css",
@@ -37,12 +37,12 @@ func (b *bundler) emitEntryCSS(result *Result, jsOut, entryAbs string) {
 			Format: string(b.format),
 			Hash:   hash,
 		})
-		cssPath = filepath.Join(b.opts.OutDir, filepath.FromSlash(rendered))
+		cssPath = filepath.Join(b.output.OutDir, filepath.FromSlash(rendered))
 	} else {
 		if cssPath == "" {
 			base := filepath.Base(modpath.JavascriptOutputAbs(entryAbs))
-			if b.opts.OutDir != "" {
-				cssPath = filepath.Join(b.opts.OutDir, base)
+			if b.output.OutDir != "" {
+				cssPath = filepath.Join(b.output.OutDir, base)
 			} else {
 				cssPath = base
 			}

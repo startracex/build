@@ -17,62 +17,16 @@ type OutputOptions struct {
 }
 
 func (o Options) normalizedOutputs() ([]OutputOptions, error) {
-	if len(o.Outputs) > 0 {
-		var outs []OutputOptions
-		for _, out := range o.Outputs {
-			format, err := normalizeFormat(out.Format)
-			if err != nil {
-				return nil, err
-			}
-			out.Format = format
-			if out.OutFile == "" && out.OutDir == "" {
-				out.OutFile = o.OutFile
-				out.OutDir = o.OutDir
-			}
-			if out.Name == "" {
-				out.Name = o.GlobalName
-			}
-			if out.NameTemplate == "" {
-				out.NameTemplate = o.NameTemplate
-			}
-			if out.EntryFileNames == "" {
-				out.EntryFileNames = o.EntryFileNames
-			}
-			if out.ChunkFileNames == "" {
-				out.ChunkFileNames = o.ChunkFileNames
-			}
-			if out.AssetFileNames == "" {
-				out.AssetFileNames = o.AssetFileNames
-			}
-			outs = append(outs, out)
+	outs := append([]OutputOptions(nil), o.Outputs...)
+	if len(outs) == 0 {
+		outs = []OutputOptions{{}}
+	}
+	for i := range outs {
+		format, err := normalizeFormat(outs[i].Format)
+		if err != nil {
+			return nil, err
 		}
-		return outs, nil
+		outs[i].Format = format
 	}
-	format, err := normalizeFormat(o.Format)
-	if err != nil {
-		return nil, err
-	}
-	return []OutputOptions{{
-		Format:         format,
-		OutFile:        o.OutFile,
-		OutDir:         o.OutDir,
-		Name:           o.GlobalName,
-		NameTemplate:   o.NameTemplate,
-		EntryFileNames: o.EntryFileNames,
-		ChunkFileNames: o.ChunkFileNames,
-		AssetFileNames: o.AssetFileNames,
-	}}, nil
-}
-
-func withOutput(opts Options, out OutputOptions) Options {
-	opts.Format = out.Format
-	opts.OutFile = out.OutFile
-	opts.OutDir = out.OutDir
-	opts.GlobalName = out.Name
-	opts.NameTemplate = out.NameTemplate
-	opts.EntryFileNames = out.EntryFileNames
-	opts.ChunkFileNames = out.ChunkFileNames
-	opts.AssetFileNames = out.AssetFileNames
-	opts.Outputs = nil
-	return opts
+	return outs, nil
 }

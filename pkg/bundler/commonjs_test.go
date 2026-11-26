@@ -26,7 +26,9 @@ module.exports = { lang };
 	result, err := Build(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "index.js")},
-		OutDir:  out,
+		Outputs: []OutputOptions{{
+			OutDir: out,
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)

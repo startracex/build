@@ -15,10 +15,12 @@ func TestEntryFileNamesInAppSplit(t *testing.T) {
 	out := filepath.Join(dir, "dist")
 
 	result, err := Build(context.Background(), Options{
-		Entries:        []string{filepath.Join(dir, "src", "a.ts"), filepath.Join(dir, "src", "b.ts")},
-		Mode:           ModeApp,
-		OutDir:         out,
-		EntryFileNames: "entries/[name]-[hash:6].[ext]",
+		Entries: []string{filepath.Join(dir, "src", "a.ts"), filepath.Join(dir, "src", "b.ts")},
+		Mode:    ModeApp,
+		Outputs: []OutputOptions{{
+			OutDir:         out,
+			EntryFileNames: "entries/[name]-[hash:6].[ext]",
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -49,10 +51,12 @@ export async function load() {
 	out := filepath.Join(dir, "dist")
 
 	result, err := Build(context.Background(), Options{
-		Entries:        []string{filepath.Join(dir, "index.ts")},
-		Mode:           ModeApp,
-		OutDir:         out,
-		ChunkFileNames: "js/[name]-[hash:6].[ext]",
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Mode:    ModeApp,
+		Outputs: []OutputOptions{{
+			OutDir:         out,
+			ChunkFileNames: "js/[name]-[hash:6].[ext]",
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -82,11 +86,13 @@ func TestChunkFileNamesForManualChunk(t *testing.T) {
 	out := filepath.Join(dir, "dist")
 
 	result, err := Build(context.Background(), Options{
-		Entries:        []string{filepath.Join(dir, "a.ts"), filepath.Join(dir, "b.ts")},
-		Mode:           ModeApp,
-		OutDir:         out,
-		ChunkFileNames: "parts/[name].[ext]",
-		ManualChunks:   map[string]string{"vendor": "vendor"},
+		Entries: []string{filepath.Join(dir, "a.ts"), filepath.Join(dir, "b.ts")},
+		Mode:    ModeApp,
+		Outputs: []OutputOptions{{
+			OutDir:         out,
+			ChunkFileNames: "parts/[name].[ext]",
+		}},
+		ManualChunks: map[string]string{"vendor": "vendor"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -113,10 +119,12 @@ export { url };
 	out := filepath.Join(dir, "dist")
 
 	result, err := Build(context.Background(), Options{
-		Entries:        []string{filepath.Join(dir, "index.ts")},
-		Mode:           ModeApp,
-		OutDir:         out,
-		AssetFileNames: "media/[name]-[hash:6].[ext]",
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Mode:    ModeApp,
+		Outputs: []OutputOptions{{
+			OutDir:         out,
+			AssetFileNames: "media/[name]-[hash:6].[ext]",
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -144,10 +152,12 @@ func TestAssetFileNamesForEntryCSS(t *testing.T) {
 	out := filepath.Join(dir, "dist")
 
 	result, err := Build(context.Background(), Options{
-		Entries:        []string{filepath.Join(dir, "index.ts")},
-		Mode:           ModeApp,
-		OutDir:         out,
-		AssetFileNames: "css/[name]-[hash:6].[ext]",
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Mode:    ModeApp,
+		Outputs: []OutputOptions{{
+			OutDir:         out,
+			AssetFileNames: "css/[name]-[hash:6].[ext]",
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -176,12 +186,14 @@ export { url };
 	out := filepath.Join(dir, "dist")
 
 	result, err := Build(context.Background(), Options{
-		Entries:        []string{filepath.Join(dir, "index.ts")},
-		Mode:           ModeApp,
-		OutDir:         out,
-		EntryFileNames: "[type]/[name].[ext]",
-		ChunkFileNames: "[type]/[name]-[hash:6].[ext]",
-		AssetFileNames: "[type]/[name]-[hash:6].[ext]",
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Mode:    ModeApp,
+		Outputs: []OutputOptions{{
+			OutDir:         out,
+			EntryFileNames: "[type]/[name].[ext]",
+			ChunkFileNames: "[type]/[name]-[hash:6].[ext]",
+			AssetFileNames: "[type]/[name]-[hash:6].[ext]",
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -214,11 +226,13 @@ func TestEntryFileNamesInLibWithExt(t *testing.T) {
 	out := filepath.Join(dir, "dist")
 
 	result, err := Build(context.Background(), Options{
-		Entries:        []string{filepath.Join(dir, "src", "index.ts")},
-		Mode:           ModeLib,
-		OutDir:         out,
-		RootDir:        filepath.Join(dir, "src"),
-		EntryFileNames: "[name].[format].[ext]",
+		Entries: []string{filepath.Join(dir, "src", "index.ts")},
+		Mode:    ModeLib,
+		Outputs: []OutputOptions{{
+			OutDir:         out,
+			EntryFileNames: "[name].[format].[ext]",
+		}},
+		RootDir: filepath.Join(dir, "src"),
 	})
 	if err != nil {
 		t.Fatal(err)

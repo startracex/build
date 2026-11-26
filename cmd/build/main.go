@@ -124,6 +124,13 @@ func action(c *cli.Context) error {
 	formatSet := c.IsSet("format")
 	alias := parseKV(c.StringSlice("alias"))
 	define := parseKV(c.StringSlice("define"))
+	baseOutput := bundler.OutputOptions{
+		Format:         bundler.FormatESM,
+		Name:           c.String("global-name"),
+		EntryFileNames: c.String("entry-file-names"),
+		ChunkFileNames: c.String("chunk-file-names"),
+		AssetFileNames: c.String("asset-file-names"),
+	}
 	base := bundler.Options{
 		JSX:               bundler.JSX(flagOr(c, "jsx", string(bundler.JSXReact))),
 		External:          c.StringSlice("external"),
@@ -133,13 +140,9 @@ func action(c *cli.Context) error {
 		Alias:             alias,
 		Define:            define,
 		Drop:              c.StringSlice("drop"),
-		GlobalName:        c.String("global-name"),
 		CacheDir:          c.String("cache-dir"),
 		Manifest:          c.Bool("manifest"),
 		PublicPath:        c.String("public-path"),
-		EntryFileNames:    c.String("entry-file-names"),
-		ChunkFileNames:    c.String("chunk-file-names"),
-		AssetFileNames:    c.String("asset-file-names"),
 		RootDir:           c.String("root-dir"),
 	}
 
@@ -147,16 +150,15 @@ func action(c *cli.Context) error {
 	if len(htmlDocs) > 0 && base.RootDir == "" {
 		base.RootDir = filepath.Dir(htmlDocs[0].path)
 	}
-	base.Format = bundler.FormatESM
 	declaration, declarationMap := false, false
-	compilerOpts, err := applyTSConfig(c, &base, &declaration, &declarationMap)
+	compilerOpts, err := applyTSConfig(c, &base, &baseOutput, &declaration, &declarationMap)
 	if err != nil {
 		return err
 	}
 	base.CompilerOptions = compilerOpts
 	ctx := context.Background()
 	if formatSet && len(explicitFormats) == 1 {
-		base.Format = bundler.Format(explicitFormats[0])
+		baseOutput.Format = bundler.Format(explicitFormats[0])
 	}
 	if c.IsSet("jsx") {
 		base.JSX = bundler.JSX(c.String("jsx"))
@@ -164,7 +166,7 @@ func action(c *cli.Context) error {
 	applyEmitFlags(c, &base, &declaration, &declarationMap)
 
 	if len(outfiles) > 0 {
-		base.EntryFileNames = ""
+		baseOutput.EntryFileNames = ""
 		templated := false
 		for _, outfile := range outfiles {
 			if templateOf(outfile) != "" {
@@ -201,7 +203,7 @@ func action(c *cli.Context) error {
 		default:
 			base.Mode = bundler.ModeLib
 		}
-		plan, err := planOutputs(outputFile, outfiles, formatList(explicitFormats, formatSet, base.Format), base.Format, "", base.GlobalName)
+		plan, err := planOutputs(outputFile, outfiles, formatList(explicitFormats, formatSet, baseOutput.Format), baseOutput, "")
 		if err != nil {
 			return err
 		}
@@ -218,10 +220,10 @@ func action(c *cli.Context) error {
 	default:
 		base.Mode = bundler.ModeLib
 	}
-	if base.EntryFileNames != "" && len(outdirs) == 0 && base.OutDir == "" {
+	if baseOutput.EntryFileNames != "" && len(outdirs) == 0 && baseOutput.OutDir == "" {
 		return errors.New("--entry-file-names requires --outdir")
 	}
-	plan, err := planOutputs(outputDir, outdirs, formatList(explicitFormats, formatSet, base.Format), base.Format, base.OutDir, base.GlobalName)
+	plan, err := planOutputs(outputDir, outdirs, formatList(explicitFormats, formatSet, baseOutput.Format), baseOutput, baseOutput.OutDir)
 	if err != nil {
 		return err
 	}
