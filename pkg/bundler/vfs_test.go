@@ -46,7 +46,7 @@ export const value: string = label;
 
 	result, err := Build(context.Background(), Options{
 		Mode:    ModeApp,
-		Entry:   root + "/src/index.ts",
+		Entries: []string{root + "/src/index.ts"},
 		OutFile: root + "/dist/out.js",
 		FS:      fsys,
 		CWD:     root,
@@ -76,7 +76,7 @@ func TestBuildVirtualFSRelativeEntry(t *testing.T) {
 
 	result, err := Build(context.Background(), Options{
 		Mode:    ModeApp,
-		Entry:   "src/index.ts",
+		Entries: []string{"src/index.ts"},
 		OutFile: root + "/dist/out.js",
 		FS:      fsys,
 		CWD:     root,
@@ -101,7 +101,7 @@ func TestBuildVirtualFSCache(t *testing.T) {
 	}
 	opts := Options{
 		Mode:     ModeApp,
-		Entry:    root + "/src/index.ts",
+		Entries:  []string{root + "/src/index.ts"},
 		OutFile:  root + "/dist/out.js",
 		FS:       fsys,
 		CWD:      root,

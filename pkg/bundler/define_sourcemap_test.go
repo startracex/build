@@ -23,7 +23,7 @@ func TestDefineDropKeepsSourceMapAligned(t *testing.T) {
 	sourcemapFlag := true
 	result, err := Build(context.Background(), Options{
 		Mode:      ModeApp,
-		Entry:     filepath.Join(dir, "index.ts"),
+		Entries:   []string{filepath.Join(dir, "index.ts")},
 		OutFile:   filepath.Join(dir, "out", "bundle.mjs"),
 		SourceMap: &sourcemapFlag,
 		Define:    map[string]string{"__MODE__": `"prod"`},
@@ -60,7 +60,7 @@ console.log("drop-me");
 	sourcemapFlag := true
 	result, err := Build(context.Background(), Options{
 		Mode:      ModeApp,
-		Entry:     filepath.Join(dir, "src", "index.ts"),
+		Entries:   []string{filepath.Join(dir, "src", "index.ts")},
 		OutDir:    filepath.Join(dir, "dist"),
 		SourceMap: &sourcemapFlag,
 		Define:    map[string]string{"__MODE__": `"prod"`},

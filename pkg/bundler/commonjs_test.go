@@ -24,9 +24,9 @@ module.exports = { lang };
 `)
 	out := filepath.Join(dir, "dist")
 	result, err := Build(context.Background(), Options{
-		Mode:   ModeApp,
-		Entry:  filepath.Join(dir, "index.js"),
-		OutDir: out,
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.js")},
+		OutDir:  out,
 	})
 	if err != nil {
 		t.Fatal(err)

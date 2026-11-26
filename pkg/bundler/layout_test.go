@@ -23,7 +23,7 @@ export const out = helper();
 	writeFile(t, filepath.Join(dir, "node_modules", "deep-pkg", "lib", "util", "helper.js"), `export const helper = () => "help";`)
 	out := filepath.Join(dir, "dist")
 	result, err := Build(context.Background(), Options{
-		Entry:             filepath.Join(dir, "src", "index.ts"),
+		Entries:           []string{filepath.Join(dir, "src", "index.ts")},
 		Mode:              ModeLib,
 		OutDir:            out,
 		BundleNodeModules: true,
@@ -51,7 +51,7 @@ func TestLibDepsDirRejectsEscape(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const a = 1;`)
 	for _, value := range []string{"..", "../out", "/abs", "."} {
 		_, err := Build(context.Background(), Options{
-			Entry:   filepath.Join(dir, "index.ts"),
+			Entries: []string{filepath.Join(dir, "index.ts")},
 			Mode:    ModeLib,
 			OutDir:  filepath.Join(dir, "dist"),
 			DepsDir: value,
@@ -103,7 +103,7 @@ export const out = tiny.x;
 	compiler := &core.CompilerOptions{}
 	compiler.InlineSources = core.TSTrue
 	result, err := Build(context.Background(), Options{
-		Entry:             filepath.Join(dir, "src", "index.ts"),
+		Entries:           []string{filepath.Join(dir, "src", "index.ts")},
 		Mode:              ModeLib,
 		OutDir:            out,
 		BundleNodeModules: true,
@@ -142,8 +142,8 @@ export const out = tiny.x;
 	writeFile(t, filepath.Join(dir, "node_modules", "mini-pkg", "package.json"), `{"name":"mini-pkg","type":"module","main":"index.js"}`)
 	writeFile(t, filepath.Join(dir, "node_modules", "mini-pkg", "index.js"), minifiedPackage)
 	code, err := Bundle(context.Background(), Options{
-		Mode:  ModeApp,
-		Entry: filepath.Join(dir, "index.ts"),
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -166,8 +166,8 @@ export const out = first;
 	writeFile(t, filepath.Join(dir, "first.js"), `export const first = 1`)
 	writeFile(t, filepath.Join(dir, "second.js"), `(function () { globalThis.ran = true })()`)
 	code, err := Bundle(context.Background(), Options{
-		Mode:  ModeApp,
-		Entry: filepath.Join(dir, "index.ts"),
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
 	})
 	if err != nil {
 		t.Fatal(err)

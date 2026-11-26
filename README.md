@@ -247,8 +247,8 @@ Order: **transpile → Transform → define/drop (with branch fold) → link/wra
 
 ```go
 result, err := bundler.Build(ctx, bundler.Options{
-  Mode:  bundler.ModeApp,
-  Entry: "src/index.ts",
+  Mode:    bundler.ModeApp,
+  Entries: []string{"src/index.ts"},
   Outputs: []bundler.OutputOptions{
     {Format: bundler.FormatESM, OutFile: "dist/index.mjs"},
     {Format: bundler.FormatCJS, OutFile: "dist/index.cjs"},
@@ -267,7 +267,7 @@ The tsconfig compiler options are passed through `Options`, so no flag can overr
 
 ```go
 result, err := bundler.Build(context.Background(), bundler.Options{
-  Entry:           "src/index.ts",
+  Entries:         []string{"src/index.ts"},
   CompilerOptions: compilerOptions, // parsed from tsconfig.json
 })
 ```

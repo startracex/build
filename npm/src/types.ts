@@ -48,7 +48,6 @@ export interface Plugin {
 }
 
 export interface BuildOptions {
-	entry?: string;
 	entries?: string[];
 	format?: Format;
 	mode?: Mode;

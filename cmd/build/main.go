@@ -143,11 +143,7 @@ func action(c *cli.Context) error {
 		RootDir:           c.String("root-dir"),
 	}
 
-	if len(entries) == 1 {
-		base.Entry = entries[0]
-	} else {
-		base.Entries = entries
-	}
+	base.Entries = entries
 	if len(htmlDocs) > 0 && base.RootDir == "" {
 		base.RootDir = filepath.Dir(htmlDocs[0].path)
 	}
@@ -177,9 +173,6 @@ func action(c *cli.Context) error {
 			}
 		}
 		entryCount := len(base.Entries)
-		if base.Entry != "" {
-			entryCount++
-		}
 		if entryCount == 0 {
 			return errors.New("--outfile requires at least one entry")
 		}
@@ -233,7 +226,7 @@ func action(c *cli.Context) error {
 		return err
 	}
 	applyOutputPlan(&base, plan)
-	if len(base.Entries) == 0 && base.Entry == "" {
+	if len(base.Entries) == 0 {
 		return errors.New("tsconfig.json not found")
 	}
 	warnIgnoredFlags(c, &base, declaration)

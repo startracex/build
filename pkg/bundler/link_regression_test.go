@@ -9,7 +9,7 @@ import (
 
 func bundleDir(t *testing.T, dir, entry string) string {
 	t.Helper()
-	code, err := Bundle(context.Background(), Options{Mode: ModeApp, Entry: filepath.Join(dir, entry)})
+	code, err := Bundle(context.Background(), Options{Mode: ModeApp, Entries: []string{filepath.Join(dir, entry)}})
 	if err != nil {
 		t.Fatalf("bundle: %v", err)
 	}

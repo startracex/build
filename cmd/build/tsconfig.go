@@ -26,7 +26,7 @@ import (
 // applyTSConfig applies tsconfig.json and returns compiler options affecting emitted code, declarations and module resolution.
 func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration, declarationMap *bool) (*core.CompilerOptions, error) {
 	// Files on the command line (without -p) ignore tsconfig.json, matching classic tsc CLI behavior.
-	if c.String("project") == "" && (len(opts.Entries) > 0 || opts.Entry != "") {
+	if c.String("project") == "" && len(opts.Entries) > 0 {
 		return nil, nil
 	}
 	path, err := tsconfigPath(c)
@@ -73,7 +73,7 @@ func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration, declarati
 			opts.RootDir = filepath.FromSlash(common.AsString())
 		}
 	}
-	if len(opts.Entries) == 0 && opts.Entry == "" {
+	if len(opts.Entries) == 0 {
 		files, err := configFiles(parsed)
 		if err != nil {
 			return nil, err

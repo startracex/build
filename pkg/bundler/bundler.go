@@ -118,8 +118,6 @@ type Options struct {
 	CWD string
 	// DepsDir moves bundled packages under this directory in library mode; empty keeps node_modules.
 	DepsDir string
-	// Entry is the primary build root; Entries adds more, but single-file builds allow only one.
-	Entry string
 	// EntryFileNames is a per-entry filename pattern joined with OutDir.
 	EntryFileNames string
 	// GlobalName is the IIFE/UMD global variable when Outputs is empty.
@@ -138,7 +136,7 @@ type Options struct {
 	Conditions []string
 	// Drop removes console.* calls and/or debugger statements ("console", "debugger").
 	Drop []string
-	// Entries adds root files; library mode emits every root and its imported modules.
+	// Entries lists root files; the first is the primary entry, and library mode emits every root and its imported modules.
 	Entries []string
 	// External package names or specifiers are left as import/require calls.
 	External []string
@@ -192,7 +190,7 @@ func (r *Result) JavaScript() string {
 	return ""
 }
 
-// Build reads Entry and returns the JavaScript, declarations, and source maps.
+// Build reads Entries and returns the JavaScript, declarations, and source maps.
 func Build(ctx context.Context, opts Options) (*Result, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -688,11 +686,7 @@ func parseSource(path, src string) (*ast.SourceFile, error) {
 }
 
 func (o Options) absRoots(cwd string) ([]string, error) {
-	var raw []string
-	if o.Entry != "" {
-		raw = append(raw, o.Entry)
-	}
-	raw = append(raw, o.Entries...)
+	raw := o.Entries
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("missing entry file")
 	}

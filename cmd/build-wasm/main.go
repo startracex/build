@@ -208,7 +208,6 @@ func boolFieldOrNil(obj js.Value, key string) *bool {
 
 func optionsFromJS(value js.Value) (bundler.Options, error) {
 	opts := bundler.Options{
-		Entry:             stringField(value, "entry"),
 		Entries:           stringArray(value.Get("entries")),
 		Format:            bundler.Format(stringField(value, "format")),
 		JSX:               bundler.JSX(stringField(value, "jsx")),

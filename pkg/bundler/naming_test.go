@@ -49,7 +49,7 @@ export async function load() {
 	out := filepath.Join(dir, "dist")
 
 	result, err := Build(context.Background(), Options{
-		Entry:          filepath.Join(dir, "index.ts"),
+		Entries:        []string{filepath.Join(dir, "index.ts")},
 		Mode:           ModeApp,
 		OutDir:         out,
 		ChunkFileNames: "js/[name]-[hash:6].[ext]",
@@ -113,7 +113,7 @@ export { url };
 	out := filepath.Join(dir, "dist")
 
 	result, err := Build(context.Background(), Options{
-		Entry:          filepath.Join(dir, "index.ts"),
+		Entries:        []string{filepath.Join(dir, "index.ts")},
 		Mode:           ModeApp,
 		OutDir:         out,
 		AssetFileNames: "media/[name]-[hash:6].[ext]",
@@ -144,7 +144,7 @@ func TestAssetFileNamesForEntryCSS(t *testing.T) {
 	out := filepath.Join(dir, "dist")
 
 	result, err := Build(context.Background(), Options{
-		Entry:          filepath.Join(dir, "index.ts"),
+		Entries:        []string{filepath.Join(dir, "index.ts")},
 		Mode:           ModeApp,
 		OutDir:         out,
 		AssetFileNames: "css/[name]-[hash:6].[ext]",
@@ -176,7 +176,7 @@ export { url };
 	out := filepath.Join(dir, "dist")
 
 	result, err := Build(context.Background(), Options{
-		Entry:          filepath.Join(dir, "index.ts"),
+		Entries:        []string{filepath.Join(dir, "index.ts")},
 		Mode:           ModeApp,
 		OutDir:         out,
 		EntryFileNames: "[type]/[name].[ext]",
@@ -214,7 +214,7 @@ func TestEntryFileNamesInLibWithExt(t *testing.T) {
 	out := filepath.Join(dir, "dist")
 
 	result, err := Build(context.Background(), Options{
-		Entry:          filepath.Join(dir, "src", "index.ts"),
+		Entries:        []string{filepath.Join(dir, "src", "index.ts")},
 		Mode:           ModeLib,
 		OutDir:         out,
 		RootDir:        filepath.Join(dir, "src"),
