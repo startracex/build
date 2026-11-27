@@ -117,10 +117,6 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 	if err != nil {
 		return nil, nil, err
 	}
-	jsx, err := jsxEmit(opts.JSX)
-	if err != nil {
-		return nil, nil, err
-	}
 	loadFormat := preferredLoadFormat(outputs)
 	if err := validateBuildOutputs(outputs, outMode, roots); err != nil {
 		return nil, nil, err
@@ -131,13 +127,13 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		resolution = core.ModuleKindCommonJS
 	}
 	transpileCache := newTranspileCache(opts.FS, cwd, opts.CacheDir)
+	compilerOpts := opts.compilerOptions()
 	b := &bundler{
 		ctx:          ctx,
 		opts:         opts,
 		output:       outputs[0],
 		format:       loadFormat,
 		outMode:      outMode,
-		jsx:          jsx,
 		mode:         resolution,
 		fs:           opts.FS,
 		cwd:          cwd,
@@ -146,8 +142,7 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		units:        map[string]*unit{},
 		assets:       map[string]*asset.Unit{},
 		sourceMap:    anySourceMap(outputs),
-		target:       opts.emitTarget(),
-		compilerOpts: opts.CompilerOptions,
+		compilerOpts: compilerOpts,
 		cache:        transpileCache,
 	}
 	if b.cache != nil {

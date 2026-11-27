@@ -193,7 +193,10 @@ export function jsxs(type, props) { return { type, props }; }
 		t.Fatal(err)
 	}
 	code, err := Bundle(context.Background(), Options{
-		Mode: ModeApp, Entries: []string{filepath.Join(dir, "ui.tsx")}, JSX: JSXAutomatic})
+		Mode:            ModeApp,
+		Entries:         []string{filepath.Join(dir, "ui.tsx")},
+		CompilerOptions: &core.CompilerOptions{Jsx: core.JsxEmitReactJSX},
+	})
 	if err != nil {
 		t.Fatalf("bundle: %v", err)
 	}
@@ -1500,13 +1503,13 @@ func TestOutputsHaveIndependentEmitSettings(t *testing.T) {
 				Declaration:    new(true),
 				DeclarationMap: new(true),
 			},
-			{OutDir: plain},
+			{OutDir: plain, Declaration: new(true)},
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	maps, declarations, plainMaps := 0, 0, 0
+	maps, declarations, plainMaps, plainDeclarations := 0, 0, 0, 0
 	for _, file := range result.Files {
 		path := filepath.ToSlash(file.Path)
 		switch {
@@ -1516,6 +1519,8 @@ func TestOutputsHaveIndependentEmitSettings(t *testing.T) {
 			declarations++
 		case strings.HasPrefix(path, filepath.ToSlash(plain)+"/") && strings.HasSuffix(path, ".map"):
 			plainMaps++
+		case strings.HasPrefix(path, filepath.ToSlash(plain)+"/") && strings.HasSuffix(path, ".d.ts"):
+			plainDeclarations++
 		}
 	}
 	if maps == 0 || declarations == 0 {
@@ -1523,6 +1528,9 @@ func TestOutputsHaveIndependentEmitSettings(t *testing.T) {
 	}
 	if plainMaps != 0 {
 		t.Fatalf("second output emitted maps: %v", pathsOf(result.Files))
+	}
+	if plainDeclarations == 0 {
+		t.Fatalf("second output missing declarations: %v", pathsOf(result.Files))
 	}
 }
 

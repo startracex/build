@@ -82,7 +82,7 @@ const (
 type Options struct {
 	// Alias maps import prefixes to filesystem paths (longest prefix wins).
 	Alias map[string]string
-	// CompilerOptions holds tsconfig options affecting emit and resolution; the bundler owns module kind, target, JSX, and source maps.
+	// CompilerOptions holds tsconfig options affecting emit and resolution; the bundler owns module kind, target defaults, JSX defaults, and source maps.
 	CompilerOptions *core.CompilerOptions
 	// Define replaces free identifiers / process.env.* at emit time.
 	Define map[string]string
@@ -92,12 +92,8 @@ type Options struct {
 	BaseURL resolve.BaseURLFallback
 	// FS reads sources, assets, and resolver probes; nil uses the OS file system, virtual builds supply their own.
 	FS vfs.FS
-	// JSX selects the JSX transform. Empty means JSXReact.
-	JSX JSX
 	// Mode selects app or lib layout; it must be set.
 	Mode Mode
-	// Target is the TypeScript emit target. Empty means ESNext.
-	Target core.ScriptTarget
 	// CacheDir stores content-hashed transpile results relative to CWD through FS; empty disables the cache.
 	CacheDir string
 	// CWD resolves relative entry and display paths; a wasm build may need to supply it.
@@ -302,10 +298,8 @@ type bundler struct {
 	format          Format
 	// fs and cwd come from Options, defaulting to the OS file system and working directory.
 	fs      vfs.FS
-	jsx     core.JsxEmit
 	mode    core.ResolutionMode
 	outMode Mode
-	target  core.ScriptTarget
 	cwd     string
 	// linkingChunk is the chunk path currently being linked (empty for entry).
 	linkingChunk string
@@ -703,6 +697,11 @@ func normalizeFormat(format Format) (Format, error) {
 	}
 }
 
+// ParseJSX maps the public jsx mode string to the compiler enum.
+func ParseJSX(value string) (core.JsxEmit, error) {
+	return jsxEmit(JSX(value))
+}
+
 func jsxEmit(mode JSX) (core.JsxEmit, error) {
 	switch mode {
 	case "", JSXReact:
@@ -733,7 +732,7 @@ func errorFromSyntaxDiagnostics(path, src string, diags []*ast.Diagnostic) error
 
 // transpileOptionsFor collects emit-affecting options; compileropts shares one definition for options and cache fingerprint.
 func (b *bundler) transpileOptionsFor(moduleKind core.ModuleKind, sourceMap core.Tristate) compileropts.Transpile {
-	return compileropts.NewTranspile(moduleKind, b.target, b.jsx, sourceMap, b.compilerOpts)
+	return compileropts.NewTranspile(moduleKind, b.compilerOpts.Target, b.compilerOpts.Jsx, sourceMap, b.compilerOpts)
 }
 
 func (b *bundler) transpileCompilerOptions(moduleKind core.ModuleKind, sourceMap core.Tristate) *core.CompilerOptions {

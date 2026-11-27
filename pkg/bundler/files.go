@@ -25,11 +25,18 @@ func normalizeMode(mode Mode) (Mode, error) {
 	}
 }
 
-func (o Options) emitTarget() core.ScriptTarget {
-	if o.Target != core.ScriptTargetNone {
-		return o.Target
+func (o Options) compilerOptions() *core.CompilerOptions {
+	opts := &core.CompilerOptions{}
+	if o.CompilerOptions != nil {
+		opts = o.CompilerOptions.Clone()
 	}
-	return core.ScriptTargetESNext
+	if opts.Target == core.ScriptTargetNone {
+		opts.Target = core.ScriptTargetESNext
+	}
+	if opts.Jsx == core.JsxEmitNone {
+		opts.Jsx = core.JsxEmitReact
+	}
+	return opts
 }
 
 func (b *bundler) declarationText(path, src string) (string, error) {

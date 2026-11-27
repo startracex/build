@@ -10,6 +10,7 @@ import (
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/resolve"
 	"github.com/startracex/build/pkg/sourcemap"
+	"github.com/startracex/tsgo/pkg/core"
 )
 
 // attachDeclarations fills library units from the checker's program emit, falling back to single-file transpile.
@@ -24,12 +25,14 @@ func (b *bundler) attachDeclarations() error {
 			absPaths = append(absPaths, abs)
 		}
 	}
+	compilerOpts := b.compilerOpts.Clone()
+	compilerOpts.DeclarationMap = core.TSFalse
+	if b.output.declarationMap() {
+		compilerOpts.DeclarationMap = core.TSTrue
+	}
 	checked, err := dts.EmitProgram(b.ctx, absPaths, dts.Options{
-		Target:           b.target,
-		Jsx:              b.jsx,
-		DeclarationMap:   b.output.declarationMap(),
 		CustomConditions: resolve.ExportConditions(b.opts.Conditions),
-		CompilerOptions:  b.compilerOpts,
+		CompilerOptions:  compilerOpts,
 		BaseURL:          b.opts.BaseURL,
 		FS:               b.fs,
 		CWD:              b.cwd,

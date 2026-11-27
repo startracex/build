@@ -45,11 +45,6 @@ func applyTSConfig(c *cli.Context, opts *bundler.Options, out *bundler.OutputOpt
 	if !c.IsSet("format") {
 		out.Format = formatFromModule(compiler.Module)
 	}
-	if !c.IsSet("jsx") {
-		if jsx, ok := jsxFromCompiler(compiler.Jsx); ok {
-			opts.JSX = jsx
-		}
-	}
 	if !c.IsSet("map") {
 		out.SourceMap = new(compiler.SourceMap == core.TSTrue)
 	}
@@ -57,9 +52,6 @@ func applyTSConfig(c *cli.Context, opts *bundler.Options, out *bundler.OutputOpt
 		*declaration = compiler.Declaration == core.TSTrue || compiler.Composite == core.TSTrue
 	}
 	*declarationMap = compiler.DeclarationMap == core.TSTrue
-	if compiler.Target != core.ScriptTargetNone {
-		opts.Target = compiler.Target
-	}
 	if !c.IsSet("conditions") && len(compiler.CustomConditions) > 0 {
 		opts.Conditions = append([]string{}, compiler.CustomConditions...)
 	}
@@ -238,23 +230,6 @@ func formatFromModule(kind core.ModuleKind) bundler.Format {
 		return bundler.FormatCJS
 	}
 	return bundler.FormatESM
-}
-
-func jsxFromCompiler(kind core.JsxEmit) (bundler.JSX, bool) {
-	switch kind {
-	case core.JsxEmitReact:
-		return bundler.JSXReact, true
-	case core.JsxEmitReactJSX:
-		return bundler.JSXAutomatic, true
-	case core.JsxEmitReactJSXDev:
-		return bundler.JSXReactJSXDev, true
-	case core.JsxEmitPreserve:
-		return bundler.JSXPreserve, true
-	case core.JsxEmitReactNative:
-		return bundler.JSXReactNative, true
-	default:
-		return "", false
-	}
 }
 
 func diagnosticError(diags []*ast.Diagnostic) error {

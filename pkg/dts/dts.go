@@ -31,27 +31,24 @@ type Emit struct {
 
 // Options configures program-level declaration emit.
 type Options struct {
-	// CompilerOptions carries the tsconfig options affecting declaration output and type checking: strict family, "lib", "types", "paths", "moduleResolution", decorator and JSX settings; declaration-only switches are always set by this package.
+	// CompilerOptions carries the tsconfig options affecting declaration output and type checking: target, JSX, strict family, "lib", "types", "paths", "moduleResolution", decorator settings, and declaration maps; declaration-only switches are always set by this package.
 	CompilerOptions *core.CompilerOptions
 	// BaseURL stands in for the removed tsconfig "baseUrl" option so bare specifiers still resolve against the project root as in TypeScript 5.
 	BaseURL resolve.BaseURLFallback
 	// FS reads the program sources. Nil uses the OS file system.
-	FS     vfs.FS
-	Jsx    core.JsxEmit
-	Target core.ScriptTarget
+	FS vfs.FS
 	// CWD resolves relative paths; empty falls back to the process working directory.
 	CWD string
 	// RootDir is the source root for declaration paths; empty falls back to the common directory of absPaths.
 	RootDir          string
 	CustomConditions []string
-	DeclarationMap   bool
 }
 
 // declarationCompilerOptions honours tsconfig type-checking and inference options and always sets the declaration-only switches.
-func declarationCompilerOptions(opts Options, declMap core.Tristate) *core.CompilerOptions {
+func declarationCompilerOptions(opts Options) *core.CompilerOptions {
 	compilerOpts := &core.CompilerOptions{
 		Declaration:          core.TSTrue,
-		DeclarationMap:       declMap,
+		DeclarationMap:       core.TSFalse,
 		EmitDeclarationOnly:  core.TSTrue,
 		IsolatedDeclarations: core.TSFalse,
 		NoCheck:              core.TSFalse,
@@ -60,8 +57,6 @@ func declarationCompilerOptions(opts Options, declMap core.Tristate) *core.Compi
 		ResolveJsonModule:    core.TSTrue,
 		Module:               core.ModuleKindESNext,
 		ModuleResolution:     core.ModuleResolutionKindBundler,
-		Target:               opts.Target,
-		Jsx:                  opts.Jsx,
 		CustomConditions:     opts.CustomConditions,
 		NoEmit:               core.TSFalse,
 		NoEmitOnError:        core.TSFalse,
@@ -72,6 +67,9 @@ func declarationCompilerOptions(opts Options, declMap core.Tristate) *core.Compi
 	if src == nil {
 		return compilerOpts
 	}
+	compilerOpts.Target = src.Target
+	compilerOpts.Jsx = src.Jsx
+	compilerOpts.DeclarationMap = src.DeclarationMap
 	// Declaration emit reads shared syntax switches but not JavaScript-only ones: comments and line endings are not rewritten, and no helper is emitted.
 	compileropts.SyntaxFrom(src).Apply(compilerOpts)
 	compileropts.TypesFrom(src).Apply(compilerOpts)
@@ -99,11 +97,7 @@ func EmitProgram(ctx context.Context, absPaths []string, opts Options) (map[stri
 		return map[string]Emit{}, nil
 	}
 
-	declMap := core.TSFalse
-	if opts.DeclarationMap {
-		declMap = core.TSTrue
-	}
-	compilerOpts := declarationCompilerOptions(opts, declMap)
+	compilerOpts := declarationCompilerOptions(opts)
 	sourceRoot := opts.RootDir
 	if sourceRoot == "" {
 		sourceRoot = modpath.DisplayRoot(opts.CWD, absPaths)

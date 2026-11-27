@@ -12,6 +12,7 @@ import (
 	"github.com/startracex/build/pkg/bundler"
 	"github.com/startracex/build/pkg/plugin"
 	"github.com/startracex/build/pkg/sourcemap"
+	"github.com/startracex/tsgo/pkg/core"
 	"github.com/startracex/tsgo/pkg/tspath"
 	"github.com/startracex/tsgo/pkg/vfs"
 )
@@ -210,7 +211,6 @@ func boolFieldOrNil(obj js.Value, key string) *bool {
 func optionsFromJS(value js.Value) (bundler.Options, error) {
 	opts := bundler.Options{
 		Entries:           stringArray(value.Get("entries")),
-		JSX:               bundler.JSX(stringField(value, "jsx")),
 		Mode:              bundler.Mode(stringField(value, "mode")),
 		RootDir:           stringField(value, "rootDir"),
 		External:          stringArray(value.Get("external")),
@@ -221,6 +221,14 @@ func optionsFromJS(value js.Value) (bundler.Options, error) {
 		Alias:             objectStringMap(value.Get("alias")),
 		CacheDir:          stringField(value, "cacheDir"),
 		CWD:               stringField(value, "cwd"),
+	}
+
+	if jsx := stringField(value, "jsx"); jsx != "" {
+		mode, err := bundler.ParseJSX(jsx)
+		if err != nil {
+			return opts, err
+		}
+		opts.CompilerOptions = &core.CompilerOptions{Jsx: mode}
 	}
 
 	if outputs := value.Get("outputs"); !outputs.IsUndefined() && !outputs.IsNull() && outputs.Type() == js.TypeObject {

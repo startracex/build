@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/startracex/build/pkg/bundler"
+	"github.com/startracex/tsgo/pkg/core"
 	"github.com/urfave/cli/v2"
 )
 
@@ -135,7 +136,6 @@ func action(c *cli.Context) error {
 		DepsDir:        c.String("deps-dir"),
 	}
 	base := bundler.Options{
-		JSX:               bundler.JSX(flagOr(c, "jsx", string(bundler.JSXReact))),
 		External:          c.StringSlice("external"),
 		BundleNodeModules: c.Bool("bundle"),
 		Conditions:        c.StringSlice("conditions"),
@@ -156,12 +156,19 @@ func action(c *cli.Context) error {
 		return err
 	}
 	base.CompilerOptions = compilerOpts
+	if base.CompilerOptions == nil {
+		base.CompilerOptions = &core.CompilerOptions{}
+	}
 	ctx := context.Background()
 	if formatSet && len(explicitFormats) == 1 {
 		baseOutput.Format = bundler.Format(explicitFormats[0])
 	}
 	if c.IsSet("jsx") {
-		base.JSX = bundler.JSX(c.String("jsx"))
+		jsx, err := bundler.ParseJSX(c.String("jsx"))
+		if err != nil {
+			return err
+		}
+		base.CompilerOptions.Jsx = jsx
 	}
 	applyEmitFlags(c, &baseOutput, &declaration, &declarationMap)
 
@@ -277,16 +284,6 @@ func parseKV(pairs []string) map[string]string {
 		return nil
 	}
 	return out
-}
-
-func flagOr(c *cli.Context, name, fallback string) string {
-	if c.IsSet(name) {
-		return c.String(name)
-	}
-	if value := c.String(name); value != "" {
-		return value
-	}
-	return fallback
 }
 
 func writeBuild(c *cli.Context, ctx context.Context, opts bundler.Options, docs []*htmlDocument) error {

@@ -18,12 +18,15 @@ func TestDeclarationCompilerOptionsKeepsTSConfigSettings(t *testing.T) {
 		JsxFactory:                 "h",
 		JsxFragmentFactory:         "Fragment",
 		JsxImportSource:            "preact",
+		Jsx:                        core.JsxEmitReactJSX,
+		Target:                     core.ScriptTargetES2020,
+		DeclarationMap:             core.TSTrue,
 		ModuleResolution:           core.ModuleResolutionKindNode16,
 		PathsBasePath:              "/project",
 		Lib:                        []string{"es2020"},
 		Types:                      []string{"node"},
 	}
-	opts := declarationCompilerOptions(Options{CompilerOptions: src, Target: core.ScriptTargetES2020}, core.TSTrue)
+	opts := declarationCompilerOptions(Options{CompilerOptions: src})
 
 	if opts.Strict != core.TSTrue || opts.StrictNullChecks != core.TSTrue {
 		t.Fatalf("strict options not copied")
@@ -39,6 +42,9 @@ func TestDeclarationCompilerOptionsKeepsTSConfigSettings(t *testing.T) {
 	}
 	if opts.JsxFactory != "h" || opts.JsxFragmentFactory != "Fragment" || opts.JsxImportSource != "preact" {
 		t.Fatalf("jsx options not copied")
+	}
+	if opts.Jsx != core.JsxEmitReactJSX || opts.Target != core.ScriptTargetES2020 || opts.DeclarationMap != core.TSTrue {
+		t.Fatalf("compiler target, jsx, or declaration map not copied")
 	}
 	if opts.ModuleResolution != core.ModuleResolutionKindNode16 {
 		t.Fatalf("moduleResolution not copied")
@@ -61,7 +67,7 @@ func TestDeclarationCompilerOptionsKeepsTSConfigSettings(t *testing.T) {
 }
 
 func TestDeclarationCompilerOptionsDefaults(t *testing.T) {
-	opts := declarationCompilerOptions(Options{}, core.TSFalse)
+	opts := declarationCompilerOptions(Options{})
 	if opts.Declaration != core.TSTrue || opts.EmitDeclarationOnly != core.TSTrue {
 		t.Fatalf("declaration switches not applied")
 	}
