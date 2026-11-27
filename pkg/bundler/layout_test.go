@@ -22,7 +22,7 @@ export const out = helper();
 	writeFile(t, filepath.Join(dir, "node_modules", "deep-pkg", "lib", "index.js"), `export { helper } from "./util/helper.js";`)
 	writeFile(t, filepath.Join(dir, "node_modules", "deep-pkg", "lib", "util", "helper.js"), `export const helper = () => "help";`)
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "src", "index.ts")},
 		Mode:    ModeLib,
 		Outputs: []OutputOptions{{
@@ -52,7 +52,7 @@ func TestLibDepsDirRejectsEscape(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const a = 1;`)
 	for _, value := range []string{"..", "../out", "/abs", "."} {
-		_, err := Build(context.Background(), Options{
+		_, err := Generate(context.Background(), Options{
 			Entries: []string{filepath.Join(dir, "index.ts")},
 			Mode:    ModeLib,
 			Outputs: []OutputOptions{{
@@ -106,7 +106,7 @@ export const out = tiny.x;
 	out := filepath.Join(dir, "dist")
 	compiler := &core.CompilerOptions{}
 	compiler.InlineSources = core.TSTrue
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "src", "index.ts")},
 		Mode:    ModeLib,
 		Outputs: []OutputOptions{{

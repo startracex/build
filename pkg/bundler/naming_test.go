@@ -14,7 +14,7 @@ func TestEntryFileNamesInAppSplit(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "src", "b.ts"), `export const b = "B";`)
 	out := filepath.Join(dir, "dist")
 
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "src", "a.ts"), filepath.Join(dir, "src", "b.ts")},
 		Mode:    ModeApp,
 		Outputs: []OutputOptions{{
@@ -50,7 +50,7 @@ export async function load() {
 `)
 	out := filepath.Join(dir, "dist")
 
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Mode:    ModeApp,
 		Outputs: []OutputOptions{{
@@ -85,7 +85,7 @@ func TestChunkFileNamesForManualChunk(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "b.ts"), `import { vend } from "./vendor"; export const b = vend + "-b";`)
 	out := filepath.Join(dir, "dist")
 
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "a.ts"), filepath.Join(dir, "b.ts")},
 		Mode:    ModeApp,
 		Outputs: []OutputOptions{{
@@ -118,7 +118,7 @@ export { url };
 `)
 	out := filepath.Join(dir, "dist")
 
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Mode:    ModeApp,
 		Outputs: []OutputOptions{{
@@ -151,7 +151,7 @@ func TestAssetFileNamesForEntryCSS(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "index.ts"), `import "./style.css"; export const a = 1;`)
 	out := filepath.Join(dir, "dist")
 
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Mode:    ModeApp,
 		Outputs: []OutputOptions{{
@@ -185,7 +185,7 @@ export { url };
 `)
 	out := filepath.Join(dir, "dist")
 
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Mode:    ModeApp,
 		Outputs: []OutputOptions{{
@@ -225,7 +225,7 @@ func TestEntryFileNamesInLibWithExt(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "src", "index.ts"), `export const value = 1;`)
 	out := filepath.Join(dir, "dist")
 
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "src", "index.ts")},
 		Mode:    ModeLib,
 		Outputs: []OutputOptions{{

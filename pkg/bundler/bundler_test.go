@@ -20,7 +20,7 @@ import (
 func TestBuildRequiresMode(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
-	_, err := Build(context.Background(), Options{
+	_, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Outputs: []OutputOptions{{
 			OutDir: filepath.Join(dir, "dist"),
@@ -35,7 +35,7 @@ func TestBuildToWritesFiles(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
 	var written []Output
-	result, err := BuildTo(context.Background(), Options{
+	result, err := Build(context.Background(), Options{
 		Mode:    ModeLib,
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Outputs: []OutputOptions{{
@@ -79,7 +79,7 @@ func TestBuildToWriterError(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
 	sentinel := errors.New("disk full")
-	_, err := BuildTo(context.Background(), Options{
+	_, err := Build(context.Background(), Options{
 		Mode:    ModeLib,
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Outputs: []OutputOptions{{OutDir: filepath.Join(dir, "dist")}},
@@ -87,7 +87,7 @@ func TestBuildToWriterError(t *testing.T) {
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("error = %v", err)
 	}
-	if _, err := BuildTo(context.Background(), Options{}, nil); err == nil {
+	if _, err := Build(context.Background(), Options{}, nil); err == nil {
 		t.Fatal("nil writer should be rejected")
 	}
 }
@@ -184,7 +184,7 @@ func TestBundleNodeModulesLibrary(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "node_modules", "pkg", "package.json"), `{"name":"pkg","type":"module","main":"index.js"}`)
 	writeFile(t, filepath.Join(dir, "node_modules", "pkg", "index.js"), `export const secret = "BUNDLED_SECRET";`)
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Mode:    ModeLib,
 		Outputs: []OutputOptions{{
@@ -387,7 +387,7 @@ export const sum = fromFile + virtualVal;
 		},
 	}}
 
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{entry},
 		Outputs: []OutputOptions{{
@@ -668,7 +668,7 @@ import url from "./note.txt?url";
 export { text, url };
 `)
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Outputs: []OutputOptions{{
@@ -713,7 +713,7 @@ console.log("drop-me");
 export const mode = __MODE__;
 export { tag };
 `)
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Outputs: []OutputOptions{
@@ -878,7 +878,7 @@ export function hello(name: string): string {
 }
 `)
 	sm := true
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Outputs: []OutputOptions{{
@@ -942,7 +942,7 @@ import { shared } from "./util";
 export const fromB = shared;
 `)
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "a.ts"), filepath.Join(dir, "b.ts")},
 		Mode:    ModeApp,
 		Outputs: []OutputOptions{{
@@ -988,7 +988,7 @@ export async function load() {
 }
 `)
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Mode:    ModeApp,
 		Outputs: []OutputOptions{{
@@ -1025,14 +1025,14 @@ func TestTranspileCache(t *testing.T) {
 		}},
 		CacheDir: cache,
 	}
-	if _, err := Build(context.Background(), opts); err != nil {
+	if _, err := Generate(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := os.ReadDir(cache)
 	if err != nil || len(entries) == 0 {
 		t.Fatalf("cache not written: %v", err)
 	}
-	if _, err := Build(context.Background(), opts); err != nil {
+	if _, err := Generate(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1094,7 +1094,7 @@ Promise.resolve(typeof m.load === "function" ? m.load() : 0).then((load) => {
 func TestEmitDefaultsMatchTSC(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Mode:    ModeLib,
 		Outputs: []OutputOptions{{
@@ -1139,7 +1139,7 @@ import { vend } from "./vendor";
 export const b = vend + "-b";
 `)
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "a.ts"), filepath.Join(dir, "b.ts")},
 		Outputs: []OutputOptions{{
@@ -1203,7 +1203,7 @@ import { s } from "./shared";
 export const b = s;
 `)
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "a.ts"), filepath.Join(dir, "b.ts")},
 		Outputs: []OutputOptions{
@@ -1238,7 +1238,7 @@ func pathsOf(files []Output) []string {
 }
 
 func TestAppDeclarationsAndSourceMap(t *testing.T) {
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join("testdata", "app", "index.ts")},
 		Outputs: []OutputOptions{{
@@ -1301,7 +1301,7 @@ export function add(a: number, b: number): number { return a + b; }
 export const value = 7;
 `)
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Mode:    ModeLib,
 		Outputs: []OutputOptions{{
@@ -1418,7 +1418,7 @@ func TestJSONImportTrimsWhitespace(t *testing.T) {
 import data from "./data.json";
 export default data;
 `)
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Outputs: []OutputOptions{{
 			OutDir: filepath.Join(dir, "out"),
@@ -1522,7 +1522,7 @@ export function value(): number { return 1; }
 console.log("JS_SIDE_EFFECT");
 `)
 	writeFile(t, filepath.Join(dir, "style.css"), `.x { color: red; }`)
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Outputs: []OutputOptions{{
@@ -1555,7 +1555,7 @@ func TestOutputsHaveIndependentEmitSettings(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
 	withMaps := filepath.Join(dir, "with-maps")
 	plain := filepath.Join(dir, "plain")
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Mode:    ModeLib,
 		Outputs: []OutputOptions{
@@ -1601,7 +1601,7 @@ func TestOutputsInheritCompilerOptions(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
 	inherited := filepath.Join(dir, "inherited")
 	overridden := filepath.Join(dir, "overridden")
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Mode:    ModeLib,
 		CompilerOptions: &core.CompilerOptions{

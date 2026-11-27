@@ -119,7 +119,7 @@ type Options struct {
 
 // Bundle returns the entry JavaScript; use Build to get declarations and source maps too.
 func Bundle(ctx context.Context, opts Options) (string, error) {
-	result, err := Build(ctx, opts)
+	result, err := Generate(ctx, opts)
 	if err != nil {
 		return "", err
 	}
@@ -161,14 +161,14 @@ func (r *Result) JavaScript() string {
 // OutputWriter receives one emitted file from BuildTo.
 type OutputWriter func(Output) error
 
-// Build reads Entries and returns the JavaScript, declarations, and source maps.
-func Build(ctx context.Context, opts Options) (*Result, error) {
+// Generate reads Entries and returns the JavaScript, declarations, and source maps.
+func Generate(ctx context.Context, opts Options) (*Result, error) {
 	return build(ctx, opts, nil)
 }
 
-// BuildTo builds and passes every emitted file to write instead of returning its contents.
+// Build builds and passes every emitted file to write instead of returning its contents.
 // GenerateBundle still sees the complete file set; Result.Files is empty afterwards.
-func BuildTo(ctx context.Context, opts Options, write OutputWriter) (*Result, error) {
+func Build(ctx context.Context, opts Options, write OutputWriter) (*Result, error) {
 	if write == nil {
 		return nil, errors.New("bundler: nil output writer")
 	}
@@ -209,7 +209,7 @@ func build(ctx context.Context, opts Options, write OutputWriter) (*Result, erro
 			return nil, err
 		}
 		result.Sources = b.sources
-		return finishResult(result, write)
+		return result.finishResult(write)
 	}
 	merged := &Result{Manifest: map[string]string{}, Sources: b.sources}
 	for _, out := range outputs {
@@ -246,12 +246,12 @@ func build(ctx context.Context, opts Options, write OutputWriter) (*Result, erro
 	if err := applyGenerateBundle(opts.Plugins, hookCtx, merged); err != nil {
 		return nil, err
 	}
-	return finishResult(merged, write)
+	return merged.finishResult(write)
 }
 
 // finishResult converts paths for the host and delivers files when a writer is set.
-func finishResult(result *Result, write OutputWriter) (*Result, error) {
-	nativePaths(result)
+func (result *Result) finishResult(write OutputWriter) (*Result, error) {
+	result.nativePaths()
 	if write == nil {
 		return result, nil
 	}
@@ -268,7 +268,7 @@ func finishResult(result *Result, write OutputWriter) (*Result, error) {
 }
 
 // nativePaths converts emitted slash paths to host separators for callers and os use.
-func nativePaths(result *Result) {
+func (result *Result) nativePaths() {
 	if result == nil {
 		return
 	}
@@ -290,16 +290,13 @@ func nativePaths(result *Result) {
 	}
 }
 
-func genCacheKey(path, src, optionKey, transformKey string) string {
+func genCacheKey(s ...string) string {
 	h := sha256.New()
-	h.Write([]byte(path))
-	h.Write([]byte{0})
-	h.Write([]byte(src))
-	h.Write([]byte{0})
-	h.Write([]byte(optionKey))
-	if transformKey != "" {
-		h.Write([]byte{0})
-		h.Write([]byte(transformKey))
+	for i, v := range s {
+		if i > 0 {
+			h.Write([]byte{0})
+		}
+		h.Write([]byte(v))
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

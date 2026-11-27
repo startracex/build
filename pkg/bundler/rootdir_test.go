@@ -18,7 +18,7 @@ func TestRootDirFromCompilerOptions(t *testing.T) {
 	compiler := &core.CompilerOptions{}
 	compiler.RootDir = tspath.RootedDirectoryPathFromAbsolute(filepath.ToSlash(sourceDir))
 
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(sourceDir, "index.ts")},
 		Mode:    ModeLib,
 		Outputs: []OutputOptions{{
@@ -47,7 +47,7 @@ func TestRootDirOptionWinsOverCompilerOptions(t *testing.T) {
 	compiler := &core.CompilerOptions{}
 	compiler.RootDir = tspath.RootedDirectoryPathFromAbsolute(filepath.ToSlash(sourceDir))
 
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(sourceDir, "index.ts")},
 		Mode:    ModeLib,
 		Outputs: []OutputOptions{{

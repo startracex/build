@@ -44,7 +44,7 @@ export const value: string = label;
 `,
 	}, tspath.CaseSensitive)
 
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{root + "/src/index.ts"},
 		Outputs: []OutputOptions{{
@@ -76,7 +76,7 @@ func TestBuildVirtualFSRelativeEntry(t *testing.T) {
 `,
 	}, tspath.CaseSensitive)
 
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{"src/index.ts"},
 		Outputs: []OutputOptions{{
@@ -115,7 +115,7 @@ func TestBuildVirtualFSCache(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	first, err := Build(ctx, opts)
+	first, err := Generate(ctx, opts)
 	if err != nil {
 		t.Fatalf("first build: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestBuildVirtualFSCache(t *testing.T) {
 	}
 	readsAfterFirst := fsys.cacheReads
 
-	second, err := Build(ctx, opts)
+	second, err := Generate(ctx, opts)
 	if err != nil {
 		t.Fatalf("second build: %v", err)
 	}

@@ -355,7 +355,7 @@ func jsBuild(_ js.Value, args []js.Value) (out any) {
 	if err != nil {
 		return map[string]any{"error": err.Error()}
 	}
-	result, err := bundler.Build(context.Background(), opts)
+	result, err := bundler.Generate(context.Background(), opts)
 	if err != nil {
 		return map[string]any{"error": err.Error()}
 	}

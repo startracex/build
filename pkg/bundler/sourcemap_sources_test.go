@@ -16,7 +16,7 @@ func TestLibrarySourceMapSourcesMatchTSC(t *testing.T) {
 	sourceDir := filepath.Join(dir, "src")
 	writeFile(t, filepath.Join(sourceDir, "index.ts"), "export const value = 1;\n")
 
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(sourceDir, "index.ts")},
 		Mode:    ModeLib,
 		Outputs: []OutputOptions{{
@@ -58,7 +58,7 @@ func TestLibrarySourceMapConfigFromTSConfig(t *testing.T) {
 	compiler.SourceRoot = tspath.ToSourceMapLocation("https://example.com/src")
 	compiler.InlineSources = core.TSTrue
 
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(sourceDir, "index.ts")},
 		Mode:    ModeLib,
 		Outputs: []OutputOptions{{
@@ -99,7 +99,7 @@ func TestLibrarySourceMapNoInlineSources(t *testing.T) {
 	compiler := &core.CompilerOptions{}
 	compiler.InlineSources = core.TSFalse
 
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(sourceDir, "index.ts")},
 		Mode:    ModeLib,
 		Outputs: []OutputOptions{{

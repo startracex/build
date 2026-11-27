@@ -24,7 +24,7 @@ func TestDefineDropKeepsSourceMapAligned(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), defineMapSource)
 	sourcemapFlag := true
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "index.ts")},
 		Outputs: []OutputOptions{{
@@ -63,7 +63,7 @@ export const mode = __MODE__ + shared;
 console.log("drop-me");
 `)
 	sourcemapFlag := true
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "src", "index.ts")},
 		Outputs: []OutputOptions{{
@@ -241,7 +241,7 @@ func TestTransformPluginMapsChain(t *testing.T) {
 	wants := []string{`"mappings":";AAAA"`, `"mappings":";;AAAA"`}
 	for _, count := range []int{1, 2} {
 		plugins := make([]plugin.Plugin, 0, count)
-		for i := 0; i < count; i++ {
+		for i := range count {
 			idx := i
 			plugins = append(plugins, plugin.Plugin{
 				Transform: func(_ plugin.HookCtx, code, _ string) (string, *sourcemap.Map, error) {

@@ -144,9 +144,8 @@ func action(c *cli.Context) error {
 		Drop:              c.StringSlice("drop"),
 		CacheDir:          c.String("cache-dir"),
 		RootDir:           c.String("root-dir"),
-	}
 
-	base.Entries = entries
+		Entries: entries}
 	if len(htmlDocs) > 0 && base.RootDir == "" {
 		base.RootDir = filepath.Dir(htmlDocs[0].path)
 	}
@@ -306,7 +305,7 @@ func writeBuild(c *cli.Context, ctx context.Context, opts bundler.Options, docs 
 		fmt.Fprintf(c.App.Writer, "wrote %s\n", file.Path)
 		return nil
 	}
-	result, err := bundler.BuildTo(ctx, opts, write)
+	result, err := bundler.Build(ctx, opts, write)
 	if err != nil {
 		return err
 	}

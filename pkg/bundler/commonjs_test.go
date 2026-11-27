@@ -23,7 +23,7 @@ module.exports = { lang };
 		`module.exports = { name: "ts" };
 `)
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "index.js")},
 		Outputs: []OutputOptions{{
