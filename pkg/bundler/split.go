@@ -217,7 +217,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 		}
 		js := wrap.WrapFormat(linked, string(emitFmt), b.output.Name)
 		out := b.entryOutputPath(rel, emitFmt, js)
-		if b.output.sourceMap() {
+		if b.output.sourceMap(b.compilerOpts) {
 			mapName := filepath.Base(out) + ".map"
 			js = strings.TrimRight(js, "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
 			mapData := b.composeAppSourceMap(linked, filepath.Base(out))

@@ -15,7 +15,7 @@ import (
 
 // attachDeclarations fills library units from the checker's program emit, falling back to single-file transpile.
 func (b *bundler) attachDeclarations() error {
-	if !b.output.declaration() {
+	if !b.output.declaration(b.compilerOpts) {
 		return nil
 	}
 	var absPaths []string
@@ -26,9 +26,12 @@ func (b *bundler) attachDeclarations() error {
 		}
 	}
 	compilerOpts := b.compilerOpts.Clone()
-	compilerOpts.DeclarationMap = core.TSFalse
-	if b.output.declarationMap() {
-		compilerOpts.DeclarationMap = core.TSTrue
+	if b.output.DeclarationMap != nil {
+		if *b.output.DeclarationMap {
+			compilerOpts.DeclarationMap = core.TSTrue
+		} else {
+			compilerOpts.DeclarationMap = core.TSFalse
+		}
 	}
 	checked, err := dts.EmitProgram(b.ctx, absPaths, dts.Options{
 		CustomConditions: resolve.ExportConditions(b.opts.Conditions),

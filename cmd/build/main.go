@@ -150,8 +150,7 @@ func action(c *cli.Context) error {
 	if len(htmlDocs) > 0 && base.RootDir == "" {
 		base.RootDir = filepath.Dir(htmlDocs[0].path)
 	}
-	declaration, declarationMap := false, false
-	compilerOpts, err := applyTSConfig(c, &base, &baseOutput, &declaration, &declarationMap)
+	compilerOpts, err := applyTSConfig(c, &base, &baseOutput)
 	if err != nil {
 		return err
 	}
@@ -170,7 +169,8 @@ func action(c *cli.Context) error {
 		}
 		base.CompilerOptions.Jsx = jsx
 	}
-	applyEmitFlags(c, &baseOutput, &declaration, &declarationMap)
+	applyEmitFlags(c, &baseOutput)
+	declaration := inheritedDeclaration(baseOutput, base.CompilerOptions)
 
 	if len(outfiles) > 0 {
 		baseOutput.EntryFileNames = ""
@@ -242,7 +242,8 @@ func action(c *cli.Context) error {
 	return writeBuild(c, ctx, base, htmlDocs)
 }
 
-func applyEmitFlags(c *cli.Context, out *bundler.OutputOptions, declaration, declarationMap *bool) {
+// applyEmitFlags records only flags the user set, so unset ones inherit tsconfig.
+func applyEmitFlags(c *cli.Context, out *bundler.OutputOptions) {
 	mapSet := c.IsSet("map")
 	mapEnabled := c.Bool("map")
 	dtsSet := c.IsSet("dts")
@@ -251,13 +252,19 @@ func applyEmitFlags(c *cli.Context, out *bundler.OutputOptions, declaration, dec
 		out.SourceMap = new(mapEnabled)
 	}
 	if dtsSet {
-		*declaration = dtsEnabled
+		out.Declaration = new(dtsEnabled)
 	}
 	if mapSet && dtsSet {
-		*declarationMap = mapEnabled && dtsEnabled
+		out.DeclarationMap = new(mapEnabled && dtsEnabled)
 	}
-	out.Declaration = new(*declaration)
-	out.DeclarationMap = new(*declaration && *declarationMap)
+}
+
+// inheritedDeclaration mirrors the bundler rule for warnings about ignored declarations.
+func inheritedDeclaration(out bundler.OutputOptions, compilerOpts *core.CompilerOptions) bool {
+	if out.Declaration != nil {
+		return *out.Declaration
+	}
+	return compilerOpts != nil && (compilerOpts.Declaration == core.TSTrue || compilerOpts.Composite == core.TSTrue)
 }
 
 func formatList(explicit []string, set bool, fallback bundler.Format) []bundler.Format {

@@ -91,11 +91,11 @@ func (b *bundler) appResult(entry, js, linked string, emitFmt Format) (*Result, 
 		})
 	}
 	b.sources[filepath.ToSlash(filepath.FromSlash(entry))] = jsName
-	if b.output.sourceMap() {
+	if b.output.sourceMap(b.compilerOpts) {
 		js = strings.TrimRight(js, "\n") + "\n//# sourceMappingURL=" + filepath.Base(jsName) + ".map\n"
 	}
 	files := []Output{{Path: jsName, Data: js}}
-	if b.output.sourceMap() {
+	if b.output.sourceMap(b.compilerOpts) {
 		linkSrc := linked
 		if linkSrc == "" {
 			linkSrc = js

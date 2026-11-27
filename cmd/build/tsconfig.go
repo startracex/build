@@ -24,7 +24,7 @@ import (
 )
 
 // applyTSConfig applies tsconfig.json and returns compiler options affecting emitted code, declarations and module resolution.
-func applyTSConfig(c *cli.Context, opts *bundler.Options, out *bundler.OutputOptions, declaration, declarationMap *bool) (*core.CompilerOptions, error) {
+func applyTSConfig(c *cli.Context, opts *bundler.Options, out *bundler.OutputOptions) (*core.CompilerOptions, error) {
 	// Files on the command line (without -p) ignore tsconfig.json, matching classic tsc CLI behavior.
 	if c.String("project") == "" && len(opts.Entries) > 0 {
 		return nil, nil
@@ -45,13 +45,6 @@ func applyTSConfig(c *cli.Context, opts *bundler.Options, out *bundler.OutputOpt
 	if !c.IsSet("format") {
 		out.Format = formatFromModule(compiler.Module)
 	}
-	if !c.IsSet("map") {
-		out.SourceMap = new(compiler.SourceMap == core.TSTrue)
-	}
-	if !c.IsSet("dts") {
-		*declaration = compiler.Declaration == core.TSTrue || compiler.Composite == core.TSTrue
-	}
-	*declarationMap = compiler.DeclarationMap == core.TSTrue
 	if !c.IsSet("conditions") && len(compiler.CustomConditions) > 0 {
 		opts.Conditions = append([]string{}, compiler.CustomConditions...)
 	}

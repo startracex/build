@@ -141,7 +141,7 @@ func loadGraph(ctx context.Context, opts Options, outputs []OutputOptions) (*bun
 		loading:      map[string]bool{},
 		units:        map[string]*unit{},
 		assets:       map[string]*asset.Unit{},
-		sourceMap:    anySourceMap(outputs),
+		sourceMap:    anySourceMap(outputs, compilerOpts),
 		compilerOpts: compilerOpts,
 		cache:        transpileCache,
 	}

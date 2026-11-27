@@ -1,5 +1,7 @@
 package bundler
 
+import "github.com/startracex/tsgo/pkg/core"
+
 // OutputOptions configures one emit target, like a Rollup output entry.
 type OutputOptions struct {
 	Format  Format
@@ -14,11 +16,11 @@ type OutputOptions struct {
 	ChunkFileNames string
 	// AssetFileNames is a filename pattern for emitted assets and CSS.
 	AssetFileNames string
-	// SourceMap writes .map files. Nil means no, matching tsc.
+	// SourceMap writes .map files. Nil inherits CompilerOptions.SourceMap.
 	SourceMap *bool
-	// Declaration writes .d.ts files in library mode only; nil disables it, matching tsc.
+	// Declaration writes .d.ts files in library mode only. Nil inherits CompilerOptions.
 	Declaration *bool
-	// DeclarationMap writes .d.ts.map files when Declaration is on; nil disables it.
+	// DeclarationMap writes .d.ts.map files when Declaration is on. Nil inherits CompilerOptions.DeclarationMap.
 	DeclarationMap *bool
 	// Manifest writes a JSON map of source assets to emitted paths.
 	Manifest bool
@@ -30,22 +32,34 @@ type OutputOptions struct {
 	DepsDir string
 }
 
-func (o OutputOptions) declaration() bool {
-	return o.Declaration != nil && *o.Declaration
+func (o OutputOptions) declaration(compilerOpts *core.CompilerOptions) bool {
+	if o.Declaration != nil {
+		return *o.Declaration
+	}
+	return compilerOpts != nil && (compilerOpts.Declaration == core.TSTrue || compilerOpts.Composite == core.TSTrue)
 }
 
-func (o OutputOptions) declarationMap() bool {
-	return o.declaration() && o.DeclarationMap != nil && *o.DeclarationMap
+func (o OutputOptions) declarationMap(compilerOpts *core.CompilerOptions) bool {
+	if !o.declaration(compilerOpts) {
+		return false
+	}
+	if o.DeclarationMap != nil {
+		return *o.DeclarationMap
+	}
+	return compilerOpts != nil && compilerOpts.DeclarationMap == core.TSTrue
 }
 
-func (o OutputOptions) sourceMap() bool {
-	return o.SourceMap != nil && *o.SourceMap
+func (o OutputOptions) sourceMap(compilerOpts *core.CompilerOptions) bool {
+	if o.SourceMap != nil {
+		return *o.SourceMap
+	}
+	return compilerOpts != nil && compilerOpts.SourceMap == core.TSTrue
 }
 
 // anySourceMap reports whether the graph must be transpiled with maps for at least one output.
-func anySourceMap(outputs []OutputOptions) bool {
+func anySourceMap(outputs []OutputOptions, compilerOpts *core.CompilerOptions) bool {
 	for _, out := range outputs {
-		if out.sourceMap() {
+		if out.sourceMap(compilerOpts) {
 			return true
 		}
 	}

@@ -1534,6 +1534,60 @@ func TestOutputsHaveIndependentEmitSettings(t *testing.T) {
 	}
 }
 
+func TestOutputsInheritCompilerOptions(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
+	inherited := filepath.Join(dir, "inherited")
+	overridden := filepath.Join(dir, "overridden")
+	result, err := Build(context.Background(), Options{
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Mode:    ModeLib,
+		CompilerOptions: &core.CompilerOptions{
+			SourceMap:      core.TSTrue,
+			Declaration:    core.TSTrue,
+			DeclarationMap: core.TSTrue,
+		},
+		Outputs: []OutputOptions{
+			{OutDir: inherited},
+			{
+				OutDir:         overridden,
+				SourceMap:      new(false),
+				DeclarationMap: new(false),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inheritedPrefix := filepath.ToSlash(inherited) + "/"
+	overriddenPrefix := filepath.ToSlash(overridden) + "/"
+	counts := map[string]int{}
+	for _, file := range result.Files {
+		path := filepath.ToSlash(file.Path)
+		switch {
+		case strings.HasPrefix(path, inheritedPrefix) && strings.HasSuffix(path, ".js.map"):
+			counts["inheritedJSMap"]++
+		case strings.HasPrefix(path, inheritedPrefix) && strings.HasSuffix(path, ".d.ts.map"):
+			counts["inheritedDTSMap"]++
+		case strings.HasPrefix(path, inheritedPrefix) && strings.HasSuffix(path, ".d.ts"):
+			counts["inheritedDTS"]++
+		case strings.HasPrefix(path, overriddenPrefix) && strings.HasSuffix(path, ".d.ts"):
+			counts["overriddenDTS"]++
+		case strings.HasPrefix(path, overriddenPrefix) && strings.HasSuffix(path, ".map"):
+			counts["overriddenMap"]++
+		}
+	}
+	if counts["inheritedJSMap"] == 0 || counts["inheritedDTS"] == 0 || counts["inheritedDTSMap"] == 0 {
+		t.Fatalf("inherited output missing tsconfig artifacts: %v", pathsOf(result.Files))
+	}
+	if counts["overriddenDTS"] == 0 {
+		t.Fatalf("overridden output missing inherited declarations: %v", pathsOf(result.Files))
+	}
+	if counts["overriddenMap"] != 0 {
+		t.Fatalf("overridden output ignored explicit false: %v", pathsOf(result.Files))
+	}
+}
+
 func outputNamed(t *testing.T, files []Output, name string) string {
 	t.Helper()
 	var data string

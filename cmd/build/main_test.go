@@ -266,6 +266,48 @@ func TestCLIExplicitEmitFlagsOverrideTSConfig(t *testing.T) {
 	}
 }
 
+func TestCLIEmitFlagsInheritTSConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.ts"), []byte("export const n: number = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config := `{"compilerOptions":{"module":"esnext","sourceMap":true,"declaration":true,"declarationMap":true,"outDir":"tsout"},"include":["index.ts"]}`
+	if err := os.WriteFile(filepath.Join(dir, "tsconfig.json"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	// --dts is set but --map is not, so maps still follow tsconfig.
+	out := filepath.Join(dir, "inherit")
+	if err := run([]string{"--dts", "--outdir", out}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	findOutput(t, out, "index.js.map")
+	findOutput(t, out, "index.d.ts")
+	findOutput(t, out, "index.d.ts.map")
+
+	// Explicit false beats tsconfig true for declarations only.
+	off := filepath.Join(dir, "off")
+	if err := run([]string{"--dts=false", "--map", "--outdir", off}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	findOutput(t, off, "index.js.map")
+	err := filepath.WalkDir(off, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if name := d.Name(); strings.HasSuffix(name, ".d.ts") || strings.HasSuffix(name, ".d.ts.map") {
+			t.Errorf("unexpected declaration %s with --dts=false", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCLITemplatedOutfileSingleEntry(t *testing.T) {
 	dir := t.TempDir()
 	entry := filepath.Join(dir, "index.ts")
