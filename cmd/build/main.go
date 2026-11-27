@@ -294,18 +294,7 @@ func parseKV(pairs []string) map[string]string {
 }
 
 func writeBuild(c *cli.Context, ctx context.Context, opts bundler.Options, docs []*htmlDocument) error {
-	result, err := bundler.Build(ctx, opts)
-	if err != nil {
-		return err
-	}
-	if len(docs) > 0 {
-		extra, err := renderHTMLDocuments(docs, opts, result)
-		if err != nil {
-			return err
-		}
-		result.Files = append(result.Files, extra...)
-	}
-	for _, file := range result.Files {
+	write := func(file bundler.Output) error {
 		if dir := filepath.Dir(file.Path); dir != "" && dir != "." {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return err
@@ -315,6 +304,22 @@ func writeBuild(c *cli.Context, ctx context.Context, opts bundler.Options, docs 
 			return err
 		}
 		fmt.Fprintf(c.App.Writer, "wrote %s\n", file.Path)
+		return nil
+	}
+	result, err := bundler.BuildTo(ctx, opts, write)
+	if err != nil {
+		return err
+	}
+	if len(docs) > 0 {
+		extra, err := renderHTMLDocuments(docs, opts, result)
+		if err != nil {
+			return err
+		}
+		for _, file := range extra {
+			if err := write(file); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

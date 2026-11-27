@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"maps"
 	"strings"
@@ -131,13 +132,14 @@ type Output struct {
 	Data string
 }
 
-// Result holds every file a build wrote logically, including JavaScript, declarations, and maps.
+// Result reports the emitted files and the manifest/source mapping of a build.
 type Result struct {
 	Manifest map[string]string
 	// Sources maps absolute source paths (slash separated) to emitted files.
 	Sources map[string]string
 	entry   string
-	Files   []Output
+	// Files is empty when BuildTo delivered the files to its writer.
+	Files []Output
 }
 
 // JavaScript returns the entry JavaScript source.
@@ -156,8 +158,24 @@ func (r *Result) JavaScript() string {
 	return ""
 }
 
+// OutputWriter receives one emitted file from BuildTo.
+type OutputWriter func(Output) error
+
 // Build reads Entries and returns the JavaScript, declarations, and source maps.
 func Build(ctx context.Context, opts Options) (*Result, error) {
+	return build(ctx, opts, nil)
+}
+
+// BuildTo builds and passes every emitted file to write instead of returning its contents.
+// GenerateBundle still sees the complete file set; Result.Files is empty afterwards.
+func BuildTo(ctx context.Context, opts Options, write OutputWriter) (*Result, error) {
+	if write == nil {
+		return nil, errors.New("bundler: nil output writer")
+	}
+	return build(ctx, opts, write)
+}
+
+func build(ctx context.Context, opts Options, write OutputWriter) (*Result, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -191,8 +209,7 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 			return nil, err
 		}
 		result.Sources = b.sources
-		nativePaths(result)
-		return result, nil
+		return finishResult(result, write)
 	}
 	merged := &Result{Manifest: map[string]string{}, Sources: b.sources}
 	for _, out := range outputs {
@@ -229,8 +246,25 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 	if err := applyGenerateBundle(opts.Plugins, hookCtx, merged); err != nil {
 		return nil, err
 	}
-	nativePaths(merged)
-	return merged, nil
+	return finishResult(merged, write)
+}
+
+// finishResult converts paths for the host and delivers files when a writer is set.
+func finishResult(result *Result, write OutputWriter) (*Result, error) {
+	nativePaths(result)
+	if write == nil {
+		return result, nil
+	}
+	files := result.Files
+	result.Files = nil
+	for i := range files {
+		file := files[i]
+		files[i] = Output{}
+		if err := write(file); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
 }
 
 // nativePaths converts emitted slash paths to host separators for callers and os use.
@@ -239,13 +273,20 @@ func nativePaths(result *Result) {
 		return
 	}
 	for i := range result.Files {
-		result.Files[i].Path = filepath.Native(result.Files[i].Path)
+		value := result.Files[i]
+		if nv := filepath.Native(value.Path); nv != value.Path {
+			value.Path = nv
+		}
 	}
 	for key, value := range result.Manifest {
-		result.Manifest[key] = filepath.Native(value)
+		if nv := filepath.Native(value); nv != value {
+			result.Manifest[key] = value
+		}
 	}
 	for key, value := range result.Sources {
-		result.Sources[key] = filepath.Native(value)
+		if nv := filepath.Native(value); nv != value {
+			result.Sources[key] = value
+		}
 	}
 }
 

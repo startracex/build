@@ -261,6 +261,17 @@ result, err := bundler.Build(ctx, bundler.Options{
 
 `Options.Mode` is required: `bundler.ModeApp` writes one bundle per entry, `bundler.ModeLib` writes one file per module and leaves bare package imports external.
 
+`BuildTo` is the write-oriented counterpart: it passes every file to a callback instead of returning all contents in `Result.Files`, so a host can write and release each file. `GenerateBundle` still receives the complete set.
+
+```go
+_, err := bundler.BuildTo(ctx, opts, func(file bundler.Output) error {
+  if err := os.MkdirAll(filepath.Dir(file.Path), 0o755); err != nil {
+    return err
+  }
+  return os.WriteFile(file.Path, []byte(file.Data), 0o644)
+})
+```
+
 Public entry: `github.com/startracex/build/pkg/bundler`. Sibling packages under `pkg/`: `plugin`, `resolve`, `asset`, `link`, `treeshake`, `define`, `cache`, `wrap`, `sourcemap`, `dts`, `modpath`, `jsedit`, `output`.
 
 The tsconfig compiler options are passed through `Options`, so no flag can override them:

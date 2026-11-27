@@ -3,6 +3,7 @@ package bundler
 import (
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +28,67 @@ func TestBuildRequiresMode(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "unsupported mode") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestBuildToWritesFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
+	var written []Output
+	result, err := BuildTo(context.Background(), Options{
+		Mode:    ModeLib,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			OutDir:      filepath.Join(dir, "dist"),
+			SourceMap:   new(true),
+			Declaration: new(true),
+		}},
+		Plugins: []plugin.Plugin{{
+			GenerateBundle: func(_ plugin.HookCtx, files []plugin.File) ([]plugin.File, error) {
+				return append(files, plugin.File{Path: filepath.Join(dir, "dist", "extra.txt"), Data: "extra\n"}), nil
+			},
+		}},
+	}, func(file Output) error {
+		written = append(written, file)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Files) != 0 {
+		t.Fatalf("BuildTo kept files: %v", pathsOf(result.Files))
+	}
+	if result.JavaScript() == "" {
+		t.Fatal("BuildTo lost the entry JavaScript")
+	}
+	if result.Sources[filepath.ToSlash(filepath.Join(dir, "index.ts"))] == "" {
+		t.Fatalf("sources = %v", result.Sources)
+	}
+	names := map[string]string{}
+	for _, file := range written {
+		names[filepath.Base(file.Path)] = file.Data
+	}
+	for _, name := range []string{"index.js", "index.js.map", "index.d.ts", "extra.txt"} {
+		if _, ok := names[name]; !ok {
+			t.Fatalf("missing %s in %v", name, pathsOf(written))
+		}
+	}
+}
+
+func TestBuildToWriterError(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
+	sentinel := errors.New("disk full")
+	_, err := BuildTo(context.Background(), Options{
+		Mode:    ModeLib,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{OutDir: filepath.Join(dir, "dist")}},
+	}, func(Output) error { return sentinel })
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("error = %v", err)
+	}
+	if _, err := BuildTo(context.Background(), Options{}, nil); err == nil {
+		t.Fatal("nil writer should be rejected")
 	}
 }
 
