@@ -1,24 +1,22 @@
 package resolve
 
 import (
-	"path/filepath"
 	"sync"
 
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/tsgo/pkg/tspath"
 	"github.com/startracex/tsgo/pkg/vfs"
 )
 
-// realpathFS retries a probe through the target of the path when the first
-// attempt fails. Windows refuses to traverse an untrusted mount point, and a
-// package manager can leave dependency directories as reparse points that fail
-// that check, while the link target itself stays readable.
+// realpathFS retries a failed probe through the path's target: Windows refuses untrusted mount points, and a package manager can leave dependency directories as unreadable reparse points whose link target stays readable. A non-OS base FS does its own resolution, so Realpath answers instead.
 type realpathFS struct {
 	vfs.FS
-	cache sync.Map // rooted path string -> tspath.RootedPath
+	native bool
+	cache  sync.Map // rooted path string -> tspath.RootedPath
 }
 
-func newRealpathFS(base vfs.FS) *realpathFS {
-	return &realpathFS{FS: base}
+func newRealpathFS(base vfs.FS, native bool) *realpathFS {
+	return &realpathFS{FS: base, native: native}
 }
 
 // real reports the target of p and whether it differs from p.
@@ -29,8 +27,12 @@ func (f *realpathFS) real(p tspath.RootedPath) (tspath.RootedPath, bool) {
 		return target, target != p
 	}
 	target := p
-	// filepath.EvalSymlinks walks the links one component at a time, which
-	// succeeds where opening a handle to the whole path does not.
+	if !f.native {
+		target = f.FS.Realpath(p)
+		f.cache.Store(key, target)
+		return target, target != p
+	}
+	// EvalSymlinks walks links one component at a time, succeeding where opening a handle to the whole path fails.
 	if real, err := filepath.EvalSymlinks(filepath.FromSlash(key)); err == nil && real != "" {
 		target = tspath.RootedPathFromAbsolute(filepath.ToSlash(real))
 	}
@@ -38,8 +40,7 @@ func (f *realpathFS) real(p tspath.RootedPath) (tspath.RootedPath, bool) {
 	return target, target != p
 }
 
-// realNative returns the target of a native absolute path, or the path itself
-// when it does not resolve.
+// realNative returns the target of a native absolute path, or the path itself when unresolved.
 func (f *realpathFS) realNative(path string) string {
 	rooted, ok := tspath.TryRootedPathFromAbsolute(filepath.ToSlash(path))
 	if !ok {

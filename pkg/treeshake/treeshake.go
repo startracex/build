@@ -2,18 +2,18 @@ package treeshake
 
 import (
 	"encoding/json/v2"
-	"os"
 	"path"
-	"path/filepath"
 	"strings"
 
+	"github.com/startracex/build/pkg/filepath"
+	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/tsgo/pkg/ast"
 	"github.com/startracex/tsgo/pkg/scanner"
+	"github.com/startracex/tsgo/pkg/vfs"
 )
 
 func IsPureDecl(src string, stmt *ast.Node) bool {
-	// A decorator runs when the declaration is evaluated, both downleveled and
-	// with the native syntax, so the declaration cannot be dropped.
+	// A decorator runs when the declaration is evaluated, in either syntax, so it cannot be dropped.
 	if ast.HasDecorators(stmt) {
 		return false
 	}
@@ -222,9 +222,7 @@ func pureCallArgs(src string, n *ast.Node) bool {
 	}
 }
 
-// hasPureAnnotation reports whether a /*#__PURE__*/ or /*@__PURE__*/ comment
-// is attached as leading trivia at pos (tsgo Node.Pos includes trivia) or
-// sits immediately before the token when Pos already skips trivia.
+// hasPureAnnotation reports whether a PURE annotation is leading trivia at pos, or just before the token if Pos skips trivia.
 func hasPureAnnotation(src string, pos int) bool {
 	if pos < 0 || pos > len(src) {
 		return false
@@ -268,10 +266,10 @@ func commentHasPure(s string) bool {
 	return strings.Contains(s, "#__PURE__") || strings.Contains(s, "@__PURE__")
 }
 
-// ModuleSideEffectsFree reports whether file can be skipped when imported only
-// for side effects, based on the nearest package.json "sideEffects" field.
-func ModuleSideEffectsFree(file string) bool {
-	pkgDir, side, ok := findSideEffectsField(file)
+// ModuleSideEffectsFree reports whether file can be skipped when side-effect-only imported, per the nearest package.json "sideEffects".
+// A nil fs reads the OS file system.
+func ModuleSideEffectsFree(fs vfs.FS, file string) bool {
+	pkgDir, side, ok := findSideEffectsField(fs, file)
 	if !ok {
 		return false
 	}
@@ -299,10 +297,10 @@ func ModuleSideEffectsFree(file string) bool {
 	}
 }
 
-func findSideEffectsField(file string) (pkgDir string, side any, ok bool) {
+func findSideEffectsField(fs vfs.FS, file string) (pkgDir string, side any, ok bool) {
 	dir := filepath.Dir(file)
 	for {
-		raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
+		raw, err := modpath.ReadFile(fs, filepath.Join(dir, "package.json"))
 		if err == nil {
 			var meta struct {
 				SideEffects any `json:"sideEffects"`

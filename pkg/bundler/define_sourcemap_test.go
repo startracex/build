@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/startracex/build/pkg/plugin"
+	"github.com/startracex/build/pkg/sourcemap"
 )
 
 const defineMapSource = `export const mode = __MODE__;
@@ -16,20 +19,20 @@ export function label(): string {
 }
 `
 
-// TestDefineDropKeepsSourceMapAligned checks that a define replacement and a
-// dropped console statement leave every kept position mapped to its original
-// line.
+// TestDefineDropKeepsSourceMapAligned checks that define/drop leaves kept positions mapped to their original lines.
 func TestDefineDropKeepsSourceMapAligned(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), defineMapSource)
 	sourcemapFlag := true
-	result, err := Build(context.Background(), Options{
-		Mode:      ModeApp,
-		Entry:     filepath.Join(dir, "index.ts"),
-		OutFile:   filepath.Join(dir, "out", "bundle.mjs"),
-		SourceMap: &sourcemapFlag,
-		Define:    map[string]string{"__MODE__": `"prod"`},
-		Drop:      []string{"console"},
+	result, err := Generate(context.Background(), Options{
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			OutFile:   filepath.Join(dir, "out", "bundle.mjs"),
+			SourceMap: &sourcemapFlag,
+		}},
+		Define: map[string]string{"__MODE__": `"prod"`},
+		Drop:   []string{"console"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -51,8 +54,7 @@ func TestDefineDropKeepsSourceMapAligned(t *testing.T) {
 	}
 }
 
-// TestDefineDropSplitBuild checks that a rewritten module still drives the
-// split graph and keeps its source map when output goes to OutDir.
+// TestDefineDropSplitBuild checks that rewritten modules still drive splitting and keep their source maps.
 func TestDefineDropSplitBuild(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "src", "shared.ts"), `export const shared = "SHARED";`)
@@ -61,13 +63,15 @@ export const mode = __MODE__ + shared;
 console.log("drop-me");
 `)
 	sourcemapFlag := true
-	result, err := Build(context.Background(), Options{
-		Mode:      ModeApp,
-		Entry:     filepath.Join(dir, "src", "index.ts"),
-		OutDir:    filepath.Join(dir, "dist"),
-		SourceMap: &sourcemapFlag,
-		Define:    map[string]string{"__MODE__": `"prod"`},
-		Drop:      []string{"console"},
+	result, err := Generate(context.Background(), Options{
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "src", "index.ts")},
+		Outputs: []OutputOptions{{
+			OutDir:    filepath.Join(dir, "dist"),
+			SourceMap: &sourcemapFlag,
+		}},
+		Define: map[string]string{"__MODE__": `"prod"`},
+		Drop:   []string{"console"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -165,9 +169,7 @@ func decodeTestSourceMap(t *testing.T, mapData string) testSourceMap {
 	return out
 }
 
-// assertMappedTo finds the first occurrence of generated in the bundle and
-// checks that the closest segment at or before it points at a source line that
-// holds original.
+// assertMappedTo checks that the closest mapping before generated points at a source line containing original.
 func assertMappedTo(t *testing.T, code string, parsed testSourceMap, generated, original string) {
 	t.Helper()
 	offset := strings.Index(code, generated)
@@ -227,4 +229,39 @@ func decodeTestVLQ(s string) []int {
 		value, shift = 0, 0
 	}
 	return out
+}
+
+// TestTransformPluginMapsChain checks that transform maps compose across plugins instead of overwriting each other.
+func TestTransformPluginMapsChain(t *testing.T) {
+	const source = `export const a = "ORIGINAL";`
+	maps := []string{
+		`{"version":3,"sources":["input.js"],"names":[],"mappings":";AAAA"}`,
+		`{"version":3,"sources":["input.js"],"names":[],"mappings":";;AACA"}`,
+	}
+	wants := []string{`"mappings":";AAAA"`, `"mappings":";;AAAA"`}
+	for _, count := range []int{1, 2} {
+		plugins := make([]plugin.Plugin, 0, count)
+		for i := range count {
+			idx := i
+			plugins = append(plugins, plugin.Plugin{
+				Transform: func(_ plugin.HookCtx, code, _ string) (string, *sourcemap.Map, error) {
+					m, err := sourcemap.ParseMap(maps[idx])
+					if err != nil {
+						return "", nil, err
+					}
+					return "// p\n" + code, m, nil
+				},
+			})
+		}
+		code, m, err := plugin.RunTransform(plugins, plugin.HookCtx{}, source, source, "id")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(code, `"ORIGINAL"`) {
+			t.Fatalf("transform output lost the source:\n%s", code)
+		}
+		if mapJSON := m.JSON(); !strings.Contains(mapJSON, wants[count-1]) {
+			t.Fatalf("chained map = %q, want mappings %q", mapJSON, wants[count-1])
+		}
+	}
 }

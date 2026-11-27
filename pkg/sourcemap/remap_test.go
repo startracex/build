@@ -9,13 +9,13 @@ import (
 
 func TestRemapEditsDeletionShiftsLines(t *testing.T) {
 	src := "a();\nb();\nc();\n"
-	mapText := testMap("out.js", "in.ts", "src", []mapPointCol{
+	m := testMap("out.js", "in.ts", "src", []mapPointCol{
 		{genLine: 0, genCol: 0, source: 0, srcLine: 0, srcCol: 0},
 		{genLine: 1, genCol: 0, source: 0, srcLine: 1, srcCol: 0},
 		{genLine: 2, genCol: 0, source: 0, srcLine: 2, srcCol: 0},
 	})
-	out := RemapEdits(mapText, src, []jsedit.Edit{{Start: 5, End: 10, Text: ""}})
-	points := decodeAllPoints(mustMappings(t, out))
+	out := RemapEdits(m, src, []jsedit.Edit{{Start: 5, End: 10, Text: ""}})
+	points := decodeAllPoints(mustMappings(t, out.JSON()))
 	if len(points) != 2 {
 		t.Fatalf("points = %+v", points)
 	}
@@ -32,12 +32,12 @@ func TestRemapEditsDeletionShiftsLines(t *testing.T) {
 
 func TestRemapEditsReplacementKeepsPoint(t *testing.T) {
 	src := "const x = __DEV__;\n"
-	mapText := testMap("out.js", "in.ts", "src", []mapPointCol{
+	m := testMap("out.js", "in.ts", "src", []mapPointCol{
 		{genLine: 0, genCol: 10, source: 0, srcLine: 0, srcCol: 10},
 		{genLine: 0, genCol: 17, source: 0, srcLine: 0, srcCol: 17},
 	})
-	out := RemapEdits(mapText, src, []jsedit.Edit{{Start: 10, End: 17, Text: "false"}})
-	points := decodeAllPoints(mustMappings(t, out))
+	out := RemapEdits(m, src, []jsedit.Edit{{Start: 10, End: 17, Text: "false"}})
+	points := decodeAllPoints(mustMappings(t, out.JSON()))
 	if len(points) != 2 {
 		t.Fatalf("points = %+v", points)
 	}
@@ -51,12 +51,12 @@ func TestRemapEditsReplacementKeepsPoint(t *testing.T) {
 
 func TestRemapEditsDropsDeletedPoints(t *testing.T) {
 	src := "dead();\nlive();\n"
-	mapText := testMap("out.js", "in.ts", "src", []mapPointCol{
+	m := testMap("out.js", "in.ts", "src", []mapPointCol{
 		{genLine: 0, genCol: 0, source: 0, srcLine: 0, srcCol: 0},
 		{genLine: 1, genCol: 0, source: 0, srcLine: 1, srcCol: 0},
 	})
-	out := RemapEdits(mapText, src, []jsedit.Edit{{Start: 0, End: 8, Text: ""}})
-	points := decodeAllPoints(mustMappings(t, out))
+	out := RemapEdits(m, src, []jsedit.Edit{{Start: 0, End: 8, Text: ""}})
+	points := decodeAllPoints(mustMappings(t, out.JSON()))
 	if len(points) != 1 || points[0].srcLine != 1 {
 		t.Fatalf("points = %+v", points)
 	}
@@ -73,16 +73,16 @@ func TestRemapEditsStagesChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mapText := testMap("out.js", "in.ts", "src", []mapPointCol{
+	m := testMap("out.js", "in.ts", "src", []mapPointCol{
 		{genLine: 1, genCol: 0, source: 0, srcLine: 1, srcCol: 0},
 	})
 	for _, stage := range []struct {
 		src   string
 		edits []jsedit.Edit
 	}{{src, first}, {step1, second}} {
-		mapText = RemapEdits(mapText, stage.src, stage.edits)
+		m = RemapEdits(m, stage.src, stage.edits)
 	}
-	points := decodeAllPoints(mustMappings(t, mapText))
+	points := decodeAllPoints(mustMappings(t, m.JSON()))
 	if len(points) != 1 {
 		t.Fatalf("points = %+v", points)
 	}
@@ -92,16 +92,15 @@ func TestRemapEditsStagesChain(t *testing.T) {
 }
 
 func TestRemapEditsNoEdits(t *testing.T) {
-	mapText := testMap("out.js", "in.ts", "src", []mapPointCol{
+	m := testMap("out.js", "in.ts", "src", []mapPointCol{
 		{genLine: 0, genCol: 0, source: 0, srcLine: 0, srcCol: 0},
 	})
-	if out := RemapEdits(mapText, "a();", nil); out != mapText {
-		t.Fatalf("empty edit list changed the map: %s", out)
+	if out := RemapEdits(m, "a();", nil); out != m {
+		t.Fatalf("empty edit list changed the map: %s", out.JSON())
 	}
 }
 
-// TestVLQRoundTrip guards the sign bit of the base64 VLQ decoder: every
-// negative delta must decode back to the value that produced it.
+// TestVLQRoundTrip guards the VLQ decoder's sign bit: every negative delta must decode back to its original value.
 func TestVLQRoundTrip(t *testing.T) {
 	for _, n := range []int{0, 1, -1, 2, -2, 31, -31, 1024, -1024} {
 		values, count := decodeVLQs(vlq(n))
@@ -125,7 +124,7 @@ func TestVLQRoundTrip(t *testing.T) {
 	}
 }
 
-func testMap(file, source, content string, points []mapPointCol) string {
+func testMap(file, source, content string, points []mapPointCol) *Map {
 	raw := map[string]any{
 		"version":        3,
 		"file":           file,
@@ -138,7 +137,7 @@ func testMap(file, source, content string, points []mapPointCol) string {
 	if err != nil {
 		panic(err)
 	}
-	return string(buf)
+	return newMap(string(buf))
 }
 
 func mustMappings(t *testing.T, mapText string) string {

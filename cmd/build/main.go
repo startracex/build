@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/startracex/build/pkg/bundler"
-	"github.com/startracex/build/pkg/resolve"
+	"github.com/startracex/tsgo/pkg/core"
 	"github.com/urfave/cli/v2"
 )
 
@@ -39,13 +39,15 @@ func run(args []string, stderr, stdout io.Writer) error {
 		Flags: []cli.Flag{
 			&cli.StringSliceFlag{Name: "outfile", Aliases: []string{"o"}, Usage: "single-file bundle path (repeatable)"},
 			&cli.StringSliceFlag{Name: "outdir", Aliases: []string{"d"}, Usage: "directory for per-module or split output (repeatable)"},
-			&cli.StringFlag{Name: "entry-file-names", Aliases: []string{"n"}, Usage: "filename pattern for --outdir outputs ([name], [path], [format], [hash], [hash:N])"},
+			&cli.StringFlag{Name: "entry-file-names", Aliases: []string{"n"}, Usage: "filename pattern for entry files ([name], [path], [ext], [type], [format], [hash], [hash:N])"},
+			&cli.StringFlag{Name: "chunk-file-names", Usage: "filename pattern for split chunks ([name], [path], [ext], [type], [format], [hash], [hash:N])"},
+			&cli.StringFlag{Name: "asset-file-names", Usage: "filename pattern for emitted assets and CSS ([name], [path], [ext], [type], [hash], [hash:N])"},
+			&cli.StringFlag{Name: "root-dir", Aliases: []string{"r"}, Usage: "base directory for paths written under the output directory"},
 			&cli.StringFlag{Name: "project", Aliases: []string{"p"}, Usage: "tsconfig.json file or directory"},
 			&cli.StringSliceFlag{Name: "format", Aliases: []string{"f"}, Usage: "output format: esm, cjs, iife, umd (repeatable)"},
 			&cli.StringFlag{Name: "jsx", Usage: "JSX transform: react, react-jsx, react-jsxdev, preserve, or react-native"},
 			&cli.StringFlag{Name: "global-name", Aliases: []string{"g"}, Usage: "global variable name for iife/umd"},
 			&cli.StringSliceFlag{Name: "conditions", Usage: "extra package.json exports conditions (repeatable)"},
-			&cli.StringFlag{Name: "platform", Usage: "runtime for the JavaScript output: browser, node, or neutral (default browser for app mode)"},
 			&cli.StringSliceFlag{Name: "alias", Usage: "import alias from=to (repeatable)"},
 			&cli.StringSliceFlag{Name: "define", Usage: "replace a free reference KEY=EXPR (repeatable)"},
 			&cli.StringSliceFlag{Name: "drop", Usage: "drop console calls or debugger statements (repeatable)"},
@@ -67,8 +69,7 @@ func run(args []string, stderr, stdout io.Writer) error {
 	return app.Run(append([]string{"build"}, args...))
 }
 
-// resolveMode reads the explicit --mode value. An empty value keeps the
-// layout derived from the output paths.
+// resolveMode reads --mode; an empty value keeps layout derived from output paths.
 func resolveMode(value string) (bundler.Mode, error) {
 	switch value {
 	case "":
@@ -83,14 +84,14 @@ func resolveMode(value string) (bundler.Mode, error) {
 }
 
 // warnIgnoredFlags reports flags that the selected layout makes pointless.
-func warnIgnoredFlags(c *cli.Context, opts *bundler.Options, declaration bool) {
+func warnIgnoredFlags(c *cli.Context, opts *bundler.Options, out bundler.OutputOptions, declaration bool) {
 	if opts.Mode != bundler.ModeApp {
 		return
 	}
 	if opts.BundleNodeModules {
 		fmt.Fprintln(c.App.ErrWriter, "build: warning: --bundle has no effect in app mode, package imports are bundled already")
 	}
-	if opts.DepsDir != "" {
+	if out.DepsDir != "" {
 		fmt.Fprintln(c.App.ErrWriter, "build: warning: --deps-dir has no effect in app mode, packages are inlined into the bundle")
 	}
 	switch {
@@ -124,55 +125,54 @@ func action(c *cli.Context) error {
 	formatSet := c.IsSet("format")
 	alias := parseKV(c.StringSlice("alias"))
 	define := parseKV(c.StringSlice("define"))
-	// The platform decides how the module graph is resolved, and a build loads
-	// that graph once, so every output shares one platform.
-	platform, err := resolve.ParsePlatform(c.String("platform"))
-	if err != nil {
-		return err
+	baseOutput := bundler.OutputOptions{
+		Format:         bundler.FormatESM,
+		Name:           c.String("global-name"),
+		EntryFileNames: c.String("entry-file-names"),
+		ChunkFileNames: c.String("chunk-file-names"),
+		AssetFileNames: c.String("asset-file-names"),
+		Manifest:       c.Bool("manifest"),
+		PublicPath:     c.String("public-path"),
+		DepsDir:        c.String("deps-dir"),
 	}
 	base := bundler.Options{
-		JSX:               bundler.JSX(flagOr(c, "jsx", string(bundler.JSXReact))),
 		External:          c.StringSlice("external"),
 		BundleNodeModules: c.Bool("bundle"),
-		DepsDir:           c.String("deps-dir"),
 		Conditions:        c.StringSlice("conditions"),
-		Platform:          platform,
 		Alias:             alias,
 		Define:            define,
 		Drop:              c.StringSlice("drop"),
-		GlobalName:        c.String("global-name"),
 		CacheDir:          c.String("cache-dir"),
-		Manifest:          c.Bool("manifest"),
-		PublicPath:        c.String("public-path"),
-		EntryFileNames:    c.String("entry-file-names"),
-	}
+		RootDir:           c.String("root-dir"),
 
-	if len(entries) == 1 {
-		base.Entry = entries[0]
-	} else {
-		base.Entries = entries
-	}
+		Entries: entries}
 	if len(htmlDocs) > 0 && base.RootDir == "" {
 		base.RootDir = filepath.Dir(htmlDocs[0].path)
 	}
-	base.Format = bundler.FormatESM
-	declaration, declarationMap := false, false
-	compilerOpts, err := applyTSConfig(c, &base, &declaration, &declarationMap)
+	compilerOpts, err := applyTSConfig(c, &base, &baseOutput)
 	if err != nil {
 		return err
 	}
 	base.CompilerOptions = compilerOpts
+	if base.CompilerOptions == nil {
+		base.CompilerOptions = &core.CompilerOptions{}
+	}
 	ctx := context.Background()
 	if formatSet && len(explicitFormats) == 1 {
-		base.Format = bundler.Format(explicitFormats[0])
+		baseOutput.Format = bundler.Format(explicitFormats[0])
 	}
 	if c.IsSet("jsx") {
-		base.JSX = bundler.JSX(c.String("jsx"))
+		jsx, err := bundler.ParseJSX(c.String("jsx"))
+		if err != nil {
+			return err
+		}
+		base.CompilerOptions.Jsx = jsx
 	}
-	applyEmitFlags(c, &base, &declaration, &declarationMap)
+	applyEmitFlags(c, &baseOutput)
+	declaration := inheritedDeclaration(baseOutput, base.CompilerOptions)
 
 	if len(outfiles) > 0 {
-		base.EntryFileNames = ""
+		baseOutput.EntryFileNames = ""
 		templated := false
 		for _, outfile := range outfiles {
 			if templateOf(outfile) != "" {
@@ -181,9 +181,6 @@ func action(c *cli.Context) error {
 			}
 		}
 		entryCount := len(base.Entries)
-		if base.Entry != "" {
-			entryCount++
-		}
 		if entryCount == 0 {
 			return errors.New("--outfile requires at least one entry")
 		}
@@ -212,12 +209,12 @@ func action(c *cli.Context) error {
 		default:
 			base.Mode = bundler.ModeLib
 		}
-		plan, err := planOutputs(outputFile, outfiles, formatList(explicitFormats, formatSet, base.Format), base.Format, "", base.GlobalName)
+		plan, err := planOutputs(outputFile, outfiles, formatList(explicitFormats, formatSet, baseOutput.Format), baseOutput, "")
 		if err != nil {
 			return err
 		}
 		applyOutputPlan(&base, plan)
-		warnIgnoredFlags(c, &base, declaration)
+		warnIgnoredFlags(c, &base, baseOutput, declaration)
 		return writeBuild(c, ctx, base, htmlDocs)
 	}
 
@@ -229,37 +226,44 @@ func action(c *cli.Context) error {
 	default:
 		base.Mode = bundler.ModeLib
 	}
-	if base.EntryFileNames != "" && len(outdirs) == 0 && base.OutDir == "" {
+	if baseOutput.EntryFileNames != "" && len(outdirs) == 0 && baseOutput.OutDir == "" {
 		return errors.New("--entry-file-names requires --outdir")
 	}
-	plan, err := planOutputs(outputDir, outdirs, formatList(explicitFormats, formatSet, base.Format), base.Format, base.OutDir, base.GlobalName)
+	plan, err := planOutputs(outputDir, outdirs, formatList(explicitFormats, formatSet, baseOutput.Format), baseOutput, baseOutput.OutDir)
 	if err != nil {
 		return err
 	}
 	applyOutputPlan(&base, plan)
-	if len(base.Entries) == 0 && base.Entry == "" {
+	if len(base.Entries) == 0 {
 		return errors.New("tsconfig.json not found")
 	}
-	warnIgnoredFlags(c, &base, declaration)
+	warnIgnoredFlags(c, &base, baseOutput, declaration)
 	return writeBuild(c, ctx, base, htmlDocs)
 }
 
-func applyEmitFlags(c *cli.Context, opts *bundler.Options, declaration, declarationMap *bool) {
+// applyEmitFlags records only flags the user set, so unset ones inherit tsconfig.
+func applyEmitFlags(c *cli.Context, out *bundler.OutputOptions) {
 	mapSet := c.IsSet("map")
 	mapEnabled := c.Bool("map")
 	dtsSet := c.IsSet("dts")
 	dtsEnabled := c.Bool("dts")
 	if mapSet {
-		opts.SourceMap = new(mapEnabled)
+		out.SourceMap = new(mapEnabled)
 	}
 	if dtsSet {
-		*declaration = dtsEnabled
+		out.Declaration = new(dtsEnabled)
 	}
 	if mapSet && dtsSet {
-		*declarationMap = mapEnabled && dtsEnabled
+		out.DeclarationMap = new(mapEnabled && dtsEnabled)
 	}
-	opts.Declaration = new(*declaration)
-	opts.DeclarationMap = new(*declaration && *declarationMap)
+}
+
+// inheritedDeclaration mirrors the bundler rule for warnings about ignored declarations.
+func inheritedDeclaration(out bundler.OutputOptions, compilerOpts *core.CompilerOptions) bool {
+	if out.Declaration != nil {
+		return *out.Declaration
+	}
+	return compilerOpts != nil && (compilerOpts.Declaration == core.TSTrue || compilerOpts.Composite == core.TSTrue)
 }
 
 func formatList(explicit []string, set bool, fallback bundler.Format) []bundler.Format {
@@ -288,29 +292,8 @@ func parseKV(pairs []string) map[string]string {
 	return out
 }
 
-func flagOr(c *cli.Context, name, fallback string) string {
-	if c.IsSet(name) {
-		return c.String(name)
-	}
-	if value := c.String(name); value != "" {
-		return value
-	}
-	return fallback
-}
-
 func writeBuild(c *cli.Context, ctx context.Context, opts bundler.Options, docs []*htmlDocument) error {
-	result, err := bundler.Build(ctx, opts)
-	if err != nil {
-		return err
-	}
-	if len(docs) > 0 {
-		extra, err := renderHTMLDocuments(docs, opts, result)
-		if err != nil {
-			return err
-		}
-		result.Files = append(result.Files, extra...)
-	}
-	for _, file := range result.Files {
+	write := func(file bundler.Output) error {
 		if dir := filepath.Dir(file.Path); dir != "" && dir != "." {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return err
@@ -320,12 +303,27 @@ func writeBuild(c *cli.Context, ctx context.Context, opts bundler.Options, docs 
 			return err
 		}
 		fmt.Fprintf(c.App.Writer, "wrote %s\n", file.Path)
+		return nil
+	}
+	result, err := bundler.Build(ctx, opts, write)
+	if err != nil {
+		return err
+	}
+	if len(docs) > 0 {
+		extra, err := renderHTMLDocuments(docs, opts, result)
+		if err != nil {
+			return err
+		}
+		for _, file := range extra {
+			if err := write(file); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
 
-// writeFileString writes an output without converting it to a byte slice, which
-// would copy the whole file.
+// writeFileString avoids a byte-slice conversion that would copy the whole file.
 func writeFileString(path, data string) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {

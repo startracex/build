@@ -7,9 +7,7 @@ import (
 	"testing"
 )
 
-// TestAppBundleHandlesCommonJSDependency guards a dependency that requires a
-// sibling and exports an object holding the required value: the link pass used
-// to walk the same local forever.
+// TestAppBundleHandlesCommonJSDependency guards a CJS dependency whose sibling require used to loop forever in linking.
 func TestAppBundleHandlesCommonJSDependency(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.js"), `import core from "hl/lib/core";
@@ -25,10 +23,12 @@ module.exports = { lang };
 		`module.exports = { name: "ts" };
 `)
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
-		Mode:   ModeApp,
-		Entry:  filepath.Join(dir, "index.js"),
-		OutDir: out,
+	result, err := Generate(context.Background(), Options{
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.js")},
+		Outputs: []OutputOptions{{
+			OutDir: out,
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -1,6 +1,10 @@
 package plugin
 
-import "context"
+import (
+	"context"
+
+	"github.com/startracex/build/pkg/sourcemap"
+)
 
 // HookCtx carries context into plugin hooks.
 type HookCtx struct {
@@ -15,11 +19,11 @@ type File struct {
 
 // Plugin groups optional build hooks. Nil function fields are skipped.
 type Plugin struct {
-	Name           string
-	Resolve        func(ctx HookCtx, source, importer string) (id string, external bool, ok bool, err error)
-	Load           func(ctx HookCtx, id string) (code string, ok bool, err error)
-	Transform      func(ctx HookCtx, code, id string) (codeOut string, mapJSON string, err error)
 	GenerateBundle func(ctx HookCtx, files []File) ([]File, error)
+	Load           func(ctx HookCtx, id string) (code string, ok bool, err error)
+	Resolve        func(ctx HookCtx, source, importer string) (id string, external bool, ok bool, err error)
+	Transform      func(ctx HookCtx, code, id string) (codeOut string, mapOut *sourcemap.Map, err error)
+	Name           string
 }
 
 // RunResolve calls Resolve on each plugin; the first ok result wins.
@@ -50,20 +54,23 @@ func RunLoad(plugins []Plugin, ctx HookCtx, id string) (code string, ok bool, er
 	return "", false, nil
 }
 
-// RunTransform runs Transform on every plugin that defines it, in order.
-func RunTransform(plugins []Plugin, ctx HookCtx, code, id string) (string, string, error) {
-	var mapJSON string
+// RunTransform runs Transform in order and chains each returned map onto the previous one.
+func RunTransform(plugins []Plugin, ctx HookCtx, code, sourceText, id string) (string, *sourcemap.Map, error) {
+	var currentMap *sourcemap.Map
 	for _, p := range plugins {
 		if p.Transform == nil {
 			continue
 		}
-		var err error
-		code, mapJSON, err = p.Transform(ctx, code, id)
+		out, nextMap, err := p.Transform(ctx, code, id)
 		if err != nil {
-			return "", "", err
+			return "", nil, err
 		}
+		if !nextMap.IsZero() {
+			currentMap = sourcemap.Compose(currentMap, nextMap, sourceText)
+		}
+		code = out
 	}
-	return code, mapJSON, nil
+	return code, currentMap, nil
 }
 
 // RunGenerateBundle runs GenerateBundle on every plugin that defines it, in order.

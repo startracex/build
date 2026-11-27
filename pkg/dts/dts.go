@@ -3,12 +3,12 @@ package dts
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
 
 	"github.com/startracex/build/pkg/compileropts"
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/resolve"
 	"github.com/startracex/tsgo/pkg/ast"
@@ -19,6 +19,7 @@ import (
 	"github.com/startracex/tsgo/pkg/locale"
 	"github.com/startracex/tsgo/pkg/tsoptions"
 	"github.com/startracex/tsgo/pkg/tspath"
+	"github.com/startracex/tsgo/pkg/vfs"
 	"github.com/startracex/tsgo/pkg/vfs/osvfs"
 )
 
@@ -30,28 +31,24 @@ type Emit struct {
 
 // Options configures program-level declaration emit.
 type Options struct {
-	Target           core.ScriptTarget
-	Jsx              core.JsxEmit
-	DeclarationMap   bool
-	CustomConditions []string
-	// CompilerOptions carries the tsconfig options that change the declaration
-	// output and the type checking behind it: the strict family, "lib",
-	// "types", "paths", "moduleResolution", the decorator and JSX
-	// settings. The declaration-only switches are always set by this package.
+	// CompilerOptions carries the tsconfig options affecting declaration output and type checking: target, JSX, strict family, "lib", "types", "paths", "moduleResolution", decorator settings, and declaration maps; declaration-only switches are always set by this package.
 	CompilerOptions *core.CompilerOptions
-	// BaseURL stands in for the removed tsconfig "baseUrl" option. TypeScript
-	// 5 resolved bare specifiers against it, so a tsconfig that still uses it
-	// keeps working.
+	// BaseURL stands in for the removed tsconfig "baseUrl" option so bare specifiers still resolve against the project root as in TypeScript 5.
 	BaseURL resolve.BaseURLFallback
+	// FS reads the program sources. Nil uses the OS file system.
+	FS vfs.FS
+	// CWD resolves relative paths; empty falls back to the process working directory.
+	CWD string
+	// RootDir is the source root for declaration paths; empty falls back to the common directory of absPaths.
+	RootDir          string
+	CustomConditions []string
 }
 
-// declarationCompilerOptions builds the compiler options for the declaration
-// program. The tsconfig options that change type checking and inference are
-// honoured; the declaration-only switches are always set here.
-func declarationCompilerOptions(opts Options, declMap core.Tristate) *core.CompilerOptions {
+// declarationCompilerOptions honours tsconfig type-checking and inference options and always sets the declaration-only switches.
+func declarationCompilerOptions(opts Options) *core.CompilerOptions {
 	compilerOpts := &core.CompilerOptions{
 		Declaration:          core.TSTrue,
-		DeclarationMap:       declMap,
+		DeclarationMap:       core.TSFalse,
 		EmitDeclarationOnly:  core.TSTrue,
 		IsolatedDeclarations: core.TSFalse,
 		NoCheck:              core.TSFalse,
@@ -60,8 +57,6 @@ func declarationCompilerOptions(opts Options, declMap core.Tristate) *core.Compi
 		ResolveJsonModule:    core.TSTrue,
 		Module:               core.ModuleKindESNext,
 		ModuleResolution:     core.ModuleResolutionKindBundler,
-		Target:               opts.Target,
-		Jsx:                  opts.Jsx,
 		CustomConditions:     opts.CustomConditions,
 		NoEmit:               core.TSFalse,
 		NoEmitOnError:        core.TSFalse,
@@ -72,19 +67,23 @@ func declarationCompilerOptions(opts Options, declMap core.Tristate) *core.Compi
 	if src == nil {
 		return compilerOpts
 	}
-	// Declaration emit reads the shared syntax switches but not the
-	// JavaScript-only ones: comments and line endings are not rewritten in a
-	// .d.ts, and no helper is ever emitted.
+	compilerOpts.Target = src.Target
+	compilerOpts.Jsx = src.Jsx
+	compilerOpts.DeclarationMap = src.DeclarationMap
+	// Declaration emit reads shared syntax switches but not JavaScript-only ones: comments and line endings are not rewritten, and no helper is emitted.
 	compileropts.SyntaxFrom(src).Apply(compilerOpts)
 	compileropts.TypesFrom(src).Apply(compilerOpts)
 	compileropts.ResolutionFrom(src, opts.BaseURL).Apply(compilerOpts)
 	return compilerOpts
 }
 
-// EmitProgram runs a tsgo declaration-only program for the given TypeScript paths.
-// Keys in the result map are normalized via Key.
+// EmitProgram runs a tsgo declaration-only program for the given paths; result keys are normalized via Key.
 func EmitProgram(ctx context.Context, absPaths []string, opts Options) (map[string]Emit, error) {
-	fs := bundled.WrapFS(osvfs.FS())
+	base := opts.FS
+	if base == nil {
+		base = osvfs.FS()
+	}
+	fs := bundled.WrapFS(base)
 	sort.Strings(absPaths)
 	var roots []tspath.RootedFilePath
 	for _, abs := range absPaths {
@@ -98,14 +97,14 @@ func EmitProgram(ctx context.Context, absPaths []string, opts Options) (map[stri
 		return map[string]Emit{}, nil
 	}
 
-	declMap := core.TSFalse
-	if opts.DeclarationMap {
-		declMap = core.TSTrue
+	compilerOpts := declarationCompilerOptions(opts)
+	sourceRoot := opts.RootDir
+	if sourceRoot == "" {
+		sourceRoot = modpath.DisplayRoot(opts.CWD, absPaths)
 	}
-	compilerOpts := declarationCompilerOptions(opts, declMap)
 	host := compiler.NewCompilerHost(fs, bundled.LibPath(), nil, nil, nil)
 	program, err := compiler.NewProgram(ctx, compiler.ProgramOptions{
-		Config:         tsoptions.NewParsedCommandLine(compilerOpts, roots, nil, tspath.RootedDirectoryPathFromAbsolute(modpath.DisplayRoot(absPaths)), fs.CaseSensitivity()),
+		Config:         tsoptions.NewParsedCommandLine(compilerOpts, roots, nil, tspath.RootedDirectoryPathFromAbsolute(sourceRoot), fs.CaseSensitivity()),
 		Host:           host,
 		SingleThreaded: core.TSTrue,
 	})
@@ -146,9 +145,12 @@ func EmitProgram(ctx context.Context, absPaths []string, opts Options) (map[stri
 
 // Key normalizes a filesystem path for declaration emit maps.
 func Key(path string) string {
-	abs, err := filepath.Abs(filepath.FromSlash(path))
-	if err != nil {
-		abs = path
+	// The compiler reports absolute paths; only a relative one needs the working directory, which a wasm build may lack.
+	abs := filepath.FromSlash(path)
+	if !filepath.IsAbs(abs) {
+		if cleaned, err := filepath.Abs(abs); err == nil {
+			abs = cleaned
+		}
 	}
 	id := modpath.ModuleID(abs)
 	if runtime.GOOS == "windows" {

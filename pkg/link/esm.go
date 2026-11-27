@@ -2,12 +2,12 @@ package link
 
 import (
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"unicode"
 
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/sourcemap"
@@ -16,64 +16,60 @@ import (
 )
 
 type esModule struct {
-	id        string
-	src       string
-	jsMap     string
-	linkedMap string
-	file      *ast.SourceFile
-	locals    map[string]*esLocal
-	imports   map[string]*esImport // local name -> import
-	exports   map[string]*esExp
-	stars     []string // module ids re-exported with export *
-	sideImps  []string
-	needed    []string
-	inst      bool
-	liveExp   map[string]bool
-	liveLoc   map[string]bool
-	// scanning and scanned guard the walk of a local's initializer. A
-	// reference inside that initializer reaches the same local again, and the
-	// outer walk already covers it.
-	scanning      map[string]bool
-	scanned       map[string]bool
-	extFinal      map[extKey]string
-	ctx           *linkContext
-	path          string // os path for resolve importer
-	effectsFree   bool
-	cjsMode       cjsMode
 	cjsSkip       map[*ast.Node]bool
-	cjsWrapAll    bool
+	ctx           *linkContext
+	exports       map[string]*esExp
+	extFinal      map[extKey]string
+	file          *ast.SourceFile
+	imports       map[string]*esImport // local name -> import
+	liveExp       map[string]bool
+	liveLoc       map[string]bool
+	locals        map[string]*esLocal
+	scanned       map[string]bool
+	scanning      map[string]bool
+	cjsMode       cjsMode
+	id            string
+	jsMap         *sourcemap.Map
+	linkedMap     *sourcemap.Map
+	path          string // os path for resolve importer
+	src           string
 	cjsNamedOrder []string
+	needed        []string
+	sideImps      []string
+	stars         []string // module ids re-exported with export *
+	cjsWrapAll    bool
+	effectsFree   bool
+	inst          bool
 }
 
 type extKey struct{ spec, name string }
 
 type esLocal struct {
+	cjsInit *ast.Node
+	// Property-level tree shaking: when escapes is false, only props keys are live on an object-literal initializer.
+	props           map[string]bool
+	stmt            *ast.Node
+	cjsFromExports  string // const x = __cjsExports.x
+	final           string
 	name            string
 	idents          []*ast.Node
-	stmt            *ast.Node
-	final           string
+	cjsFactory      bool // var require_x = __commonJS(...)
+	cjsFromFactory  bool // const __cjsExports = require_x()
+	cjsObjectBundle bool // const __cjsExports = { a, b }
 	defExpr         bool // synthetic const for `export default <expr>`
-	cjsInit         *ast.Node
-	cjsFromExports  string // const x = __cjsExports.x
-	cjsObjectBundle bool   // const __cjsExports = { a, b }
-	cjsFactory      bool   // var require_x = __commonJS(...)
-	cjsFromFactory  bool   // const __cjsExports = require_x()
-	// Property-level tree shaking: when escapes is false, only props keys are live
-	// on an object-literal initializer.
-	props   map[string]bool
-	escapes bool
+	escapes         bool
 }
 
 type esImport struct {
-	local     string
-	spec      string
-	module    string // empty if external
-	external  bool
-	imported  string // export name, "*" for namespace
-	escapes   bool
 	props     map[string]bool
-	namespace bool
 	final     string
+	imported  string // export name, "*" for namespace
+	local     string
+	module    string // empty if external
+	spec      string
+	escapes   bool
+	external  bool
+	namespace bool
 	used      bool
 }
 
@@ -234,7 +230,7 @@ func (m *esModule) declareImport(stmt *ast.Node) error {
 	if !external && resolved != "" && m.ctx.opts.Chunks != nil {
 		if cp := m.ctx.chunkRel(modpath.ModuleID(resolved)); cp != "" && cp != m.ctx.opts.LinkingChunk {
 			external = true
-			chunkExt = "./" + cp
+			chunkExt = m.ctx.chunkSpec(cp)
 		}
 	}
 	if decl.ImportClause == nil {
@@ -393,8 +389,7 @@ type expTarget struct {
 }
 
 func markLive(mods map[string]*esModule, entry *esModule) error {
-	// instantiate walks side-effect imports (import "./x.js") and scans their
-	// impure statements; markLive used to set inst and only scan the entry.
+	// instantiate walks side-effect imports (import "./x.js") and scans their impure statements; the old code only scanned the entry.
 	if err := entry.instantiate(mods); err != nil {
 		return err
 	}
@@ -868,8 +863,7 @@ func (m *esModule) walkFunction(n *ast.Node, sc *scope, fn func(ref)) {
 		eachBindingIdent(p.AsParameterDeclaration().Name(), func(id *ast.Node) { fnScope.define(id.Text()) })
 	}
 	for _, p := range n.Parameters() {
-		// A default value is evaluated in the parameter scope and can read a
-		// module binding, so it keeps that binding alive.
+		// A default value is evaluated in the parameter scope and can read a module binding, so it keeps that binding alive.
 		if init := p.AsParameterDeclaration().Initializer; init != nil {
 			m.walk(init, p, fnScope, fn)
 		}
@@ -1260,14 +1254,7 @@ func importLive(m *esModule, imp *esImport) bool {
 	if imp.namespace {
 		return false
 	}
-	// A named/default import is live when its local name was referenced from
-	// live code. markImport records that by marking the dependency export.
-	// External imports have no dependency module, so treat props/escapes and
-	// any live local that is this import as used. References set escapes or
-	// are discovered by scanning; we mark external imports live if the scan
-	// saw them. The scan sets a flag via props for namespaces. For named
-	// imports, applyRef calls markImport which for external returns nil
-	// without recording. Record usage on the import during applyRef instead.
+	// A named/default import is live when its local name was referenced from live code, normally recorded by markImport on the dependency export. External imports have no dependency module and markImport records nothing for them, so usage is recorded directly on the import; external namespaces are live via props/escapes.
 	return imp.used
 }
 
@@ -1311,12 +1298,15 @@ func (m *esModule) markImport(mods map[string]*esModule, imp *esImport, prop str
 	return markExportProps(mods, dep, imported, imp.props, escapes, map[string]bool{})
 }
 
-func renderLinked(mods map[string]*esModule, order []string, entry *esModule, format string, helper string) string {
+func renderLinked(mods map[string]*esModule, order []string, entry *esModule, format string, helper string, cwd, rootDir string) string {
 	var paths []string
 	for _, id := range order {
 		paths = append(paths, filepath.FromSlash(id))
 	}
-	root := modpath.DisplayRoot(paths)
+	root := rootDir
+	if root == "" {
+		root = modpath.DisplayRoot(cwd, paths)
+	}
 	sorted := topoModules(mods, entry)
 
 	var b strings.Builder
@@ -1348,8 +1338,7 @@ func renderLinked(mods map[string]*esModule, order []string, entry *esModule, fo
 			continue
 		}
 		if n := len(sections); n > 0 && needsStatementEnd(sections[n-1].body, body) {
-			// A module kept verbatim can end a statement without a semicolon,
-			// and the next body may start with a token that continues it.
+			// A verbatim module can end without a semicolon, and the next body may start with a token that continues it.
 			sections[n-1].body += ";"
 		}
 		sections = append(sections, section{display: modpath.DisplayRel(root, m.osPath()), body: body})
@@ -1486,9 +1475,7 @@ func topoModules(mods map[string]*esModule, entry *esModule) []*esModule {
 	return out
 }
 
-// needsStatementEnd reports whether prev must end with a semicolon so that
-// next, which starts with a token that can continue an expression, stays a
-// separate statement.
+// needsStatementEnd reports whether prev needs a semicolon so next, starting with an expression-continuing token, stays separate.
 func needsStatementEnd(prev, next string) bool {
 	trimmed := strings.TrimRight(prev, " \t\r\n")
 	if trimmed == "" || strings.HasSuffix(trimmed, ";") {
@@ -1648,8 +1635,7 @@ func (m *esModule) renderBody(mods map[string]*esModule, helper string) string {
 	for _, imp := range m.namespaceObjects(mods) {
 		chunks = append(chunks, imp)
 	}
-	// Static CommonJS bindings copy expressions out of the module body, so they
-	// follow it: a const or let they read is not hoisted.
+	// Static CommonJS bindings follow the module body, since a const or let they read is not hoisted.
 	if m.cjsMode != cjsStatic {
 		chunks = append(chunks, m.renderCJSBindings(mods, helper)...)
 	}
@@ -1659,14 +1645,14 @@ func (m *esModule) renderBody(mods map[string]*esModule, helper string) string {
 			edits = append(edits, m.statementEdits(mods, stmt)...)
 		}
 		if text, err := jsedit.ApplyEdits(m.src, edits); err == nil {
-			if m.jsMap != "" && len(edits) > 0 {
+			if !m.jsMap.IsZero() && len(edits) > 0 {
 				m.linkedMap = sourcemap.RemapEdits(m.jsMap, m.src, edits)
-			} else if m.jsMap != "" {
+			} else if !m.jsMap.IsZero() {
 				m.linkedMap = m.jsMap
 			}
 			if trimmed := strings.TrimSpace(text); trimmed != "" {
 				// Account for leading trim when remapping was based on full edited text.
-				if m.linkedMap != "" {
+				if !m.linkedMap.IsZero() {
 					if lead := strings.Index(text, trimmed); lead > 0 {
 						leadLines := strings.Count(text[:lead], "\n")
 						if leadLines > 0 {
@@ -1678,7 +1664,7 @@ func (m *esModule) renderBody(mods map[string]*esModule, helper string) string {
 				chunks = append(chunks, trimmed)
 			}
 		}
-	} else if m.jsMap != "" {
+	} else if !m.jsMap.IsZero() {
 		m.linkedMap = m.jsMap
 	}
 	if m.cjsMode == cjsStatic {
@@ -1770,8 +1756,7 @@ func (m *esModule) statementEdits(mods map[string]*esModule, stmt *ast.Node) []j
 			}
 			edits = append(edits, jsedit.Edit{Start: jsedit.TokenStart(m.src, r.node), End: r.node.End(), Text: text})
 		case refLocalProp, refImportProp:
-			// x.prop keeps only the object reference here; the property is
-			// handled by the tree shaker.
+			// x.prop keeps only the object reference here; the tree shaker handles the property.
 			final, ok := m.outputName(r.name)
 			if !ok || final == r.name {
 				return
@@ -1817,9 +1802,7 @@ func (m *esModule) statementEdits(mods map[string]*esModule, stmt *ast.Node) []j
 	return edits
 }
 
-// keptLocal reports whether the statement declaring loc stays in the output
-// even though nothing references the local. A declaration whose initializer has
-// a side effect is kept, so its name still has to be unique across the bundle.
+// keptLocal reports whether loc's declaration stays despite no references; a side-effect initializer is kept, so its name must stay bundle-unique.
 func (m *esModule) keptLocal(loc *esLocal) bool {
 	if loc == nil || loc.stmt == nil {
 		return false

@@ -1,16 +1,6 @@
 package bundler
 
-import "github.com/startracex/build/pkg/output"
-
-// DeriveOutFile picks an extension for dual-format outfile emission.
-func DeriveOutFile(base string, format Format) string {
-	return output.DeriveOutFile(base, string(format))
-}
-
-// DeriveOutDir nests format under a shared outdir for multi-format lib builds.
-func DeriveOutDir(base string, format Format) string {
-	return output.DeriveOutDir(base, string(format))
-}
+import "github.com/startracex/tsgo/pkg/core"
 
 // OutputOptions configures one emit target, like a Rollup output entry.
 type OutputOptions struct {
@@ -22,70 +12,71 @@ type OutputOptions struct {
 	NameTemplate string
 	// EntryFileNames is a filename pattern joined with OutDir.
 	EntryFileNames string
+	// ChunkFileNames is a filename pattern for split chunks.
+	ChunkFileNames string
+	// AssetFileNames is a filename pattern for emitted assets and CSS.
+	AssetFileNames string
+	// SourceMap writes .map files. Nil inherits CompilerOptions.SourceMap.
+	SourceMap *bool
+	// Declaration writes .d.ts files in library mode only. Nil inherits CompilerOptions.
+	Declaration *bool
+	// DeclarationMap writes .d.ts.map files when Declaration is on. Nil inherits CompilerOptions.DeclarationMap.
+	DeclarationMap *bool
+	// Manifest writes a JSON map of source assets to emitted paths.
+	Manifest bool
+	// PublicPath prefixes emitted asset URLs for ?url and file imports.
+	PublicPath string
+	// ManualChunks maps a module path substring to a chunk name under chunks/; app mode only.
+	ManualChunks map[string]string
+	// DepsDir moves bundled packages under this directory in library mode; empty keeps node_modules.
+	DepsDir string
 }
 
-// RenderEntryFileName expands [name], [path], [format], [hash], and [hash:N].
-func RenderEntryFileName(pattern, name, path string, format Format, hash string) string {
-	return output.RenderEntryFileName(pattern, name, path, string(format), hash)
+func (o OutputOptions) declaration(compilerOpts *core.CompilerOptions) bool {
+	if o.Declaration != nil {
+		return *o.Declaration
+	}
+	return compilerOpts != nil && (compilerOpts.Declaration == core.TSTrue || compilerOpts.Composite == core.TSTrue)
 }
 
-// ContentHash returns the digest used by [hash] placeholders.
-func ContentHash(data string) string {
-	return output.ContentHash(data)
+func (o OutputOptions) declarationMap(compilerOpts *core.CompilerOptions) bool {
+	if !o.declaration(compilerOpts) {
+		return false
+	}
+	if o.DeclarationMap != nil {
+		return *o.DeclarationMap
+	}
+	return compilerOpts != nil && compilerOpts.DeclarationMap == core.TSTrue
 }
 
-// HasHashPlaceholder reports whether pattern contains [hash] or [hash:N].
-func HasHashPlaceholder(pattern string) bool {
-	return output.HasHashPlaceholder(pattern)
+func (o OutputOptions) sourceMap(compilerOpts *core.CompilerOptions) bool {
+	if o.SourceMap != nil {
+		return *o.SourceMap
+	}
+	return compilerOpts != nil && compilerOpts.SourceMap == core.TSTrue
+}
+
+// anySourceMap reports whether the graph must be transpiled with maps for at least one output.
+func anySourceMap(outputs []OutputOptions, compilerOpts *core.CompilerOptions) bool {
+	for _, out := range outputs {
+		if out.sourceMap(compilerOpts) {
+			return true
+		}
+	}
+	return false
 }
 
 func (o Options) normalizedOutputs() ([]OutputOptions, error) {
-	if len(o.Outputs) > 0 {
-		var outs []OutputOptions
-		for _, out := range o.Outputs {
-			format, err := normalizeFormat(out.Format)
-			if err != nil {
-				return nil, err
-			}
-			out.Format = format
-			if out.OutFile == "" && out.OutDir == "" {
-				out.OutFile = o.OutFile
-				out.OutDir = o.OutDir
-			}
-			if out.Name == "" {
-				out.Name = o.GlobalName
-			}
-			if out.NameTemplate == "" {
-				out.NameTemplate = o.NameTemplate
-			}
-			if out.EntryFileNames == "" {
-				out.EntryFileNames = o.EntryFileNames
-			}
-			outs = append(outs, out)
+	outs := append([]OutputOptions(nil), o.Outputs...)
+	if len(outs) == 0 {
+		outs = []OutputOptions{{}}
+	}
+	for i := range outs {
+		format, err := normalizeFormat(outs[i].Format)
+		if err != nil {
+			return nil, err
 		}
-		return outs, nil
+		outs[i].Format = format
 	}
-	format, err := normalizeFormat(o.Format)
-	if err != nil {
-		return nil, err
-	}
-	return []OutputOptions{{
-		Format:         format,
-		OutFile:        o.OutFile,
-		OutDir:         o.OutDir,
-		Name:           o.GlobalName,
-		NameTemplate:   o.NameTemplate,
-		EntryFileNames: o.EntryFileNames,
-	}}, nil
-}
-
-func withOutput(opts Options, out OutputOptions) Options {
-	opts.Format = out.Format
-	opts.OutFile = out.OutFile
-	opts.OutDir = out.OutDir
-	opts.GlobalName = out.Name
-	opts.NameTemplate = out.NameTemplate
-	opts.EntryFileNames = out.EntryFileNames
-	opts.Outputs = nil
-	return opts
+	return outs, nil
 }

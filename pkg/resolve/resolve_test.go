@@ -7,41 +7,39 @@ import (
 	"github.com/startracex/tsgo/pkg/core"
 )
 
-func TestResolutionCompilerOptionsPlatform(t *testing.T) {
+// TestResolutionCompilerOptionsUsesConditionsAsGiven checks the resolver keeps tsconfig moduleResolution and adds no platform condition.
+func TestResolutionCompilerOptionsUsesConditionsAsGiven(t *testing.T) {
 	src := &core.CompilerOptions{ModuleResolution: core.ModuleResolutionKindNodeNext}
 
-	node := resolutionCompilerOptions(nil, PlatformNode, src, BaseURLFallback{})
-	if node.ModuleResolution != core.ModuleResolutionKindNodeNext {
-		t.Fatalf("node platform moduleResolution = %v", node.ModuleResolution)
+	opts := resolutionCompilerOptions([]string{"browser"}, src, BaseURLFallback{})
+	if opts.ModuleResolution != core.ModuleResolutionKindNodeNext {
+		t.Fatalf("moduleResolution = %v, want the tsconfig value", opts.ModuleResolution)
 	}
-	if slices.Contains(node.CustomConditions, "browser") {
-		t.Fatalf("node platform should not add the browser condition: %v", node.CustomConditions)
+	if !slices.Contains(opts.CustomConditions, "module") {
+		t.Fatalf("module condition missing: %v", opts.CustomConditions)
 	}
-
-	neutral := resolutionCompilerOptions(nil, PlatformNeutral, src, BaseURLFallback{})
-	if neutral.ModuleResolution != core.ModuleResolutionKindNodeNext {
-		t.Fatalf("neutral platform moduleResolution = %v", neutral.ModuleResolution)
+	if !slices.Contains(opts.CustomConditions, "browser") {
+		t.Fatalf("caller condition missing: %v", opts.CustomConditions)
 	}
-
-	browser := resolutionCompilerOptions(nil, PlatformBrowser, src, BaseURLFallback{})
-	if browser.ModuleResolution != core.ModuleResolutionKindBundler {
-		t.Fatalf("browser platform should use bundler resolution, got %v", browser.ModuleResolution)
-	}
-	if !slices.Contains(browser.CustomConditions, "browser") {
-		t.Fatalf("browser platform should add the browser condition: %v", browser.CustomConditions)
-	}
-	if !slices.Contains(browser.CustomConditions, "module") {
-		t.Fatalf("browser platform dropped the module condition: %v", browser.CustomConditions)
-	}
-
-	// A platform switch only touches resolution kind and conditions.
-	if browser.NoDtsResolution != core.TSTrue {
+	if opts.NoDtsResolution != core.TSTrue {
 		t.Fatalf("declaration resolution should stay off for the JavaScript graph")
 	}
 }
 
-func TestResolutionCompilerOptionsDuplicatesBrowserCondition(t *testing.T) {
-	opts := resolutionCompilerOptions([]string{"browser"}, PlatformBrowser, nil, BaseURLFallback{})
+// TestResolutionCompilerOptionsNoImplicitBrowser checks no condition is added when the caller supplies none.
+func TestResolutionCompilerOptionsNoImplicitBrowser(t *testing.T) {
+	opts := resolutionCompilerOptions(nil, nil, BaseURLFallback{})
+	if slices.Contains(opts.CustomConditions, "browser") {
+		t.Fatalf("browser condition added without being asked: %v", opts.CustomConditions)
+	}
+	if opts.ModuleResolution != core.ModuleResolutionKindBundler {
+		t.Fatalf("default moduleResolution = %v, want bundler", opts.ModuleResolution)
+	}
+}
+
+// TestResolutionCompilerOptionsDeduplicatesConditions checks repeated conditions collapse to one entry.
+func TestResolutionCompilerOptionsDeduplicatesConditions(t *testing.T) {
+	opts := resolutionCompilerOptions([]string{"browser", "browser"}, nil, BaseURLFallback{})
 	count := 0
 	for _, condition := range opts.CustomConditions {
 		if condition == "browser" {
@@ -53,24 +51,20 @@ func TestResolutionCompilerOptionsDuplicatesBrowserCondition(t *testing.T) {
 	}
 }
 
-func TestParsePlatform(t *testing.T) {
-	cases := map[string]Platform{
-		"":         PlatformAuto,
-		"browser":  PlatformBrowser,
-		"node":     PlatformNode,
-		"neutral":  PlatformNeutral,
-		" browser": PlatformBrowser,
+func TestNewStoresConfig(t *testing.T) {
+	dir := t.TempDir()
+	res, err := New(Config{
+		EntryDir:   dir,
+		Conditions: []string{"browser"},
+		CWD:        dir,
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	for name, want := range cases {
-		got, err := ParsePlatform(name)
-		if err != nil {
-			t.Fatalf("ParsePlatform(%q): %v", name, err)
-		}
-		if got != want {
-			t.Fatalf("ParsePlatform(%q) = %q, want %q", name, got, want)
-		}
+	if res.cfg.EntryDir != dir {
+		t.Fatalf("EntryDir = %q, want %q", res.cfg.EntryDir, dir)
 	}
-	if _, err := ParsePlatform("deno"); err == nil {
-		t.Fatalf("unknown platform should be rejected")
+	if len(res.cfg.Conditions) != 1 || res.cfg.Conditions[0] != "browser" {
+		t.Fatalf("Conditions = %v", res.cfg.Conditions)
 	}
 }

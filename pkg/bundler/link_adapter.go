@@ -1,6 +1,11 @@
 package bundler
 
-import "github.com/startracex/build/pkg/link"
+import (
+	"fmt"
+
+	"github.com/startracex/build/pkg/link"
+	"github.com/startracex/build/pkg/sourcemap"
+)
 
 type linkResolver struct{ b *bundler }
 
@@ -29,10 +34,23 @@ func (b *bundler) linkModules(entryID string, preserve []string) (string, error)
 		Chunks:          linkChunks{b},
 		Resolver:        linkResolver{b},
 		PreserveExports: preserve,
+		CWD:             b.cwd,
+		RootDir:         b.rootDir,
+		FS:              b.fs,
 	})
 	if err != nil {
 		return "", err
 	}
-	b.linkedMaps = res.Maps
+	linkedMaps := make(map[string]*sourcemap.Map, len(res.Maps))
+	for id, mapJSON := range res.Maps {
+		m, err := sourcemap.ParseMap(mapJSON)
+		if err != nil {
+			return "", fmt.Errorf("parse linked source map for %s: %w", id, err)
+		}
+		if !m.IsZero() {
+			linkedMaps[id] = m
+		}
+	}
+	b.linkedMaps = linkedMaps
 	return res.Code, nil
 }

@@ -5,12 +5,10 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
-	"os"
-	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/startracex/build/pkg/asset"
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/tsgo/pkg/collections"
 	"github.com/startracex/tsgo/pkg/core"
@@ -20,8 +18,7 @@ import (
 	"github.com/startracex/tsgo/pkg/vfs/osvfs"
 )
 
-// nodeBuiltins are Node's core modules. They stay external so the bundle can
-// import them instead of trying to find a package of the same name.
+// nodeBuiltins are Node's core modules, kept external so the bundle imports them instead of searching for a same-named package.
 var nodeBuiltins = map[string]struct{}{
 	"assert": {}, "assert/strict": {}, "async_hooks": {}, "buffer": {},
 	"child_process": {}, "cluster": {}, "console": {}, "constants": {},
@@ -37,62 +34,31 @@ var nodeBuiltins = map[string]struct{}{
 	"v8": {}, "vm": {}, "wasi": {}, "worker_threads": {}, "zlib": {},
 }
 
-// Platform selects the runtime the JavaScript output is written for. It only
-// steers the package.json "exports" conditions used for the JavaScript graph;
-// declaration emit keeps the tsconfig settings untouched.
-type Platform string
-
-const (
-	// PlatformAuto leaves the choice to the bundler, which picks Browser for a
-	// single-file ESM output and Neutral otherwise.
-	PlatformAuto Platform = ""
-	// PlatformNeutral resolves packages with the conditions the tsconfig
-	// implies.
-	PlatformNeutral Platform = "neutral"
-	// PlatformBrowser resolves packages for a browser. The "node" condition is
-	// left out, so a package cannot select a server build, and "browser" is
-	// matched when a package offers it.
-	PlatformBrowser Platform = "browser"
-	// PlatformNode resolves packages for Node, keeping the "node" condition
-	// that node16 and nodeNext resolution add.
-	PlatformNode Platform = "node"
-)
-
-// ParsePlatform validates a platform name as written on the command line.
-func ParsePlatform(name string) (Platform, error) {
-	switch Platform(strings.TrimSpace(name)) {
-	case PlatformAuto:
-		return PlatformAuto, nil
-	case PlatformNeutral, PlatformBrowser, PlatformNode:
-		return Platform(strings.TrimSpace(name)), nil
-	default:
-		return PlatformAuto, fmt.Errorf("unknown platform %q (want browser, node, or neutral)", name)
-	}
-}
-
 // Config holds resolver options supplied by the bundler.
 type Config struct {
-	Alias    map[string]string
-	External []string
-	Format   string // "esm", "cjs", ...
-	LibBuild bool   // library mode: bare package imports are external
-	// Platform is the runtime the JavaScript output targets. Empty behaves like
-	// PlatformNeutral.
-	Platform Platform
-	// CompilerOptions carries the tsconfig options that change how module
-	// specifiers are resolved: "moduleResolution" and "paths".
+	Alias map[string]string
+	// CompilerOptions carries the tsconfig options affecting resolution: "moduleResolution" and "paths".
 	CompilerOptions *core.CompilerOptions
-	// BaseURL stands in for the removed tsconfig "baseUrl" option. TypeScript
-	// 5 resolved bare specifiers against it, so a tsconfig that still uses it
-	// keeps working. It is kept apart from the mappings the user wrote so
-	// library mode still treats bare package imports as external.
-	BaseURL     BaseURLFallback
-	ResolveHook func(importer, spec string) (path string, external bool, ok bool, err error)
-	OnAsset     func(abs string, q asset.Query) error
+	OnAsset         func(abs string, q asset.Query) error
+	ResolveHook     func(importer, spec string) (path string, external bool, ok bool, err error)
+	// FS reads the files the resolver probes. Nil uses the OS file system.
+	FS vfs.FS
+	// Mode is the resolution mode tsgo uses for the import graph.
+	Mode core.ResolutionMode
+	// BaseURL stands in for the removed tsconfig "baseUrl" so bare specifiers still resolve as in TypeScript 5; it is kept apart from user mappings so library mode treats bare package imports as external.
+	BaseURL BaseURLFallback
+	// CWD resolves relative paths; empty falls back to the process working directory.
+	CWD string
+	// EntryDir is the directory of the entry file. Resolution starts here.
+	EntryDir string
+	Format   string // "esm", "cjs", ...
+	// Conditions are extra package.json "exports" conditions, used as given with no platform-specific condition added.
+	Conditions []string
+	External   []string
+	LibBuild   bool // library mode: bare package imports are external
 }
 
-// BaseURLFallback describes the project root that stands in for the removed
-// tsconfig "baseUrl" option.
+// BaseURLFallback describes the project root standing in for the removed tsconfig "baseUrl" option.
 type BaseURLFallback struct {
 	// Directory is the project root bare specifiers fall back to.
 	Directory tspath.RootedDirectoryPath
@@ -107,11 +73,12 @@ func (f BaseURLFallback) IsZero() bool {
 
 // Resolver resolves import specifiers using tsgo's bundler resolver.
 type Resolver struct {
-	res       *tsmodule.DefaultResolver
 	fs        *realpathFS
+	res       *tsmodule.DefaultResolver
 	mode      core.ResolutionMode
-	cfg       Config
 	externals map[string]struct{}
+	cwd       string
+	cfg       Config
 }
 
 type resolutionHost struct {
@@ -123,34 +90,35 @@ func (h resolutionHost) FS() vfs.FS { return h.fs }
 
 func (h resolutionHost) GetCurrentDirectory() tspath.RootedDirectoryPath { return h.dir }
 
-// New constructs a Resolver rooted at entryDir.
-func New(entryDir string, conditions []string, mode core.ResolutionMode, cfg Config) (*Resolver, error) {
-	dir, err := filepath.Abs(entryDir)
+// New constructs a Resolver rooted at Config.EntryDir.
+func New(cfg Config) (*Resolver, error) {
+	dir, err := modpath.AbsPath(cfg.CWD, cfg.EntryDir)
 	if err != nil {
 		return nil, err
 	}
 	rooted := tspath.RootedDirectoryPathFromAbsolute(dir)
-	fs := newRealpathFS(osvfs.FS())
+	base := cfg.FS
+	native := base == nil
+	if native {
+		base = osvfs.FS()
+	}
+	fs := newRealpathFS(base, native)
 	res := tsmodule.NewResolver(tsmodule.ResolverOptions{
 		Host:            resolutionHost{fs: fs, dir: rooted},
-		CompilerOptions: resolutionCompilerOptions(conditions, cfg.Platform, cfg.CompilerOptions, cfg.BaseURL),
+		CompilerOptions: resolutionCompilerOptions(cfg.Conditions, cfg.CompilerOptions, cfg.BaseURL),
 	})
 	return &Resolver{
 		res:       res,
 		fs:        fs,
-		mode:      mode,
+		cwd:       filepath.ToSlash(cfg.CWD),
+		mode:      cfg.Mode,
 		cfg:       cfg,
 		externals: map[string]struct{}{},
 	}, nil
 }
 
-// resolutionCompilerOptions builds the compiler options used to resolve module
-// specifiers for the JavaScript graph. The tsconfig options that steer
-// resolution are honoured; everything else keeps the bundler defaults.
-//
-// The platform only decides which "exports" conditions are available. It never
-// reaches declaration emit, which keeps the tsconfig settings as written.
-func resolutionCompilerOptions(conditions []string, platform Platform, src *core.CompilerOptions, baseURL BaseURLFallback) *core.CompilerOptions {
+// resolutionCompilerOptions honours tsconfig options that steer resolution and keeps bundler defaults otherwise; Config.Conditions is used as given, with no platform condition added and no change to the resolution kind.
+func resolutionCompilerOptions(conditions []string, src *core.CompilerOptions, baseURL BaseURLFallback) *core.CompilerOptions {
 	opts := &core.CompilerOptions{
 		Module:                     core.ModuleKindESNext,
 		ModuleResolution:           core.ModuleResolutionKindBundler,
@@ -169,30 +137,10 @@ func resolutionCompilerOptions(conditions []string, platform Platform, src *core
 			opts.ModuleResolution = kind
 		}
 	}
-	if platform == PlatformBrowser {
-		// node16 and nodeNext resolution add the "node" condition, and a package
-		// can point that at a server build: Lit maps it to its SSR shims, which
-		// replace customElements in a browser. Bundler resolution leaves the
-		// condition out, and "browser" is matched where a package offers it.
-		opts.ModuleResolution = core.ModuleResolutionKindBundler
-		opts.CustomConditions = appendCondition(opts.CustomConditions, "browser")
-	}
 	return opts
 }
 
-// appendCondition adds a condition unless it is already there.
-func appendCondition(conditions []string, condition string) []string {
-	if slices.Contains(conditions, condition) {
-		return conditions
-	}
-	return append(conditions, condition)
-}
-
-// WithPathsFallback returns the path mappings with the wildcard fallback
-// mapping added. The fallback stands in for the removed "baseUrl" option: it
-// sends every bare specifier to the project root, the way TypeScript 5 did.
-// Mappings the user wrote keep their own priority, so an explicit alias still
-// wins over the fallback.
+// WithPathsFallback adds a "*" mapping standing in for the removed "baseUrl" option, sending bare specifiers to the project root as TypeScript 5 did; user mappings keep priority so explicit aliases still win.
 func WithPathsFallback(paths *collections.OrderedMap[string, []string], baseURL BaseURLFallback, basePath tspath.RootedDirectoryPath) *collections.OrderedMap[string, []string] {
 	if baseURL.IsZero() {
 		return paths
@@ -210,8 +158,7 @@ func WithPathsFallback(paths *collections.OrderedMap[string, []string], baseURL 
 	return result
 }
 
-// RelativeTo returns the path of target relative to basePath. It falls back
-// to the target itself when the two cannot be related.
+// RelativeTo returns target relative to basePath, falling back to target itself when they cannot be related.
 func RelativeTo(target tspath.RootedFilePath, basePath tspath.RootedDirectoryPath, caseSensitivity tspath.CaseSensitivity) string {
 	if basePath == "" {
 		return target.AsString()
@@ -223,9 +170,7 @@ func RelativeTo(target tspath.RootedFilePath, basePath tspath.RootedDirectoryPat
 	return relative.AsString()
 }
 
-// NormalizeModuleResolution maps a tsconfig "moduleResolution" value to the
-// kind tsgo understands. The removed "classic" and "node10" kinds fall back to
-// "bundler", which is what tsgo does for them as well.
+// NormalizeModuleResolution maps a tsconfig "moduleResolution" value to a tsgo kind; removed "classic" and "node10" kinds fall back to "bundler".
 func NormalizeModuleResolution(kind core.ModuleResolutionKind) core.ModuleResolutionKind {
 	switch kind {
 	case core.ModuleResolutionKindNode16, core.ModuleResolutionKindNodeNext, core.ModuleResolutionKindBundler:
@@ -233,8 +178,7 @@ func NormalizeModuleResolution(kind core.ModuleResolutionKind) core.ModuleResolu
 	case core.ModuleResolutionKindUnknown:
 		return core.ModuleResolutionKindBundler
 	default:
-		// "classic" and "node10" were removed in TypeScript 7. Their enum
-		// values are deprecated, so they are matched by the default branch.
+		// "classic" and "node10" were removed in TS7; their deprecated enum values fall into the default branch.
 		return core.ModuleResolutionKindBundler
 	}
 }
@@ -254,7 +198,7 @@ func (r *Resolver) resolveSpec(importer, spec string, allowModuleField bool) (st
 			if !filepath.IsAbs(joined) {
 				joined = filepath.Join(filepath.Dir(importer), filepath.FromSlash(specPath))
 			}
-			abs, err := modpath.AbsFile(joined)
+			abs, err := modpath.AbsFile(r.fs, r.cwd, joined)
 			if err == nil {
 				id, err := r.assetResolved(abs, iq)
 				if err != nil {
@@ -278,9 +222,10 @@ func (r *Resolver) resolveSpec(importer, spec string, allowModuleField bool) (st
 				r.NoteExternal(name)
 				return "", true, nil
 			}
-			abs, err := modpath.AbsFile(path)
+			abs, err := modpath.AbsFile(r.fs, r.cwd, path)
 			if err != nil {
-				abs, err = filepath.Abs(filepath.Clean(path))
+				// A hook may name a virtual file the injected FS does not report; keep the cleaned path.
+				abs, err = modpath.AbsPath(r.cwd, path)
 				if err != nil {
 					return "", false, fmt.Errorf("resolve %q from %s: %w", spec, importer, err)
 				}
@@ -301,9 +246,7 @@ func (r *Resolver) resolveSpec(importer, spec string, allowModuleField bool) (st
 	}
 	if r.cfg.LibBuild && !r.cfg.BaseURL.IsZero() && !r.matchesPathsAlias(specPath) {
 		if _, _, ok := packageSpecifier(specPath); ok {
-			// Library mode leaves bare package imports external, but the
-			// project root fallback may still point at a local file. Give it
-			// a chance before the specifier is left external.
+			// Library mode leaves bare package imports external, but the project root fallback may point at a local file; give it a chance first.
 			abs, resolved, err := r.resolveWithCompiler(importer, specPath)
 			if err != nil {
 				return "", false, err
@@ -328,7 +271,7 @@ func (r *Resolver) resolveSpec(importer, spec string, allowModuleField bool) (st
 		if !filepath.IsAbs(candidate) {
 			candidate = filepath.Join(filepath.Dir(importer), filepath.FromSlash(specPath))
 		}
-		if abs, err := modpath.AbsFile(candidate); err == nil && (iq.Raw || iq.URL || asset.IsExt(modpath.LowerExt(abs))) {
+		if abs, err := modpath.AbsFile(r.fs, r.cwd, candidate); err == nil && (iq.Raw || iq.URL || asset.IsExt(modpath.LowerExt(abs))) {
 			id, err := r.assetResolved(abs, iq)
 			if err != nil {
 				return "", false, err
@@ -380,10 +323,9 @@ func (r *Resolver) resolveWithCompiler(importer, spec string) (string, bool, err
 	if resolved == nil || !resolved.IsResolved() {
 		return "", false, nil
 	}
-	// Later reads use this path as the module id, so it must not cross a
-	// reparse point the file system refuses to traverse.
+	// Later reads use this path as the module id, so it must not cross a reparse point the file system refuses to traverse.
 	raw := r.fs.realNative(filepath.FromSlash(resolved.ResolvedFileName.AsString()))
-	abs, err := modpath.AbsFile(raw)
+	abs, err := modpath.AbsFile(r.fs, r.cwd, raw)
 	if err != nil {
 		return "", false, fmt.Errorf("cannot resolve %q imported by %s: %w", spec, importer, err)
 	}
@@ -401,7 +343,7 @@ func (r *Resolver) preferModuleField(importer, spec string) (string, bool, error
 	if !ok || sub != "" {
 		return "", false, nil
 	}
-	dir, meta, ok := findPackageMeta(importer, name)
+	dir, meta, ok := findPackageMeta(r.fs, importer, name)
 	if !ok || meta.hasExports() || meta.Module == "" {
 		return "", false, nil
 	}
@@ -433,8 +375,7 @@ func (r *Resolver) IsUserExternal(spec string) bool {
 		return true
 	}
 	if r.cfg.LibBuild {
-		// A tsconfig "paths" alias points at a local file, so it is not a
-		// package import and stays in the bundle.
+		// A tsconfig "paths" alias points at a local file, so it is not a package import and stays in the bundle.
 		if r.matchesPathsAlias(spec) {
 			return false
 		}
@@ -457,8 +398,7 @@ func (r *Resolver) isListedExternal(spec string) bool {
 	return false
 }
 
-// matchesPathsAlias reports whether spec matches one of the tsconfig "paths"
-// patterns. Such a specifier resolves to a local file instead of a package.
+// matchesPathsAlias reports whether spec matches a tsconfig "paths" pattern, resolving to a local file instead of a package.
 func (r *Resolver) matchesPathsAlias(spec string) bool {
 	if r.cfg.CompilerOptions == nil {
 		return false
@@ -475,8 +415,7 @@ func (r *Resolver) matchesPathsAlias(spec string) bool {
 	return false
 }
 
-// matchPathPattern reports whether spec matches a tsconfig "paths" pattern.
-// A pattern holds at most one "*" wildcard.
+// matchPathPattern reports whether spec matches a tsconfig "paths" pattern holding at most one "*" wildcard.
 func matchPathPattern(pattern, spec string) bool {
 	before, after, ok := strings.Cut(pattern, "*")
 	if !ok {
@@ -547,8 +486,7 @@ func isExternalSpecifier(spec string) bool {
 	return ok
 }
 
-// isPackageFile reports whether path points into a package folder, so it
-// belongs to a dependency rather than to the project itself.
+// isPackageFile reports whether path points into a package folder, i.e. a dependency rather than the project itself.
 func isPackageFile(path string) bool {
 	_, ok := modpath.NodeModulesRel(path)
 	return ok
@@ -584,11 +522,11 @@ func (m packageMeta) hasExports() bool {
 	return len(body) > 0 && !bytes.Equal(body, []byte("null")) && !bytes.Equal(body, []byte("false"))
 }
 
-func findPackageMeta(importer, name string) (string, packageMeta, bool) {
+func findPackageMeta(fs vfs.FS, importer, name string) (string, packageMeta, bool) {
 	dir := filepath.Dir(importer)
 	for {
 		pkgJSON := filepath.Join(dir, "node_modules", filepath.FromSlash(name), "package.json")
-		raw, err := os.ReadFile(pkgJSON)
+		raw, err := modpath.ReadFile(fs, pkgJSON)
 		if err == nil {
 			var meta packageMeta
 			if json.Unmarshal(raw, &meta) != nil {

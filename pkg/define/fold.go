@@ -5,10 +5,7 @@ import (
 	"github.com/startracex/tsgo/pkg/ast"
 )
 
-// fold collects the edits of one constant-folding pass. A pass folds every
-// branch and logical short circuit it can see; the caller repeats until no
-// edit remains, which handles branches that only become constant after the
-// branch around them is folded.
+// fold collects one constant-folding pass; the caller repeats until no edit remains to catch branches that become constant only after an outer fold.
 func fold(src string) []jsedit.Edit {
 	file := jsedit.ParseEmittedJS(src)
 	if file.Statements == nil {
@@ -66,9 +63,7 @@ func (f *folder) visitIf(n *ast.Node) {
 	f.removeStatement(n)
 }
 
-// keepBranch drops a constant if statement and keeps the branch its condition
-// selects. Only the header is replaced, so the statements that stay keep their
-// exact offsets and their source map entries.
+// keepBranch keeps the selected branch; only the header is replaced so surviving statements keep their offsets and source map entries.
 func (f *folder) keepBranch(n, keep, dead *ast.Node) {
 	if isEmptyStatement(keep) {
 		f.removeStatement(n)
@@ -89,9 +84,7 @@ func (f *folder) keepBranch(n, keep, dead *ast.Node) {
 	}
 	statements := block.Statements.Nodes
 	if len(statements) == 1 {
-		// Unwrap a single statement so the output does not grow a bare block.
-		// The statement is folded on the next pass: an edit inside it would
-		// overlap the header range.
+		// Unwrap a single statement to avoid a bare block; fold it next pass since an inner edit would overlap the header range.
 		first := statements[0]
 		end := block.End()
 		if dead != nil {
@@ -101,8 +94,7 @@ func (f *folder) keepBranch(n, keep, dead *ast.Node) {
 		f.dropRange(first.End(), end)
 		return
 	}
-	// Keep the block as a plain block statement: braces preserve the inner
-	// indentation, and the scope the branch introduced is unchanged.
+	// Keep multi-statement branches as a plain block: braces preserve indentation and the branch's scope.
 	f.dropBefore(n, keep)
 	if dead != nil {
 		f.dropAfter(keep, n)
@@ -112,13 +104,11 @@ func (f *folder) keepBranch(n, keep, dead *ast.Node) {
 	}
 }
 
-// dropBefore removes the text that leads up to keep, which is the header of a
-// folded branch.
+// dropBefore removes the header text leading up to keep.
 func (f *folder) dropBefore(n, keep *ast.Node) {
 	f.dropRange(jsedit.TokenStart(f.src, n), jsedit.TokenStart(f.src, keep))
 }
 
-// dropAfter removes the dead branch that follows keep.
 func (f *folder) dropAfter(keep, n *ast.Node) {
 	f.dropRange(keep.End(), n.End())
 }
@@ -130,8 +120,7 @@ func (f *folder) dropRange(start, end int) {
 	f.edits = append(f.edits, jsedit.Edit{Start: start, End: end, Text: ""})
 }
 
-// visitLogical folds `false && x` and `true || x` to the constant and
-// `true && x` and `false || x` to the right operand.
+// visitLogical folds `false && x`/`true || x` to the constant and `true && x`/`false || x` to the right operand.
 func (f *folder) visitLogical(n *ast.Node) bool {
 	bin := n.AsBinaryExpression()
 	if bin.OperatorToken == nil || bin.Left == nil || bin.Right == nil {
@@ -174,8 +163,7 @@ func (f *folder) visitLogical(n *ast.Node) bool {
 		})
 		return true
 	}
-	// Drop the left operand and the operator, keeping the right operand's
-	// offsets so its source map entries survive.
+	// Drop the left operand and operator but keep the right operand's offsets so its source map entries survive.
 	f.edits = append(f.edits, jsedit.Edit{
 		Start: jsedit.TokenStart(f.src, n),
 		End:   jsedit.TokenStart(f.src, bin.Right),
@@ -224,8 +212,7 @@ func expressionStatement(n *ast.Node) *ast.Node {
 	return nil
 }
 
-// operandNeedsParens reports whether n changes meaning when it becomes the
-// operand of the operator around it.
+// operandNeedsParens reports whether n changes meaning as the operand of the surrounding operator.
 func operandNeedsParens(n *ast.Node) bool {
 	switch n.Kind {
 	case ast.KindBinaryExpression, ast.KindConditionalExpression,

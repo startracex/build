@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/startracex/build/pkg/bundler"
+	"github.com/startracex/build/pkg/output"
 )
 
 func TestPlanOutputsRightAlignFormats(t *testing.T) {
@@ -13,9 +14,8 @@ func TestPlanOutputsRightAlignFormats(t *testing.T) {
 		outputDir,
 		[]string{"a", "b", "c"},
 		[]bundler.Format{bundler.FormatCJS, bundler.FormatESM},
-		bundler.FormatESM,
+		bundler.OutputOptions{Format: bundler.FormatESM, Name: "App"},
 		"",
-		"App",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -38,9 +38,8 @@ func TestPlanOutputsRightAlignPaths(t *testing.T) {
 		outputDir,
 		[]string{"a", "b"},
 		[]bundler.Format{bundler.FormatESM, bundler.FormatCJS, bundler.FormatIIFE},
-		bundler.FormatESM,
+		bundler.OutputOptions{Format: bundler.FormatESM, Name: "App"},
 		"base",
-		"App",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -64,16 +63,15 @@ func TestPlanOutputsSinglePathDerivesEachFormat(t *testing.T) {
 		outputFile,
 		[]string{base},
 		[]bundler.Format{bundler.FormatESM, bundler.FormatCJS},
-		bundler.FormatESM,
-		"",
+		bundler.OutputOptions{Format: bundler.FormatESM},
 		"",
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []bundler.OutputOptions{
-		{Format: bundler.FormatESM, OutFile: bundler.DeriveOutFile(base, bundler.FormatESM)},
-		{Format: bundler.FormatCJS, OutFile: bundler.DeriveOutFile(base, bundler.FormatCJS)},
+		{Format: bundler.FormatESM, OutFile: output.DeriveOutFile(base, string(bundler.FormatESM))},
+		{Format: bundler.FormatCJS, OutFile: output.DeriveOutFile(base, string(bundler.FormatCJS))},
 	}
 	if !reflect.DeepEqual(plan.Outputs, want) {
 		t.Fatalf("outputs = %#v, want %#v", plan.Outputs, want)
@@ -89,8 +87,7 @@ func TestPlanOutputsKeepsExplicitPaths(t *testing.T) {
 		outputFile,
 		paths,
 		[]bundler.Format{bundler.FormatESM, bundler.FormatCJS},
-		bundler.FormatESM,
-		"",
+		bundler.OutputOptions{Format: bundler.FormatESM},
 		"",
 	)
 	if err != nil {
@@ -119,30 +116,30 @@ func TestTemplateOfHashPlaceholder(t *testing.T) {
 
 func TestPlanOutputsTemplate(t *testing.T) {
 	pattern := filepath.Join("dist", "[name].cjs")
-	plan, err := planOutputs(outputFile, []string{pattern}, []bundler.Format{bundler.FormatCJS}, bundler.FormatCJS, "", "")
+	plan, err := planOutputs(outputFile, []string{pattern}, []bundler.Format{bundler.FormatCJS}, bundler.OutputOptions{Format: bundler.FormatCJS}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Template != pattern {
-		t.Fatalf("template = %q, want %q", plan.Template, pattern)
+	if len(plan.Outputs) != 1 || plan.Outputs[0].NameTemplate != pattern {
+		t.Fatalf("outputs = %#v, want template %q", plan.Outputs, pattern)
 	}
 	var opts bundler.Options
 	applyOutputPlan(&opts, plan)
-	if opts.NameTemplate != pattern {
-		t.Fatalf("NameTemplate = %q, want %q", opts.NameTemplate, pattern)
+	if len(opts.Outputs) != 1 || opts.Outputs[0].NameTemplate != pattern {
+		t.Fatalf("Outputs = %#v, want template %q", opts.Outputs, pattern)
 	}
 }
 
 func TestPlanOutputsScalarAndDerivedFromBase(t *testing.T) {
-	scalar, err := planOutputs(outputDir, []string{"dist"}, []bundler.Format{bundler.FormatESM}, bundler.FormatESM, "tsout", "")
+	scalar, err := planOutputs(outputDir, []string{"dist"}, []bundler.Format{bundler.FormatESM}, bundler.OutputOptions{Format: bundler.FormatESM}, "tsout")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(scalar.Outputs) != 0 || scalar.Base != "dist" || scalar.Format != bundler.FormatESM {
+	if len(scalar.Outputs) != 1 || scalar.Outputs[0].Format != bundler.FormatESM || scalar.Outputs[0].OutDir != "dist" || scalar.Base != "dist" {
 		t.Fatalf("scalar plan = %#v", scalar)
 	}
 
-	derived, err := planOutputs(outputDir, nil, []bundler.Format{bundler.FormatESM, bundler.FormatCJS}, bundler.FormatESM, "dist", "")
+	derived, err := planOutputs(outputDir, nil, []bundler.Format{bundler.FormatESM, bundler.FormatCJS}, bundler.OutputOptions{Format: bundler.FormatESM}, "dist")
 	if err != nil {
 		t.Fatal(err)
 	}

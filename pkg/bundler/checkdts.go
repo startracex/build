@@ -1,20 +1,21 @@
 package bundler
 
 import (
-	"path/filepath"
+	"fmt"
 	"strings"
 
 	"github.com/startracex/build/pkg/dts"
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/resolve"
+	"github.com/startracex/build/pkg/sourcemap"
+	"github.com/startracex/tsgo/pkg/core"
 )
 
-// attachDeclarations fills library units from a tsgo program emit so inferred
-// types come from the checker. A file the program does not emit falls back to
-// single-file declaration transpile.
+// attachDeclarations fills library units from the checker's program emit, falling back to single-file transpile.
 func (b *bundler) attachDeclarations() error {
-	if !b.decl {
+	if !b.output.declaration(b.compilerOpts) {
 		return nil
 	}
 	var absPaths []string
@@ -24,13 +25,21 @@ func (b *bundler) attachDeclarations() error {
 			absPaths = append(absPaths, abs)
 		}
 	}
+	compilerOpts := b.compilerOpts.Clone()
+	if b.output.DeclarationMap != nil {
+		if *b.output.DeclarationMap {
+			compilerOpts.DeclarationMap = core.TSTrue
+		} else {
+			compilerOpts.DeclarationMap = core.TSFalse
+		}
+	}
 	checked, err := dts.EmitProgram(b.ctx, absPaths, dts.Options{
-		Target:           b.target,
-		Jsx:              b.jsx,
-		DeclarationMap:   b.declMap,
 		CustomConditions: resolve.ExportConditions(b.opts.Conditions),
-		CompilerOptions:  b.compilerOpts,
+		CompilerOptions:  compilerOpts,
 		BaseURL:          b.opts.BaseURL,
+		FS:               b.fs,
+		CWD:              b.cwd,
+		RootDir:          b.rootDir,
 	})
 	if err != nil {
 		return err
@@ -39,7 +48,10 @@ func (b *bundler) attachDeclarations() error {
 		abs := filepath.FromSlash(id)
 		if got, ok := checked[dts.Key(abs)]; ok && strings.TrimSpace(got.Text) != "" {
 			unit.dts = jsedit.StripSourceMappingComment(got.Text)
-			unit.dtsMap = got.SourceMap
+			unit.dtsMap, err = sourcemap.ParseMap(got.SourceMap)
+			if err != nil {
+				return fmt.Errorf("parse declaration map for %s: %w", abs, err)
+			}
 			continue
 		}
 		if !modpath.IsTypeScript(abs) || strings.TrimSpace(unit.dts) != "" {

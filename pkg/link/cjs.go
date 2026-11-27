@@ -24,23 +24,21 @@ const (
 )
 
 type cjsProp struct {
-	name string
 	init *ast.Node
+	name string
 }
 
 type cjsAnalysis struct {
-	isCJS        bool
-	mode         cjsMode
-	skip         []*ast.Node
-	props        []cjsProp
 	defaultInit  *ast.Node
 	okLHS        map[*ast.Node]bool
+	mode         cjsMode
+	props        []cjsProp
+	skip         []*ast.Node
+	isCJS        bool
 	wholesaleObj bool
 }
 
-// attachCJSExports registers CommonJS exports on m after a single parse.
-// Static shapes become locals/exports without rewriting source. Unanalyzable
-// shapes fall back to a __commonJS runtime wrapper.
+// attachCJSExports registers CommonJS exports after one parse; static shapes become locals/exports, unanalyzable ones fall back to a __commonJS wrapper.
 func (m *esModule) attachCJSExports() {
 	if m.file == nil || hasESMModuleSyntax(m.file) {
 		return

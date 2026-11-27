@@ -2,11 +2,12 @@ package bundler
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/build/pkg/output"
 	"github.com/startracex/build/pkg/sourcemap"
 	"github.com/startracex/build/pkg/wrap"
 	"github.com/startracex/tsgo/pkg/core"
@@ -24,23 +25,18 @@ func normalizeMode(mode Mode) (Mode, error) {
 	}
 }
 
-func (o Options) declaration() bool {
-	return o.Declaration != nil && *o.Declaration
-}
-
-func (o Options) declarationMap() bool {
-	return o.declaration() && o.DeclarationMap != nil && *o.DeclarationMap
-}
-
-func (o Options) sourceMap() bool {
-	return o.SourceMap != nil && *o.SourceMap
-}
-
-func (o Options) emitTarget() core.ScriptTarget {
-	if o.Target != core.ScriptTargetNone {
-		return o.Target
+func (o Options) compilerOptions() *core.CompilerOptions {
+	opts := &core.CompilerOptions{}
+	if o.CompilerOptions != nil {
+		opts = o.CompilerOptions.Clone()
 	}
-	return core.ScriptTargetESNext
+	if opts.Target == core.ScriptTargetNone {
+		opts.Target = core.ScriptTargetESNext
+	}
+	if opts.Jsx == core.JsxEmitNone {
+		opts.Jsx = core.JsxEmitReact
+	}
+	return opts
 }
 
 func (b *bundler) declarationText(path, src string) (string, error) {
@@ -58,7 +54,7 @@ func (b *bundler) declarationText(path, src string) (string, error) {
 	}
 	text := jsedit.StripSourceMappingComment(out.OutputText)
 	if strings.TrimSpace(text) == "" {
-		if isJavaScriptSource(path) {
+		if modpath.IsJavaScriptSource(path) {
 			if err := errorFromSyntaxDiagnostics(path, src, out.Diagnostics); err != nil {
 				return "", err
 			}
@@ -71,24 +67,35 @@ func (b *bundler) declarationText(path, src string) (string, error) {
 }
 
 func (b *bundler) appResult(entry, js, linked string, emitFmt Format) (*Result, error) {
-	jsName := b.opts.OutFile
+	jsName := b.output.OutFile
 	if jsName == "" {
 		jsName = "bundle.js"
 	}
-	if b.opts.NameTemplate != "" {
+	if b.output.NameTemplate != "" {
 		name := modpath.BaseStem(entry)
 		hash := ""
-		if HasHashPlaceholder(b.opts.NameTemplate) {
-			hash = ContentHash(js)
+		if output.HasHashPlaceholder(b.output.NameTemplate) {
+			hash = output.ContentHash(js)
 		}
-		jsName = RenderEntryFileName(b.opts.NameTemplate, name, name, emitFmt, hash)
+		ext := modpath.Ext(jsName)
+		if ext == "" {
+			ext = ".js"
+		}
+		jsName = output.RenderFileName(b.output.NameTemplate, output.FileNameParts{
+			Name:   name,
+			Path:   name,
+			Ext:    ext,
+			Type:   "entry",
+			Format: string(emitFmt),
+			Hash:   hash,
+		})
 	}
 	b.sources[filepath.ToSlash(filepath.FromSlash(entry))] = jsName
-	if b.sourceMap {
+	if b.output.sourceMap(b.compilerOpts) {
 		js = strings.TrimRight(js, "\n") + "\n//# sourceMappingURL=" + filepath.Base(jsName) + ".map\n"
 	}
 	files := []Output{{Path: jsName, Data: js}}
-	if b.sourceMap {
+	if b.output.sourceMap(b.compilerOpts) {
 		linkSrc := linked
 		if linkSrc == "" {
 			linkSrc = js
@@ -102,9 +109,7 @@ func (b *bundler) appResult(entry, js, linked string, emitFmt Format) (*Result, 
 				mapData = sourcemap.OffsetColumns(mapData, indent)
 			}
 		}
-		files = append(files, Output{Path: jsName + ".map", Data: mapData})
+		files = append(files, Output{Path: jsName + ".map", Data: mapData.JSON()})
 	}
 	return &Result{Files: files, entry: js}, nil
 }
-
-func isJavaScriptOutput(path string) bool { return modpath.IsJavaScriptOutput(path) }

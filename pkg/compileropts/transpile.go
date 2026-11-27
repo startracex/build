@@ -2,11 +2,7 @@ package compileropts
 
 import "github.com/startracex/tsgo/pkg/core"
 
-// Transpile holds the compiler options for one transpile: the module kind,
-// target, JSX transform, and source map setting the bundler computes, plus the
-// tsconfig switches that change the text. The same value produces both the
-// compiler options and the cache key, so the key can never omit an option that
-// shapes the output.
+// Transpile holds the compiler options for one transpile; the same value produces both the compiler options and the cache key, so the key cannot omit an output-shaping option.
 type Transpile struct {
 	Module    core.ModuleKind   `json:"module"`
 	Target    core.ScriptTarget `json:"target"`
@@ -15,8 +11,7 @@ type Transpile struct {
 	Emit      Emit              `json:"emit"`
 }
 
-// NewTranspile collects everything that affects the emitted text for one
-// module of a build.
+// NewTranspile collects everything that affects the emitted text for one module.
 func NewTranspile(moduleKind core.ModuleKind, target core.ScriptTarget, jsx core.JsxEmit, sourceMap core.Tristate, src *core.CompilerOptions) Transpile {
 	return Transpile{
 		Module:    moduleKind,
@@ -27,8 +22,7 @@ func NewTranspile(moduleKind core.ModuleKind, target core.ScriptTarget, jsx core
 	}
 }
 
-// CompilerOptions returns a fresh option set for the transpiler. It never
-// aliases the tsconfig options, so callers may adjust the result freely.
+// CompilerOptions returns a fresh set that never aliases the tsconfig options, so callers may adjust the result freely.
 func (o Transpile) CompilerOptions() *core.CompilerOptions {
 	opts := &core.CompilerOptions{
 		Module:    o.Module,

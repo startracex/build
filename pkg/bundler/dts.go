@@ -1,9 +1,9 @@
 package bundler
 
 import (
-	"path/filepath"
 	"strings"
 
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/tsgo/pkg/ast"
@@ -118,10 +118,7 @@ func specifierNodes(stmt *ast.Node) []*ast.Node {
 	}
 }
 
-// rewriteDeclarationSpecifier reports whether a declaration reference should be
-// rewritten to the emitted file. A package reference keeps its specifier: types
-// do not need the bundled copy, and the consumer resolves them from its own
-// node_modules. A file that was not emitted has no target to point at either.
+// rewriteDeclarationSpecifier keeps package specifiers and unemitted files: consumers resolve types from their own node_modules.
 func (b *bundler) rewriteDeclarationSpecifier(resolved string) bool {
 	if isPackagePath(resolved) {
 		return false

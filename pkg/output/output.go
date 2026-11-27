@@ -4,11 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/modpath"
 )
 
@@ -19,30 +19,30 @@ const (
 	FormatUMD  = "umd"
 )
 
-// DeriveOutFile picks an extension for dual-format outfile emission.
+// DeriveOutFile picks an extension for dual-format outfile emission; the result uses the host separator.
 func DeriveOutFile(base string, format string) string {
 	dir := filepath.Dir(base)
 	stem := modpath.BaseStem(base)
 	switch format {
 	case FormatCJS:
-		return filepath.Join(dir, stem+".cjs")
+		return filepath.Native(filepath.Join(dir, stem+".cjs"))
 	case FormatIIFE, FormatUMD:
-		return filepath.Join(dir, stem+".js")
+		return filepath.Native(filepath.Join(dir, stem+".js"))
 	default:
 		ext := modpath.LowerExt(base)
 		if ext == ".cjs" || ext == ".js" {
-			return filepath.Join(dir, stem+".mjs")
+			return filepath.Native(filepath.Join(dir, stem+".mjs"))
 		}
 		if ext == ".mjs" {
 			return base
 		}
-		return filepath.Join(dir, stem+".mjs")
+		return filepath.Native(filepath.Join(dir, stem+".mjs"))
 	}
 }
 
-// DeriveOutDir nests format under a shared outdir for multi-format lib builds.
+// DeriveOutDir nests format under a shared outdir for multi-format lib builds; the result uses the host separator.
 func DeriveOutDir(base string, format string) string {
-	return filepath.Join(base, string(format))
+	return filepath.Native(filepath.Join(base, string(format)))
 }
 
 // DefaultHashLength is used by [hash] when no length is specified.
@@ -50,8 +50,7 @@ const DefaultHashLength = 8
 
 var hashPlaceholder = regexp.MustCompile(`\[hash(?::(\d+))?\]`)
 
-// HasHashPlaceholder reports whether pattern contains a well-formed [hash]
-// or [hash:N] placeholder.
+// HasHashPlaceholder reports whether pattern contains a well-formed [hash] or [hash:N] placeholder.
 func HasHashPlaceholder(pattern string) bool {
 	return hashPlaceholder.MatchString(pattern)
 }
@@ -62,18 +61,42 @@ func ContentHash(data string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// RenderEntryFileName expands [name], [path], [format], [hash], and [hash:N]
-// in an entry filename pattern. hash is usually the digest of the emitted content.
-func RenderEntryFileName(pattern, name, path, format, hash string) string {
-	rendered := strings.NewReplacer("[name]", name, "[path]", path, "[format]", format).Replace(pattern)
+// FileNameParts holds the values a filename pattern can interpolate:
+//
+//	[name]     base name without extension
+//	[path]     source-relative path without extension
+//	[ext]      extension without the leading dot
+//	[type]     file kind: entry, chunk, or asset
+//	[format]   output format (esm, cjs, iife, umd)
+//	[hash]     content digest, truncated to DefaultHashLength
+//	[hash:N]   content digest truncated to N characters
+type FileNameParts struct {
+	Name   string
+	Path   string
+	Ext    string
+	Type   string
+	Format string
+	Hash   string
+}
+
+// RenderFileName expands placeholders; an unset one becomes empty so optional parts work, and an empty Hash is derived from the rendered text to keep [hash] deterministic.
+func RenderFileName(pattern string, parts FileNameParts) string {
+	rendered := strings.NewReplacer(
+		"[name]", parts.Name,
+		"[path]", parts.Path,
+		"[ext]", strings.TrimPrefix(parts.Ext, "."),
+		"[type]", parts.Type,
+		"[format]", parts.Format,
+	).Replace(pattern)
+	hash := parts.Hash
 	if hash == "" {
 		hash = ContentHash(rendered)
 	}
 	return hashPlaceholder.ReplaceAllStringFunc(rendered, func(match string) string {
 		length := DefaultHashLength
-		parts := hashPlaceholder.FindStringSubmatch(match)
-		if len(parts) > 1 && parts[1] != "" {
-			if n, err := strconv.Atoi(parts[1]); err == nil && n > 0 {
+		sub := hashPlaceholder.FindStringSubmatch(match)
+		if len(sub) > 1 && sub[1] != "" {
+			if n, err := strconv.Atoi(sub[1]); err == nil && n > 0 {
 				length = n
 			}
 		}
@@ -82,6 +105,11 @@ func RenderEntryFileName(pattern, name, path, format, hash string) string {
 		}
 		return hash[:length]
 	})
+}
+
+// RenderEntryFileName expands [name], [path], [format], [hash], and [hash:N]; it is RenderFileName without the [ext] inputs, for callers that only name entry files.
+func RenderEntryFileName(pattern, name, path, format, hash string) string {
+	return RenderFileName(pattern, FileNameParts{Name: name, Path: path, Format: format, Hash: hash})
 }
 
 // ValidateOutputPaths checks outfile/outdir constraints for one emit target.

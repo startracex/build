@@ -1,42 +1,40 @@
 package modpath
 
 import (
-	"path/filepath"
 	"strings"
 
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/tsgo/pkg/tspath"
 )
 
-// Ext returns the extension of path, including the leading dot. It returns an
-// empty string when path has no extension.
+// Ext returns the extension including the leading dot, or "" when path has none.
 func Ext(path string) string {
 	return filepath.Ext(path)
 }
 
-// LowerExt returns the lowercase extension of path, including the leading dot.
+// LowerExt returns the lowercase extension including the leading dot.
 func LowerExt(path string) string {
-	return strings.ToLower(filepath.Ext(path))
+	return strings.ToLower(Ext(path))
 }
 
 // Stem returns path without its extension.
 func Stem(path string) string {
-	return strings.TrimSuffix(path, filepath.Ext(path))
+	return strings.TrimSuffix(path, Ext(path))
 }
 
 // BaseStem returns the base name of path without its extension.
 func BaseStem(path string) string {
 	base := filepath.Base(path)
-	return strings.TrimSuffix(base, filepath.Ext(base))
+	return strings.TrimSuffix(base, Ext(base))
 }
 
-// ReplaceExt returns path with its extension replaced by ext. An empty ext
-// drops the extension.
+// ReplaceExt replaces the extension with ext; an empty ext drops it.
 func ReplaceExt(path, ext string) string {
 	return Stem(path) + ext
 }
 
-// HasExt reports whether path ends with ext, ignoring case. The extension may
-// name more than one suffix, so ".d.ts" matches "index.d.ts" but not "index.ts".
+// HasExt reports whether path ends with ext, ignoring case.
+// ext may span several suffixes: ".d.ts" matches "index.d.ts" but not "index.ts".
 func HasExt(path, ext string) bool {
 	return strings.HasSuffix(strings.ToLower(path), strings.ToLower(ext))
 }
@@ -52,8 +50,7 @@ func HasAnyExt(path string, exts ...string) bool {
 	return false
 }
 
-// IsTypeScriptSource reports whether path names a TypeScript file, including
-// declaration files.
+// IsTypeScriptSource reports whether path names a TypeScript file, including declarations.
 func IsTypeScriptSource(path string) bool {
 	switch LowerExt(path) {
 	case tspath.ExtensionTs, tspath.ExtensionTsx, tspath.ExtensionMts, tspath.ExtensionCts:
@@ -73,8 +70,7 @@ func IsJavaScriptSource(path string) bool {
 	}
 }
 
-// IsDeclaration reports whether path names a TypeScript declaration file:
-// .d.ts, .d.mts or .d.cts.
+// IsDeclaration reports whether path is a TypeScript declaration: .d.ts, .d.mts or .d.cts.
 func IsDeclaration(path string) bool {
 	lower := strings.ToLower(path)
 	return strings.HasSuffix(lower, tspath.ExtensionDts) ||
@@ -82,8 +78,7 @@ func IsDeclaration(path string) bool {
 		strings.HasSuffix(lower, tspath.ExtensionDcts)
 }
 
-// IsTypeScript reports whether path names a TypeScript file the build can
-// compile: a TypeScript source file that is not a declaration file.
+// IsTypeScript reports whether path is a compilable TypeScript source (not a declaration).
 func IsTypeScript(path string) bool {
 	return IsTypeScriptSource(path) && !IsDeclaration(path)
 }

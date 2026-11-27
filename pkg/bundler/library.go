@@ -2,56 +2,72 @@ package bundler
 
 import (
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/build/pkg/output"
 	"github.com/startracex/build/pkg/sourcemap"
+	"github.com/startracex/tsgo/pkg/core"
 )
 
 func (b *bundler) emitLibrary(entry string) (*Result, error) {
 	if err := b.attachDeclarations(); err != nil {
 		return nil, err
 	}
-	root := modpath.DisplayRoot(unitPaths(b, entry))
-	if b.opts.RootDir != "" {
-		root = b.opts.RootDir
+	root := modpath.DisplayRoot(b.cwd, unitPaths(b, entry))
+	if b.rootDir != "" {
+		root = b.rootDir
+	}
+	// tsconfig options that change map contents but not mapping positions.
+	var mapSourceRoot string
+	inlineSources := false
+	if b.compilerOpts != nil {
+		mapSourceRoot = b.compilerOpts.SourceRoot.AsString()
+		inlineSources = b.compilerOpts.InlineSources == core.TSTrue
 	}
 	ids := make([]string, 0, len(b.units))
 	for id := range b.units {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	pattern := b.opts.NameTemplate
+	pattern := b.output.NameTemplate
 	fullPathPattern := pattern != ""
 	if !fullPathPattern {
-		pattern = b.opts.EntryFileNames
+		pattern = b.output.EntryFileNames
 	}
 	templated := pattern != ""
-	hasHash := templated && HasHashPlaceholder(pattern)
+	hasHash := templated && output.HasHashPlaceholder(pattern)
 	b.outputPaths = make(map[string]string, len(b.units))
 	for _, id := range ids {
 		unit := b.units[id]
 		abs := filepath.FromSlash(id)
-		jsRel := libraryOutputRel(root, abs, b.opts.DepsDir)
+		jsRel := libraryOutputRel(root, abs, b.output.DepsDir)
 		outPath := jsRel
-		if b.opts.OutDir != "" {
-			outPath = filepath.Join(b.opts.OutDir, filepath.FromSlash(jsRel))
+		if b.output.OutDir != "" {
+			outPath = filepath.Join(b.output.OutDir, filepath.FromSlash(jsRel))
 		}
 		if templated {
 			name := modpath.BaseStem(jsRel)
 			pathValue := modpath.Stem(filepath.ToSlash(jsRel))
 			hash := ""
 			if hasHash {
-				hash = ContentHash(unit.code)
+				hash = output.ContentHash(unit.code)
 			}
-			rendered := RenderEntryFileName(pattern, name, pathValue, b.format, hash)
+			rendered := output.RenderFileName(pattern, output.FileNameParts{
+				Name:   name,
+				Path:   pathValue,
+				Ext:    modpath.Ext(jsRel),
+				Type:   "entry",
+				Format: string(b.format),
+				Hash:   hash,
+			})
 			outPath = rendered
 			if !fullPathPattern {
-				outPath = filepath.Join(b.opts.OutDir, filepath.FromSlash(rendered))
+				outPath = filepath.Join(b.output.OutDir, filepath.FromSlash(rendered))
 			}
 		}
 		b.outputPaths[id] = b.uniqueOutputPath(outPath)
@@ -71,8 +87,13 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			wrapLines = cjsWrapLines
 		}
 		jsPath := b.outputPaths[id]
+		// mapDir holds emitted .map files; tsc writes sources relative to it, so src + build yields "../src/index.ts".
+		mapDir := filepath.Dir(jsPath)
+		if !filepath.IsAbs(mapDir) {
+			mapDir = filepath.Join(b.cwd, mapDir)
+		}
 		mapName := filepath.Base(jsPath) + ".map"
-		hasMap := b.sourceMap && (strings.TrimSpace(unit.jsMap) != "" || unit.verbatim)
+		hasMap := b.output.sourceMap(b.compilerOpts) && (!unit.jsMap.IsZero() || unit.verbatim)
 		if hasMap {
 			js = strings.TrimRight(js, "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
 		}
@@ -82,37 +103,38 @@ func (b *bundler) emitLibrary(entry string) (*Result, error) {
 			entryJS = js
 		}
 		if hasMap {
-			mapData := sourcemap.IdentitySourceMap(filepath.Base(jsPath), modpath.DisplayRel(root, abs), unit.source)
-			if strings.TrimSpace(unit.jsMap) != "" {
-				mapData = sourcemap.RetargetSourceMap(unit.jsMap, filepath.Base(jsPath), modpath.DisplayRel(root, abs), unit.source)
+			fallback := modpath.DisplayRel(root, abs)
+			mapData := sourcemap.IdentitySourceMap(filepath.Base(jsPath), fallback, unit.source, mapDir, abs)
+			if !unit.jsMap.IsZero() {
+				mapData = sourcemap.RetargetSourceMap(unit.jsMap, filepath.Base(jsPath), fallback, unit.source, mapDir, abs)
 			}
 			if wrapLines > 0 {
 				mapData = sourcemap.OffsetLines(mapData, wrapLines)
 			}
-			files = append(files, Output{Path: jsPath + ".map", Data: mapData})
+			mapData = sourcemap.ApplySourceMapConfig(mapData, mapSourceRoot, inlineSources, unit.source)
+			files = append(files, Output{Path: jsPath + ".map", Data: mapData.JSON()})
 		}
-		if b.decl && strings.TrimSpace(unit.dts) != "" {
+		if b.output.declaration(b.compilerOpts) && strings.TrimSpace(unit.dts) != "" {
 			dts, err := rewriteRelativeSpecifiers(unit.dts, abs, b, true)
 			if err != nil {
 				return nil, err
 			}
 			dtsPath := modpath.ReplaceExt(jsPath, ".d.ts")
 			mapName := filepath.Base(dtsPath) + ".map"
-			if b.declMap && strings.TrimSpace(unit.dtsMap) != "" {
+			if b.output.declarationMap(b.compilerOpts) && !unit.dtsMap.IsZero() {
 				dts = strings.TrimRight(jsedit.StripSourceMappingComment(dts), "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
 			}
 			files = append(files, Output{Path: dtsPath, Data: dts})
-			if b.declMap && strings.TrimSpace(unit.dtsMap) != "" {
-				files = append(files, Output{
-					Path: dtsPath + ".map",
-					Data: sourcemap.RelativizeDeclarationMap(unit.dtsMap, filepath.Base(dtsPath), root),
-				})
+			if b.output.declarationMap(b.compilerOpts) && !unit.dtsMap.IsZero() {
+				mapData := sourcemap.RelativizeSourceMap(unit.dtsMap, filepath.Base(dtsPath), mapDir, root)
+				mapData = sourcemap.ApplySourceMapConfig(mapData, mapSourceRoot, inlineSources, unit.source)
+				files = append(files, Output{Path: dtsPath + ".map", Data: mapData.JSON()})
 			}
 		}
 	}
 	if entryJS == "" {
 		for _, file := range files {
-			if isJavaScriptOutput(file.Path) {
+			if modpath.IsJavaScriptOutput(file.Path) {
 				entryJS = file.Data
 				break
 			}
@@ -130,8 +152,7 @@ func isCommonJSSource(code string) bool {
 	return strings.Contains(code, "module.exports") || strings.Contains(code, "exports.")
 }
 
-// cjsWrapLines is how many lines wrapCommonJSForESM adds before the module
-// body, so a source map for that body keeps its lines aligned.
+// cjsWrapLines counts wrapper lines added before the module body so its source map stays aligned.
 const cjsWrapLines = 2
 
 func wrapCommonJSForESM(code string) string {
@@ -141,16 +162,10 @@ func wrapCommonJSForESM(code string) string {
 		"export default __cjs_default;\n"
 }
 
-// libraryOutputRel returns a relative output path that never escapes the
-// output directory. A module inside rootDir keeps its relative path; a bundled
-// dependency is written under depsDir (node_modules when empty) using its path
-// below the innermost node_modules, so a pnpm store path does not leak. Any
-// other module falls back to its base name.
+// libraryOutputRel returns an output path that cannot escape OutDir; dependencies use depsDir and the path below node_modules to hide pnpm layout.
 func libraryOutputRel(root, abs, depsDir string) string {
 	jsAbs := modpath.JavascriptOutputAbs(abs)
-	// A dependency goes through the deps directory even when the project root
-	// contains node_modules itself: the relative path would otherwise keep the
-	// pnpm store layout (node_modules/.pnpm/<pkg>@<version>/node_modules/...).
+	// Dependencies go through depsDir even when the root contains node_modules, to avoid leaking pnpm store paths.
 	if pkgRel, inDeps := modpath.NodeModulesRel(jsAbs); inDeps {
 		if depsDir != "" {
 			return depsDir + "/" + pkgRel

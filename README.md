@@ -39,18 +39,37 @@ build -o dist/index.js --format esm --format cjs src/index.ts
 build --format iife --global-name App -o dist/app.js src/index.ts
 ```
 
-`[name]` is the entry or module base name, `[path]` is the module path relative to `rootDir` (or the common source directory) without extension, and `[format]` is the output format. `[hash]` is a SHA-256 digest of the emitted content; use `[hash:N]` to keep the first `N` characters (default `8`). When two modules render to the same path, the later one gets a `-2`, `-3`, … suffix before the extension. Relative imports are rewritten to the final filenames, including renamed ones. A templated `-o` allows multiple entries and emits one file per module (library mode):
+`[name]` is the entry or module base name, `[path]` is the module path relative to `rootDir` (or the common source directory) without extension, `[ext]` is the extension without the dot, `[type]` is `entry`, `chunk`, or `asset`, and `[format]` is the output format. `[hash]` is a SHA-256 digest of the emitted content; use `[hash:N]` to keep the first `N` characters (default `8`). When two modules render to the same path, the later one gets a `-2`, `-3`, … suffix before the extension. Relative imports are rewritten to the final filenames, including renamed ones. A templated `-o` allows multiple entries and emits one file per module (library mode):
 
 ```bash
 build -o 'dist/[name].cjs' --format cjs src/
 build -o 'dist/[name].[hash:8].js' src/
 ```
 
-For directory outputs, use the independent `--entry-file-names` flag; the pattern is joined with `--outdir`:
+For directory outputs, use the independent `--entry-file-names` flag; the pattern is joined with `--outdir`. It names entry files in both library and split app output:
 
 ```bash
 build --outdir dist --entry-file-names '[name].[hash:8].js' src/
 build --outdir dist --entry-file-names '[path].js' src/
+```
+
+Split app output also accepts `--chunk-file-names` for dynamic, shared, and manual chunks, and `--asset-file-names` for `?url` assets and entry CSS. Chunk imports are rewritten relative to the importing file, so a pattern may put entries and chunks in different directories:
+
+```bash
+build --mode app --outdir dist \
+  --entry-file-names 'entries/[name].[hash:8].[ext]' \
+  --chunk-file-names 'js/[name]-[hash:8].[ext]' \
+  --asset-file-names 'media/[name]-[hash:8].[ext]' src/index.ts
+```
+
+`[type]` expands to `entry`, `chunk`, or `asset`, so one shape can categorize every emitted file:
+
+```bash
+build --mode app --outdir dist \
+  --entry-file-names '[type]/[name].[ext]' \
+  --chunk-file-names '[type]/[name]-[hash:8].[ext]' \
+  --asset-file-names '[type]/[name]-[hash:8].[ext]' src/index.ts
+# dist/entry/index.js, dist/chunk/lazy-xxxxxxxx.js, dist/asset/note-xxxxxxxx.txt
 ```
 
 Without a placeholder, `-o` still requires exactly one entry.
@@ -63,7 +82,7 @@ An `.html` file can be used as an entry. It is parsed with `golang.org/x/net/htm
 build --outdir dist index.html
 ```
 
-The HTML directory is used as the default root for emitted paths, unless `rootDir` is set in `tsconfig.json`.
+The HTML directory is used as the default root for emitted paths, unless `rootDir` is set in `tsconfig.json` or `--root-dir` is passed.
 
 Both layouts accept an HTML entry:
 
@@ -153,7 +172,10 @@ The compiler options that change the output are read from `tsconfig.json`. They 
 | --- | --- |
 | `-o`, `--outfile` | Single-file bundle path (repeatable). Supports `[name]`, `[path]`, `[format]`, `[hash]`, and `[hash:N]` placeholders; with a placeholder, several modules emit one file per module. |
 | `--outdir` | Directory for per-module or split output (repeatable). |
-| `--entry-file-names` | Filename pattern for `--outdir` outputs: `[name]`, `[path]`, `[format]`, `[hash]`, `[hash:N]`. Ignored with `--outfile`. |
+| `--entry-file-names` | Filename pattern for entry files in `--outdir` output: `[name]`, `[path]`, `[ext]`, `[type]`, `[format]`, `[hash]`, `[hash:N]`. Ignored with `--outfile`. |
+| `--chunk-file-names` | Filename pattern for split chunks (dynamic, shared, manual): same placeholders with `[type]` = `chunk`; defaults to the `chunks/` layout. |
+| `--asset-file-names` | Filename pattern for emitted `?url` assets and entry CSS: `[name]`, `[path]`, `[ext]`, `[type]` = `asset`, `[hash]`, `[hash:N]`; defaults to the source-relative path with a content hash. |
+| `-r`, `--root-dir` | Base directory for paths written under the output dir. Defaults to tsconfig `rootDir`, then the common source directory. |
 | arguments | Entry files (including `.html`), directories, or globs. Directories are expanded to supported source files (excluding `node_modules` and `.d.ts`). |
 | `-p`, `--project` | `tsconfig.json` file or directory. |
 | `--format` | `esm`, `cjs`, `iife`, or `umd`. Repeatable; paired with output paths from the right. |
@@ -163,8 +185,7 @@ The compiler options that change the output are read from `tsconfig.json`. They 
 | `--mode` | Output layout: `app` (one bundle per entry, packages inlined, `import()` split into chunks, no `.d.ts`) or `lib` (one file per module, packages external by default, nothing split). Inferred from the output path when omitted. |
 | `--bundle` | Bundle bare package imports in library output instead of leaving them external (alias `--bundle-node-modules`). |
 | `--deps-dir` | Directory for bundled packages in library output. Empty keeps `node_modules/<package>/...`; `--deps-dir vendor` writes `vendor/<package>/...`. |
-| `--conditions` | Extra `package.json` `"exports"` conditions (repeatable). |
-| `--platform` | Runtime the JavaScript output targets: `browser`, `node`, or `neutral`. `browser` drops the `node` condition and matches `browser`; `neutral` keeps the tsconfig settings. Defaults to `browser` for app-mode ESM output and `neutral` otherwise. Declaration output always keeps the tsconfig settings. |
+| `--conditions` | Extra `package.json` `"exports"` conditions (repeatable). They are used as given; the resolver never adds a platform-specific condition or changes `moduleResolution`. |
 | `--alias` | Specifier prefix mapping `from=to` (repeatable). |
 | `--define` | Replace a free reference `KEY=EXPR` (repeatable). Keys are identifiers or dotted chains (`process.env.NODE_ENV`); values must be one JavaScript expression. |
 | `--drop` | `console` and/or `debugger` (repeatable). |
@@ -226,8 +247,8 @@ Order: **transpile → Transform → define/drop (with branch fold) → link/wra
 
 ```go
 result, err := bundler.Build(ctx, bundler.Options{
-  Mode:  bundler.ModeApp,
-  Entry: "src/index.ts",
+  Mode:    bundler.ModeApp,
+  Entries: []string{"src/index.ts"},
   Outputs: []bundler.OutputOptions{
     {Format: bundler.FormatESM, OutFile: "dist/index.mjs"},
     {Format: bundler.FormatCJS, OutFile: "dist/index.cjs"},
@@ -240,13 +261,24 @@ result, err := bundler.Build(ctx, bundler.Options{
 
 `Options.Mode` is required: `bundler.ModeApp` writes one bundle per entry, `bundler.ModeLib` writes one file per module and leaves bare package imports external.
 
+`BuildTo` is the write-oriented counterpart: it passes every file to a callback instead of returning all contents in `Result.Files`, so a host can write and release each file. `GenerateBundle` still receives the complete set.
+
+```go
+_, err := bundler.BuildTo(ctx, opts, func(file bundler.Output) error {
+  if err := os.MkdirAll(filepath.Dir(file.Path), 0o755); err != nil {
+    return err
+  }
+  return os.WriteFile(file.Path, []byte(file.Data), 0o644)
+})
+```
+
 Public entry: `github.com/startracex/build/pkg/bundler`. Sibling packages under `pkg/`: `plugin`, `resolve`, `asset`, `link`, `treeshake`, `define`, `cache`, `wrap`, `sourcemap`, `dts`, `modpath`, `jsedit`, `output`.
 
 The tsconfig compiler options are passed through `Options`, so no flag can override them:
 
 ```go
 result, err := bundler.Build(context.Background(), bundler.Options{
-  Entry:           "src/index.ts",
+  Entries:         []string{"src/index.ts"},
   CompilerOptions: compilerOptions, // parsed from tsconfig.json
 })
 ```

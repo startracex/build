@@ -4,13 +4,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/build/pkg/output"
+	"github.com/startracex/tsgo/pkg/tspath"
+	"github.com/startracex/tsgo/pkg/vfs"
 )
 
 // Kind classifies how an import is treated at emit time.
@@ -26,19 +28,19 @@ const (
 // Unit is one loaded asset module.
 type Unit struct {
 	Kind     Kind
-	Source   string // absolute source path
-	Data     []byte
-	Text     string // for raw
-	OutRel   string // relative emit path
 	JSModule string // synthetic ESM for the importer
+	OutRel   string // relative emit path
+	Source   string // absolute source path
+	Text     string // for raw
+	Data     []byte
 }
 
 // Query holds ?raw / ?url flags from an import specifier.
 type Query struct {
 	Path  string
+	Query string
 	Raw   bool
 	URL   bool
-	Query string
 }
 
 // ParseQuery splits a specifier into path and import-query flags.
@@ -59,10 +61,9 @@ func ParseQuery(spec string) Query {
 	return iq
 }
 
-// ModuleKey is the graph id for an asset, including ?raw / ?url when needed so
-// the same file can be imported under different query kinds.
+// ModuleKey is the graph id for an asset, including ?raw / ?url so one file can be imported under different kinds.
 func ModuleKey(abs string, kind Kind) string {
-	id := filepath.ToSlash(abs)
+	id := tspath.NormalizeSlashes(abs)
 	switch kind {
 	case Raw:
 		return id + "?raw"
@@ -115,20 +116,35 @@ func JoinPublicPath(public, rel string) string {
 	return public + "/" + strings.TrimPrefix(rel, "/")
 }
 
-// Load reads an asset file and returns the unit plus synthetic ESM source.
-func Load(abs string, kind Kind, rootDir, publicPath string) (*Unit, string, error) {
-	data, err := os.ReadFile(abs)
+// Load reads an asset through fs and returns the unit plus synthetic ESM; a nil fs reads the OS file system.
+// assetFileNames overrides the default source-relative hashed name with a filename pattern.
+func Load(fs vfs.FS, abs string, kind Kind, rootDir, publicPath, assetFileNames string) (*Unit, string, error) {
+	data, err := modpath.ReadFile(fs, abs)
 	if err != nil {
 		return nil, "", fmt.Errorf("read asset %s: %w", abs, err)
 	}
-	rel := filepath.Base(abs)
-	if rootDir != "" {
-		if r, err := filepath.Rel(rootDir, abs); err == nil && !strings.HasPrefix(r, "..") {
+	rel := tspath.GetBaseFileName(abs)
+	if rootDir != "" && tspath.PathIsAbsolute(rootDir) == tspath.PathIsAbsolute(abs) {
+		if r := tspath.GetRelativePathFromDirectory(rootDir, abs, tspath.CaseSensitive); !strings.HasPrefix(r, "..") {
 			rel = r
 		}
 	}
-	rel = filepath.ToSlash(rel)
-	if kind == URL || (kind != Raw && kind != CSS) {
+	rel = tspath.NormalizeSlashes(rel)
+	switch {
+	case assetFileNames != "":
+		hash := ""
+		if output.HasHashPlaceholder(assetFileNames) {
+			hash = output.ContentHash(string(data))
+		}
+		stem := modpath.Stem(rel)
+		rel = filepath.ToSlash(output.RenderFileName(assetFileNames, output.FileNameParts{
+			Name: modpath.BaseStem(rel),
+			Path: stem,
+			Ext:  modpath.Ext(rel),
+			Type: "asset",
+			Hash: hash,
+		}))
+	case kind == URL || (kind != Raw && kind != CSS):
 		rel = hashedRel(rel, data)
 	}
 	au := &Unit{Kind: kind, Source: abs, Data: data, OutRel: rel}
@@ -168,7 +184,7 @@ func CollectEmit(assets map[string]*Unit, outRoot string) (files []EmitFile, man
 			manifest[au.Source] = "(inline)"
 			continue
 		}
-		dest := filepath.Join(outRoot, filepath.FromSlash(au.OutRel))
+		dest := filepath.Join(outRoot, au.OutRel)
 		files = append(files, EmitFile{Path: dest, Data: string(au.Data)})
 		manifest[au.Source] = dest
 	}

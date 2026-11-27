@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/startracex/build/pkg/sourcemap"
 	"github.com/startracex/build/pkg/treeshake"
+	"github.com/startracex/tsgo/pkg/vfs"
 )
 
 // Resolver resolves import specifiers during linking.
@@ -19,11 +21,10 @@ type ChunkTable interface {
 
 // Module is one unit in the link graph.
 type Module struct {
-	ID   string // slash path id
-	Code string
-	Path string // os path if needed
-	// JSMap is the transpile source map for Code (optional).
-	JSMap string
+	ID    string // slash path id
+	Code  string
+	Path  string // os path if needed
+	JSMap *sourcemap.Map
 }
 
 // Options configure a Link call.
@@ -32,16 +33,21 @@ type Options struct {
 	LinkingChunk string
 	Chunks       ChunkTable
 	Resolver     Resolver
-	// PreserveExports lists module ids whose public exports stay live even when
-	// they are not the link entry (used for shared chunks).
+	// PreserveExports lists module ids whose public exports stay live even off-entry (used for shared chunks).
 	PreserveExports []string
+	// CWD resolves relative display paths; empty falls back to the deepest common directory of the linked modules.
+	CWD string
+	// RootDir overrides the base for relative display paths.
+	RootDir string
+	// FS reads the package.json files that decide side-effect pruning; nil uses the OS file system.
+	FS vfs.FS
 }
 
 // Result is the linked script plus per-module maps remapped through linker edits.
 type Result struct {
-	Code string
 	// Maps maps module id -> source map JSON for the rendered module body.
 	Maps map[string]string
+	Code string
 }
 
 // Link scope-hoists mods into one script or module body.
@@ -55,7 +61,7 @@ func Link(mods map[string]Module, entryID string, opts Options) (Result, error) 
 			return Result{}, err
 		}
 		em.jsMap = mod.JSMap
-		em.effectsFree = treeshake.ModuleSideEffectsFree(em.osPath())
+		em.effectsFree = treeshake.ModuleSideEffectsFree(opts.FS, em.osPath())
 		parsed[id] = em
 		order = append(order, id)
 	}
@@ -97,11 +103,11 @@ func Link(mods map[string]Module, entryID string, opts Options) (Result, error) 
 	if format == "iife" || format == "umd" {
 		format = "cjs"
 	}
-	code := renderLinked(parsed, order, entry, format, helper)
+	code := renderLinked(parsed, order, entry, format, helper, opts.CWD, opts.RootDir)
 	maps := map[string]string{}
 	for id, m := range parsed {
-		if m.linkedMap != "" {
-			maps[id] = m.linkedMap
+		if !m.linkedMap.IsZero() {
+			maps[id] = m.linkedMap.JSON()
 		}
 	}
 	return Result{Code: code, Maps: maps}, nil

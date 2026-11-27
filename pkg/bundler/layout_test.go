@@ -7,12 +7,12 @@ import (
 	"testing"
 
 	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/tsgo/pkg/core"
 )
 
 const minifiedPackage = `export function mega(a,b){return a+b}export const tiny={x:1,y:2};`
 
-// TestLibDepsDir checks that bundled packages move under --deps-dir and that
-// the rewritten import specifiers follow them.
+// TestLibDepsDir checks that --deps-dir moves bundled packages and rewrites their import specifiers.
 func TestLibDepsDir(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "src", "index.ts"), `import { helper } from "deep-pkg";
@@ -22,12 +22,14 @@ export const out = helper();
 	writeFile(t, filepath.Join(dir, "node_modules", "deep-pkg", "lib", "index.js"), `export { helper } from "./util/helper.js";`)
 	writeFile(t, filepath.Join(dir, "node_modules", "deep-pkg", "lib", "util", "helper.js"), `export const helper = () => "help";`)
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
-		Entry:             filepath.Join(dir, "src", "index.ts"),
-		Mode:              ModeLib,
-		OutDir:            out,
+	result, err := Generate(context.Background(), Options{
+		Entries: []string{filepath.Join(dir, "src", "index.ts")},
+		Mode:    ModeLib,
+		Outputs: []OutputOptions{{
+			OutDir:  out,
+			DepsDir: "vendor",
+		}},
 		BundleNodeModules: true,
-		DepsDir:           "vendor",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -50,11 +52,13 @@ func TestLibDepsDirRejectsEscape(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const a = 1;`)
 	for _, value := range []string{"..", "../out", "/abs", "."} {
-		_, err := Build(context.Background(), Options{
-			Entry:   filepath.Join(dir, "index.ts"),
+		_, err := Generate(context.Background(), Options{
+			Entries: []string{filepath.Join(dir, "index.ts")},
 			Mode:    ModeLib,
-			OutDir:  filepath.Join(dir, "dist"),
-			DepsDir: value,
+			Outputs: []OutputOptions{{
+				OutDir:  filepath.Join(dir, "dist"),
+				DepsDir: value,
+			}},
 		})
 		if err == nil || !strings.Contains(err.Error(), "deps dir") {
 			t.Fatalf("DepsDir %q = %v, want an error", value, err)
@@ -89,8 +93,7 @@ func TestNodeModulesRel(t *testing.T) {
 	}
 }
 
-// TestLibKeepsMinifiedDependency checks that a dependency that only needs a
-// reprint keeps its original text, and that its source map still lines up.
+// TestLibKeepsMinifiedDependency checks that a reprint-only dependency keeps its text and aligned map.
 func TestLibKeepsMinifiedDependency(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "src", "index.ts"), `import { tiny } from "mini-pkg";
@@ -101,12 +104,17 @@ export const out = tiny.x;
 		"console.log(\"drop-me\");\n"+minifiedPackage+"\n")
 	sourcemapFlag := true
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
-		Entry:             filepath.Join(dir, "src", "index.ts"),
-		Mode:              ModeLib,
-		OutDir:            out,
+	compiler := &core.CompilerOptions{}
+	compiler.InlineSources = core.TSTrue
+	result, err := Generate(context.Background(), Options{
+		Entries: []string{filepath.Join(dir, "src", "index.ts")},
+		Mode:    ModeLib,
+		Outputs: []OutputOptions{{
+			OutDir:    out,
+			SourceMap: &sourcemapFlag,
+		}},
 		BundleNodeModules: true,
-		SourceMap:         &sourcemapFlag,
+		CompilerOptions:   compiler,
 		Drop:              []string{"console"},
 	})
 	if err != nil {
@@ -131,8 +139,7 @@ export const out = tiny.x;
 	assertMappedTo(t, dep, parsed, "const tiny", "export const tiny")
 }
 
-// TestAppBundleKeepsTreeShakingOfMinifiedDependency checks that a minified
-// dependency keeps its text while unused exports and properties still go.
+// TestAppBundleKeepsTreeShakingOfMinifiedDependency checks that minified text stays while unused exports and properties go.
 func TestAppBundleKeepsTreeShakingOfMinifiedDependency(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `import { tiny } from "mini-pkg";
@@ -141,8 +148,8 @@ export const out = tiny.x;
 	writeFile(t, filepath.Join(dir, "node_modules", "mini-pkg", "package.json"), `{"name":"mini-pkg","type":"module","main":"index.js"}`)
 	writeFile(t, filepath.Join(dir, "node_modules", "mini-pkg", "index.js"), minifiedPackage)
 	code, err := Bundle(context.Background(), Options{
-		Mode:  ModeApp,
-		Entry: filepath.Join(dir, "index.ts"),
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -155,9 +162,7 @@ export const out = tiny.x;
 	}
 }
 
-// TestAppBundleSeparatesStatements guards the join between module bodies when a
-// module keeps its text: a body without a trailing semicolon must not swallow
-// the next body, which starts with a parenthesis.
+// TestAppBundleSeparatesStatements checks that bodies without a trailing semicolon do not swallow the next parenthesized body.
 func TestAppBundleSeparatesStatements(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `import { first } from "./first.js";
@@ -167,8 +172,8 @@ export const out = first;
 	writeFile(t, filepath.Join(dir, "first.js"), `export const first = 1`)
 	writeFile(t, filepath.Join(dir, "second.js"), `(function () { globalThis.ran = true })()`)
 	code, err := Bundle(context.Background(), Options{
-		Mode:  ModeApp,
-		Entry: filepath.Join(dir, "index.ts"),
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
 	})
 	if err != nil {
 		t.Fatal(err)

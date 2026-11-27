@@ -3,6 +3,7 @@ package bundler
 import (
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,24 +13,88 @@ import (
 	"github.com/startracex/build/pkg/modpath"
 	"github.com/startracex/build/pkg/plugin"
 	"github.com/startracex/build/pkg/resolve"
+	"github.com/startracex/build/pkg/sourcemap"
 	"github.com/startracex/tsgo/pkg/core"
 )
 
 func TestBuildRequiresMode(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
-	_, err := Build(context.Background(), Options{
-		Entry:  filepath.Join(dir, "index.ts"),
-		OutDir: filepath.Join(dir, "dist"),
+	_, err := Generate(context.Background(), Options{
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			OutDir: filepath.Join(dir, "dist"),
+		}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "unsupported mode") {
 		t.Fatalf("error = %v", err)
 	}
 }
 
+func TestBuildToWritesFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
+	var written []Output
+	result, err := Build(context.Background(), Options{
+		Mode:    ModeLib,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			OutDir:      filepath.Join(dir, "dist"),
+			SourceMap:   new(true),
+			Declaration: new(true),
+		}},
+		Plugins: []plugin.Plugin{{
+			GenerateBundle: func(_ plugin.HookCtx, files []plugin.File) ([]plugin.File, error) {
+				return append(files, plugin.File{Path: filepath.Join(dir, "dist", "extra.txt"), Data: "extra\n"}), nil
+			},
+		}},
+	}, func(file Output) error {
+		written = append(written, file)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Files) != 0 {
+		t.Fatalf("BuildTo kept files: %v", pathsOf(result.Files))
+	}
+	if result.JavaScript() == "" {
+		t.Fatal("BuildTo lost the entry JavaScript")
+	}
+	if result.Sources[filepath.ToSlash(filepath.Join(dir, "index.ts"))] == "" {
+		t.Fatalf("sources = %v", result.Sources)
+	}
+	names := map[string]string{}
+	for _, file := range written {
+		names[filepath.Base(file.Path)] = file.Data
+	}
+	for _, name := range []string{"index.js", "index.js.map", "index.d.ts", "extra.txt"} {
+		if _, ok := names[name]; !ok {
+			t.Fatalf("missing %s in %v", name, pathsOf(written))
+		}
+	}
+}
+
+func TestBuildToWriterError(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
+	sentinel := errors.New("disk full")
+	_, err := Build(context.Background(), Options{
+		Mode:    ModeLib,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{OutDir: filepath.Join(dir, "dist")}},
+	}, func(Output) error { return sentinel })
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("error = %v", err)
+	}
+	if _, err := Build(context.Background(), Options{}, nil); err == nil {
+		t.Fatal("nil writer should be rejected")
+	}
+}
+
 func TestFixtureBundle(t *testing.T) {
 	code, err := Bundle(context.Background(), Options{
-		Mode: ModeApp, Entry: filepath.Join("testdata", "app", "index.ts")})
+		Mode: ModeApp, Entries: []string{filepath.Join("testdata", "app", "index.ts")}})
 	if err != nil {
 		t.Fatalf("bundle: %v", err)
 	}
@@ -90,7 +155,7 @@ export function fromA(): string { return mark; }
 		t.Fatal(err)
 	}
 	code, err := Bundle(context.Background(), Options{
-		Mode: ModeApp, Entry: a})
+		Mode: ModeApp, Entries: []string{a}})
 	if err != nil {
 		t.Fatalf("bundle: %v", err)
 	}
@@ -119,10 +184,12 @@ func TestBundleNodeModulesLibrary(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "node_modules", "pkg", "package.json"), `{"name":"pkg","type":"module","main":"index.js"}`)
 	writeFile(t, filepath.Join(dir, "node_modules", "pkg", "index.js"), `export const secret = "BUNDLED_SECRET";`)
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
-		Entries:           []string{filepath.Join(dir, "index.ts")},
-		Mode:              ModeLib,
-		OutDir:            out,
+	result, err := Generate(context.Background(), Options{
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Mode:    ModeLib,
+		Outputs: []OutputOptions{{
+			OutDir: out,
+		}},
 		BundleNodeModules: true,
 	})
 	if err != nil {
@@ -188,7 +255,10 @@ export function jsxs(type, props) { return { type, props }; }
 		t.Fatal(err)
 	}
 	code, err := Bundle(context.Background(), Options{
-		Mode: ModeApp, Entry: filepath.Join(dir, "ui.tsx"), JSX: JSXAutomatic})
+		Mode:            ModeApp,
+		Entries:         []string{filepath.Join(dir, "ui.tsx")},
+		CompilerOptions: &core.CompilerOptions{Jsx: core.JsxEmitReactJSX},
+	})
 	if err != nil {
 		t.Fatalf("bundle: %v", err)
 	}
@@ -219,7 +289,7 @@ export const value = missing;
 		t.Fatal(err)
 	}
 	_, err := Bundle(context.Background(), Options{
-		Mode: ModeApp, Entry: entry})
+		Mode: ModeApp, Entries: []string{entry}})
 	if err == nil || !strings.Contains(err.Error(), "missing.js") {
 		t.Fatalf("error = %v", err)
 	}
@@ -232,7 +302,7 @@ func TestSyntaxError(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := Bundle(context.Background(), Options{
-		Mode: ModeApp, Entry: entry})
+		Mode: ModeApp, Entries: []string{entry}})
 	if err == nil || !strings.Contains(err.Error(), "TS") {
 		t.Fatalf("error = %v", err)
 	}
@@ -251,8 +321,8 @@ export const value = thing;
 		t.Fatal(err)
 	}
 	code, err := Bundle(context.Background(), Options{
-		Mode:  ModeApp,
-		Entry: entry,
+		Mode:    ModeApp,
+		Entries: []string{entry},
 		Resolve: func(_, spec string) (string, bool, error) {
 			if spec == "alias:thing" {
 				return other, true, nil
@@ -304,8 +374,8 @@ export const sum = fromFile + virtualVal;
 			}
 			return "", false, nil
 		},
-		Transform: func(_ plugin.HookCtx, code, _ string) (string, string, error) {
-			return code + "\n" + markerTransform + "\n", "", nil
+		Transform: func(_ plugin.HookCtx, code, _ string) (string, *sourcemap.Map, error) {
+			return code + "\n" + markerTransform + "\n", nil, nil
 		},
 		GenerateBundle: func(_ plugin.HookCtx, files []plugin.File) ([]plugin.File, error) {
 			for i := range files {
@@ -317,10 +387,12 @@ export const sum = fromFile + virtualVal;
 		},
 	}}
 
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Mode:    ModeApp,
-		Entry:   entry,
-		OutFile: outFile,
+		Entries: []string{entry},
+		Outputs: []OutputOptions{{
+			OutFile: outFile,
+		}},
 		Plugins: plugs,
 	})
 	if err != nil {
@@ -380,7 +452,7 @@ export function outer(): number {
 		t.Fatal(err)
 	}
 	code, err := Bundle(context.Background(), Options{
-		Mode: ModeApp, Entry: filepath.Join(dir, "index.ts")})
+		Mode: ModeApp, Entries: []string{filepath.Join(dir, "index.ts")}})
 	if err != nil {
 		t.Fatalf("bundle: %v", err)
 	}
@@ -400,9 +472,11 @@ console.log("ok");
 
 func TestCJSFormat(t *testing.T) {
 	code, err := Bundle(context.Background(), Options{
-		Mode:   ModeApp,
-		Entry:  filepath.Join("testdata", "app", "index.ts"),
-		Format: FormatCJS,
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join("testdata", "app", "index.ts")},
+		Outputs: []OutputOptions{{
+			Format: FormatCJS,
+		}},
 	})
 	if err != nil {
 		t.Fatalf("bundle: %v", err)
@@ -425,7 +499,7 @@ func TestCJSFormat(t *testing.T) {
 
 func TestPackageResolution(t *testing.T) {
 	code, err := Bundle(context.Background(), Options{
-		Mode: ModeApp, Entry: filepath.Join("testdata", "pkgapp", "src", "index.ts")})
+		Mode: ModeApp, Entries: []string{filepath.Join("testdata", "pkgapp", "src", "index.ts")}})
 	if err != nil {
 		t.Fatalf("bundle: %v", err)
 	}
@@ -474,9 +548,11 @@ console.log(JSON.stringify({
 	}
 
 	cjs, err := Bundle(context.Background(), Options{
-		Mode:   ModeApp,
-		Entry:  filepath.Join("testdata", "pkgapp", "src", "index.ts"),
-		Format: FormatCJS,
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join("testdata", "pkgapp", "src", "index.ts")},
+		Outputs: []OutputOptions{{
+			Format: FormatCJS,
+		}},
 	})
 	if err != nil {
 		t.Fatalf("cjs bundle: %v", err)
@@ -519,7 +595,7 @@ import { fromDyn } from "./dyn.js";
 export { fromDyn };
 `)
 	code, err := Bundle(context.Background(), Options{
-		Mode: ModeApp, Entry: filepath.Join(dir, "index.ts")})
+		Mode: ModeApp, Entries: []string{filepath.Join(dir, "index.ts")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -554,7 +630,7 @@ export const __commonJS = "user";
 export { fromDyn };
 `)
 	code, err := Bundle(context.Background(), Options{
-		Mode: ModeApp, Entry: filepath.Join(dir, "index.ts")})
+		Mode: ModeApp, Entries: []string{filepath.Join(dir, "index.ts")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -592,11 +668,13 @@ import url from "./note.txt?url";
 export { text, url };
 `)
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
-		Mode:     ModeApp,
-		Entry:    filepath.Join(dir, "index.ts"),
-		OutFile:  filepath.Join(out, "bundle.mjs"),
-		Manifest: true,
+	result, err := Generate(context.Background(), Options{
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			OutFile:  filepath.Join(out, "bundle.mjs"),
+			Manifest: true,
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -635,9 +713,9 @@ console.log("drop-me");
 export const mode = __MODE__;
 export { tag };
 `)
-	result, err := Build(context.Background(), Options{
-		Mode:  ModeApp,
-		Entry: filepath.Join(dir, "index.ts"),
+	result, err := Generate(context.Background(), Options{
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
 		Outputs: []OutputOptions{
 			{Format: FormatESM, OutFile: filepath.Join(dir, "out", "index.mjs")},
 			{Format: FormatCJS, OutFile: filepath.Join(dir, "out", "index.cjs")},
@@ -676,10 +754,12 @@ func TestIIFEFormat(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 42;`)
 	code, err := Bundle(context.Background(), Options{
-		Mode:       ModeApp,
-		Entry:      filepath.Join(dir, "index.ts"),
-		Format:     FormatIIFE,
-		GlobalName: "App",
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			Format: FormatIIFE,
+			Name:   "App",
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -710,10 +790,12 @@ export const named = 3;
 export default 9;
 `)
 	code, err := Bundle(context.Background(), Options{
-		Mode:       ModeApp,
-		Entry:      filepath.Join(dir, "index.ts"),
-		Format:     FormatUMD,
-		GlobalName: "Pkg",
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			Format: FormatUMD,
+			Name:   "Pkg",
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -738,10 +820,12 @@ func TestUMDFormat(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 7;`)
 	code, err := Bundle(context.Background(), Options{
-		Mode:       ModeApp,
-		Entry:      filepath.Join(dir, "index.ts"),
-		Format:     FormatUMD,
-		GlobalName: "Lib",
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			Format: FormatUMD,
+			Name:   "Lib",
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -774,7 +858,7 @@ import { bag } from "./data";
 export const value = bag.keep;
 `)
 	code, err := Bundle(context.Background(), Options{
-		Mode: ModeApp, Entry: filepath.Join(dir, "index.ts")})
+		Mode: ModeApp, Entries: []string{filepath.Join(dir, "index.ts")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -794,11 +878,13 @@ export function hello(name: string): string {
 }
 `)
 	sm := true
-	result, err := Build(context.Background(), Options{
-		Mode:      ModeApp,
-		Entry:     filepath.Join(dir, "index.ts"),
-		OutFile:   filepath.Join(dir, "out", "bundle.mjs"),
-		SourceMap: &sm,
+	result, err := Generate(context.Background(), Options{
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			OutFile:   filepath.Join(dir, "out", "bundle.mjs"),
+			SourceMap: &sm,
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -833,9 +919,11 @@ func TestIIFERequiresGlobalName(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
 	_, err := Bundle(context.Background(), Options{
-		Mode:   ModeApp,
-		Entry:  filepath.Join(dir, "index.ts"),
-		Format: FormatIIFE,
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			Format: FormatIIFE,
+		}},
 	})
 	if err == nil {
 		t.Fatal("expected error for missing global name")
@@ -854,10 +942,12 @@ import { shared } from "./util";
 export const fromB = shared;
 `)
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Entries: []string{filepath.Join(dir, "a.ts"), filepath.Join(dir, "b.ts")},
 		Mode:    ModeApp,
-		OutDir:  out,
+		Outputs: []OutputOptions{{
+			OutDir: out,
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -898,10 +988,12 @@ export async function load() {
 }
 `)
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
-		Entry:  filepath.Join(dir, "index.ts"),
-		Mode:   ModeApp,
-		OutDir: out,
+	result, err := Generate(context.Background(), Options{
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Mode:    ModeApp,
+		Outputs: []OutputOptions{{
+			OutDir: out,
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -926,19 +1018,21 @@ func TestTranspileCache(t *testing.T) {
 	cache := filepath.Join(dir, "cache")
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const n = 1;`)
 	opts := Options{
-		Mode:     ModeApp,
-		Entry:    filepath.Join(dir, "index.ts"),
-		OutFile:  filepath.Join(dir, "a.mjs"),
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			OutFile: filepath.Join(dir, "a.mjs"),
+		}},
 		CacheDir: cache,
 	}
-	if _, err := Build(context.Background(), opts); err != nil {
+	if _, err := Generate(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := os.ReadDir(cache)
 	if err != nil || len(entries) == 0 {
 		t.Fatalf("cache not written: %v", err)
 	}
-	if _, err := Build(context.Background(), opts); err != nil {
+	if _, err := Generate(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1000,10 +1094,12 @@ Promise.resolve(typeof m.load === "function" ? m.load() : 0).then((load) => {
 func TestEmitDefaultsMatchTSC(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
-	result, err := Build(context.Background(), Options{
-		Entry:  filepath.Join(dir, "index.ts"),
-		Mode:   ModeLib,
-		OutDir: filepath.Join(dir, "dist"),
+	result, err := Generate(context.Background(), Options{
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Mode:    ModeLib,
+		Outputs: []OutputOptions{{
+			OutDir: filepath.Join(dir, "dist"),
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1043,13 +1139,15 @@ import { vend } from "./vendor";
 export const b = vend + "-b";
 `)
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "a.ts"), filepath.Join(dir, "b.ts")},
-		OutDir:  out,
-		ManualChunks: map[string]string{
-			"vendor": "vendor",
-		},
+		Outputs: []OutputOptions{{
+			OutDir: out,
+			ManualChunks: map[string]string{
+				"vendor": "vendor",
+			},
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1078,9 +1176,9 @@ if (false) {
 }
 `)
 	code, err := Bundle(context.Background(), Options{
-		Mode:   ModeApp,
-		Entry:  filepath.Join(dir, "index.ts"),
-		Define: map[string]string{"__DEV__": "false"},
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Define:  map[string]string{"__DEV__": "false"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1105,7 +1203,7 @@ import { s } from "./shared";
 export const b = s;
 `)
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
+	result, err := Generate(context.Background(), Options{
 		Mode:    ModeApp,
 		Entries: []string{filepath.Join(dir, "a.ts"), filepath.Join(dir, "b.ts")},
 		Outputs: []OutputOptions{
@@ -1140,11 +1238,13 @@ func pathsOf(files []Output) []string {
 }
 
 func TestAppDeclarationsAndSourceMap(t *testing.T) {
-	result, err := Build(context.Background(), Options{
-		Mode:      ModeApp,
-		Entry:     filepath.Join("testdata", "app", "index.ts"),
-		OutFile:   filepath.Join("dist", "app.mjs"),
-		SourceMap: new(true),
+	result, err := Generate(context.Background(), Options{
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join("testdata", "app", "index.ts")},
+		Outputs: []OutputOptions{{
+			OutFile:   filepath.Join("dist", "app.mjs"),
+			SourceMap: new(true),
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1201,13 +1301,15 @@ export function add(a: number, b: number): number { return a + b; }
 export const value = 7;
 `)
 	out := filepath.Join(dir, "dist")
-	result, err := Build(context.Background(), Options{
-		Entry:          filepath.Join(dir, "index.ts"),
-		Mode:           ModeLib,
-		OutDir:         out,
-		SourceMap:      new(true),
-		Declaration:    new(true),
-		DeclarationMap: new(true),
+	result, err := Generate(context.Background(), Options{
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Mode:    ModeLib,
+		Outputs: []OutputOptions{{
+			OutDir:         out,
+			SourceMap:      new(true),
+			Declaration:    new(true),
+			DeclarationMap: new(true),
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1278,7 +1380,7 @@ export const value = secret;
 	writeFile(t, filepath.Join(dir, "node_modules", "left-out", "index.js"), `export const secret = "BUNDLED_SECRET";`)
 	code, err := Bundle(context.Background(), Options{
 		Mode:     ModeApp,
-		Entry:    filepath.Join(dir, "index.ts"),
+		Entries:  []string{filepath.Join(dir, "index.ts")},
 		External: []string{"left-out"},
 	})
 	if err != nil {
@@ -1300,7 +1402,7 @@ export function value(): number { return 1; }
 console.log("SIDE_EFFECT_MARKER");
 `)
 	code, err := Bundle(context.Background(), Options{
-		Mode: ModeApp, Entry: filepath.Join(dir, "index.ts")})
+		Mode: ModeApp, Entries: []string{filepath.Join(dir, "index.ts")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1316,11 +1418,13 @@ func TestJSONImportTrimsWhitespace(t *testing.T) {
 import data from "./data.json";
 export default data;
 `)
-	result, err := Build(context.Background(), Options{
-		Entry:  filepath.Join(dir, "index.ts"),
-		OutDir: filepath.Join(dir, "out"),
-		Format: FormatCJS,
-		Mode:   ModeLib,
+	result, err := Generate(context.Background(), Options{
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			OutDir: filepath.Join(dir, "out"),
+			Format: FormatCJS,
+		}},
+		Mode: ModeLib,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1352,7 +1456,7 @@ console.log("SIDE_EFFECT_MARKER");
 export const unused = 1;
 `)
 	code, err := Bundle(context.Background(), Options{
-		Mode: ModeApp, Entry: filepath.Join(dir, "index.ts")})
+		Mode: ModeApp, Entries: []string{filepath.Join(dir, "index.ts")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1374,7 +1478,7 @@ const dropped = /*#__PURE__*/ mark("DROP_PURE");
 export { kept };
 `)
 	code, err := Bundle(context.Background(), Options{
-		Mode: ModeApp, Entry: filepath.Join(dir, "index.ts")})
+		Mode: ModeApp, Entries: []string{filepath.Join(dir, "index.ts")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1394,7 +1498,7 @@ class Kept { method() { return "KEEP_CLASS"; } }
 export function value() { return new Kept().method(); }
 `)
 	code, err := Bundle(context.Background(), Options{
-		Mode: ModeApp, Entry: filepath.Join(dir, "index.ts")})
+		Mode: ModeApp, Entries: []string{filepath.Join(dir, "index.ts")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1418,10 +1522,12 @@ export function value(): number { return 1; }
 console.log("JS_SIDE_EFFECT");
 `)
 	writeFile(t, filepath.Join(dir, "style.css"), `.x { color: red; }`)
-	result, err := Build(context.Background(), Options{
-		Mode:   ModeApp,
-		Entry:  filepath.Join(dir, "index.ts"),
-		OutDir: filepath.Join(dir, "out"),
+	result, err := Generate(context.Background(), Options{
+		Mode:    ModeApp,
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Outputs: []OutputOptions{{
+			OutDir: filepath.Join(dir, "out"),
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1441,6 +1547,106 @@ console.log("JS_SIDE_EFFECT");
 	}
 	if !hasCSS {
 		t.Fatal("CSS side-effect import was not kept")
+	}
+}
+
+func TestOutputsHaveIndependentEmitSettings(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
+	withMaps := filepath.Join(dir, "with-maps")
+	plain := filepath.Join(dir, "plain")
+	result, err := Generate(context.Background(), Options{
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Mode:    ModeLib,
+		Outputs: []OutputOptions{
+			{
+				OutDir:         withMaps,
+				SourceMap:      new(true),
+				Declaration:    new(true),
+				DeclarationMap: new(true),
+			},
+			{OutDir: plain, Declaration: new(true)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	maps, declarations, plainMaps, plainDeclarations := 0, 0, 0, 0
+	for _, file := range result.Files {
+		path := filepath.ToSlash(file.Path)
+		switch {
+		case strings.HasPrefix(path, filepath.ToSlash(withMaps)+"/") && strings.HasSuffix(path, ".js.map"):
+			maps++
+		case strings.HasPrefix(path, filepath.ToSlash(withMaps)+"/") && strings.HasSuffix(path, ".d.ts"):
+			declarations++
+		case strings.HasPrefix(path, filepath.ToSlash(plain)+"/") && strings.HasSuffix(path, ".map"):
+			plainMaps++
+		case strings.HasPrefix(path, filepath.ToSlash(plain)+"/") && strings.HasSuffix(path, ".d.ts"):
+			plainDeclarations++
+		}
+	}
+	if maps == 0 || declarations == 0 {
+		t.Fatalf("first output missing maps or declarations: %v", pathsOf(result.Files))
+	}
+	if plainMaps != 0 {
+		t.Fatalf("second output emitted maps: %v", pathsOf(result.Files))
+	}
+	if plainDeclarations == 0 {
+		t.Fatalf("second output missing declarations: %v", pathsOf(result.Files))
+	}
+}
+
+func TestOutputsInheritCompilerOptions(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.ts"), `export const value = 1;`)
+	inherited := filepath.Join(dir, "inherited")
+	overridden := filepath.Join(dir, "overridden")
+	result, err := Generate(context.Background(), Options{
+		Entries: []string{filepath.Join(dir, "index.ts")},
+		Mode:    ModeLib,
+		CompilerOptions: &core.CompilerOptions{
+			SourceMap:      core.TSTrue,
+			Declaration:    core.TSTrue,
+			DeclarationMap: core.TSTrue,
+		},
+		Outputs: []OutputOptions{
+			{OutDir: inherited},
+			{
+				OutDir:         overridden,
+				SourceMap:      new(false),
+				DeclarationMap: new(false),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inheritedPrefix := filepath.ToSlash(inherited) + "/"
+	overriddenPrefix := filepath.ToSlash(overridden) + "/"
+	counts := map[string]int{}
+	for _, file := range result.Files {
+		path := filepath.ToSlash(file.Path)
+		switch {
+		case strings.HasPrefix(path, inheritedPrefix) && strings.HasSuffix(path, ".js.map"):
+			counts["inheritedJSMap"]++
+		case strings.HasPrefix(path, inheritedPrefix) && strings.HasSuffix(path, ".d.ts.map"):
+			counts["inheritedDTSMap"]++
+		case strings.HasPrefix(path, inheritedPrefix) && strings.HasSuffix(path, ".d.ts"):
+			counts["inheritedDTS"]++
+		case strings.HasPrefix(path, overriddenPrefix) && strings.HasSuffix(path, ".d.ts"):
+			counts["overriddenDTS"]++
+		case strings.HasPrefix(path, overriddenPrefix) && strings.HasSuffix(path, ".map"):
+			counts["overriddenMap"]++
+		}
+	}
+	if counts["inheritedJSMap"] == 0 || counts["inheritedDTS"] == 0 || counts["inheritedDTSMap"] == 0 {
+		t.Fatalf("inherited output missing tsconfig artifacts: %v", pathsOf(result.Files))
+	}
+	if counts["overriddenDTS"] == 0 {
+		t.Fatalf("overridden output missing inherited declarations: %v", pathsOf(result.Files))
+	}
+	if counts["overriddenMap"] != 0 {
+		t.Fatalf("overridden output ignored explicit false: %v", pathsOf(result.Files))
 	}
 }
 

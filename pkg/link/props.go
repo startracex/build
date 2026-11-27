@@ -85,9 +85,7 @@ func propertyKeyText(name *ast.Node) string {
 	}
 }
 
-// objectUsedProps returns the properties of an object literal binding that must
-// stay: the ones callers read, plus the ones its own methods read through
-// `this`. A method reading `this.x` keeps x alive even when no caller names it.
+// objectUsedProps returns properties that must stay: those callers read plus those its methods read via `this`, which keeps a prop alive even when no caller names it.
 func objectUsedProps(init *ast.Node, props map[string]bool) map[string]bool {
 	extra := objectThisProps(init)
 	if len(extra) == 0 {
@@ -103,8 +101,7 @@ func objectUsedProps(init *ast.Node, props map[string]bool) map[string]bool {
 	return merged
 }
 
-// objectThisProps lists the property names the methods of an object literal
-// read through `this`.
+// objectThisProps lists property names an object literal's methods read through `this`.
 func objectThisProps(init *ast.Node) map[string]bool {
 	names := map[string]bool{}
 	if init == nil || init.Kind != ast.KindObjectLiteralExpression {

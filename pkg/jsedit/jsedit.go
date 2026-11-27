@@ -15,9 +15,9 @@ import (
 
 // Edit is a byte-range replacement in a source string.
 type Edit struct {
-	Start int
-	End   int
 	Text  string
+	End   int
+	Start int
 }
 
 // ApplyEditsWithMap applies edits and returns the new source plus a net line delta.
@@ -66,13 +66,7 @@ func StripShebang(js string) string {
 	return ""
 }
 
-// StripSourceMappingComment removes the sourceMappingURL comments from
-// JavaScript source. Both the "//#" and the legacy "//@" spelling are
-// removed, in the line-comment form and in the block-comment form.
-//
-// Line terminators follow the JavaScript rules: LF, CR, CRLF, LS (U+2028) and
-// PS (U+2029). A comment only reaches its own line terminator, so code that
-// follows the comment on the same logical line is kept.
+// StripSourceMappingComment removes //# and legacy //@ sourceMappingURL comments in line and block form; line terminators follow JavaScript rules (LF, CR, CRLF, LS, PS), and a comment ends at its own terminator so trailing code stays.
 func StripSourceMappingComment(src string) string {
 	// Fast path: most modules carry no source map comment at all.
 	if !strings.Contains(src, "sourceMappingURL=") {
@@ -94,16 +88,14 @@ func StripSourceMappingComment(src string) string {
 	return b.String()
 }
 
-// cutLine returns the end of the first line of src, excluding the line
-// terminator, and the start of the next line.
+// cutLine returns the end of the first line (excluding its terminator) and the start of the next.
 func cutLine(src string, exotic bool) (lineEnd, next int) {
 	lf := strings.IndexByte(src, '\n')
 	limit := len(src)
 	if lf >= 0 {
 		limit = lf
 	}
-	// The terminator search stays inside the current line. Searching the whole
-	// remainder instead turns a LF-only file into O(n^2).
+	// Keep the terminator search inside the current line; searching the whole remainder makes an LF-only file O(n^2).
 	cr := strings.IndexByte(src[:limit], '\r')
 	ls, ps := -1, -1
 	if exotic {
@@ -148,8 +140,7 @@ func isSourceMappingLine(line string) bool {
 	return false
 }
 
-// hasSourceMappingURL reports whether rest is a sourceMappingURL directive:
-// "# sourceMappingURL=" or the legacy "@ sourceMappingURL=".
+// hasSourceMappingURL reports whether rest is a "# sourceMappingURL=" or legacy "@ sourceMappingURL=" directive.
 func hasSourceMappingURL(rest string) bool {
 	if rest == "" || (rest[0] != '#' && rest[0] != '@') {
 		return false

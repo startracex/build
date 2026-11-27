@@ -1,15 +1,7 @@
-// Package define rewrites transpiled JavaScript for the define and drop build
-// options.
-//
-// Every rewrite is an edit over one parse of the module, so a define key is
-// only replaced where it is a free reference: obj.__DEV__ and "__DEV__" are
-// left alone, and a define value must be a single JavaScript expression.
-// Removals replace a whole AST node; a removal that sits in an expression slot
-// becomes void 0 so the surrounding expression stays evaluable and the call's
-// side effects are gone.
-//
-// The edits of every pass are returned as stages so the caller can keep a
-// source map aligned with the rewritten code.
+// Package define rewrites transpiled JavaScript for the define and drop build options.
+// A define key is replaced only where it is a free reference: obj.__DEV__ and "__DEV__" are left alone, and a value must be a single JavaScript expression.
+// Removals replace a whole AST node, becoming void 0 in an expression slot so the surrounding expression stays evaluable.
+// Each pass returns its edits as stages so a caller can keep a source map aligned.
 package define
 
 import (
@@ -22,31 +14,24 @@ import (
 	"github.com/startracex/tsgo/pkg/ast"
 )
 
-// maxFoldPasses bounds the constant-folding loop. Folding is applied one level
-// per pass, so this only limits how deep a constant branch may nest.
+// maxFoldPasses bounds the folding loop; one level folds per pass, so this limits how deep a constant branch may nest.
 const maxFoldPasses = 16
 
-// voidExpr is what a removed expression becomes. The value is undefined, like
-// the removed call's return value, and the operand is side-effect free.
+// voidExpr replaces a removed expression: undefined like the removed call's return, and side-effect free.
 const voidExpr = "void 0"
 
-// Stage is one edit pass over a module. Source is the text the edits apply to;
-// a caller that owns a source map remaps it with each stage in order so
-// generated positions stay aligned with the rewritten code.
+// Stage is one edit pass over a module; a caller with a source map remaps it with each stage in order to keep generated positions aligned.
 type Stage struct {
 	Source string
 	Edits  []jsedit.Edit
 }
 
-// rule is one compiled define directive.
 type rule struct {
 	value string
 	wrap  bool
 }
 
-// ApplyDefineDrop rewrites src with define replacements, drop directives, and
-// constant branch folding. It returns the new source and the stages that
-// produced it.
+// ApplyDefineDrop rewrites src with define replacements, drop directives, and constant folding, returning the new source and its stages.
 func ApplyDefineDrop(src string, defines map[string]string, drop []string) (string, []Stage, error) {
 	rules, err := compile(defines)
 	if err != nil {
@@ -83,9 +68,7 @@ func ApplyDefineDrop(src string, defines map[string]string, drop []string) (stri
 	return cur, stages, nil
 }
 
-// Validate reports the first define key or value, or drop directive, that
-// would not rewrite anything meaningful. A malformed value must fail before it
-// reaches the output instead of being pasted into the module.
+// Validate reports the first invalid define key, value, or directive; a malformed value must fail before reaching output.
 func Validate(defines map[string]string, drop []string) error {
 	if _, err := compile(defines); err != nil {
 		return err
@@ -133,9 +116,7 @@ func compileDrop(drop []string) (console, debugger bool, err error) {
 	return console, debugger, nil
 }
 
-// validateKey accepts a free identifier or a dotted property chain, which is
-// what the AST matcher can recognize. A key that is not a chain would silently
-// match nothing.
+// validateKey accepts a free identifier or dotted property chain, the only shapes the matcher recognizes; anything else would silently match nothing.
 func validateKey(key string) error {
 	if key == "" {
 		return fmt.Errorf("define: empty key")
@@ -177,13 +158,10 @@ func isIdentifierSegment(segment string) bool {
 	return true
 }
 
-// valueProbe wraps a define value in a declaration so the parser validates it
-// with the same grammar the output will use.
+// valueProbe wraps a value in a declaration so the parser validates it with the output's grammar.
 const valueProbe = "const __define_value = "
 
-// compileValue validates the replacement text and reports whether it needs
-// parentheses when it replaces a reference. Values that are already a primary
-// expression bind tightly enough in every position.
+// compileValue validates the replacement and reports whether it needs parentheses; primary expressions bind tightly enough everywhere.
 func compileValue(key, value string) (string, bool, error) {
 	text := strings.TrimSpace(value)
 	if text == "" {
@@ -224,8 +202,7 @@ func declarationInitializer(stmt *ast.Node) *ast.Node {
 	return decl.AsVariableDeclaration().Initializer
 }
 
-// needsWrap reports whether the value must be parenthesized to keep its
-// meaning when it replaces a reference inside a larger expression.
+// needsWrap reports whether a value must be parenthesized to keep its meaning inside a larger expression.
 func needsWrap(expr *ast.Node) bool {
 	switch expr.Kind {
 	case ast.KindIdentifier,
@@ -237,9 +214,7 @@ func needsWrap(expr *ast.Node) bool {
 		ast.KindPropertyAccessExpression, ast.KindElementAccessExpression:
 		return false
 	default:
-		// Object literals, ternaries, logical and binary expressions, function
-		// and arrow expressions, and await/yield all need parentheses to stay a
-		// single operand.
+		// Object literals, ternaries, binary/logical, function/arrow, and await/yield need parentheses to stay one operand.
 		return true
 	}
 }

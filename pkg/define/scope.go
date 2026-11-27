@@ -4,9 +4,7 @@ import (
 	"github.com/startracex/tsgo/pkg/ast"
 )
 
-// scopeNames returns the bindings a node introduces, or nil when the node does
-// not open a scope. The names let a define skip identifiers that a local
-// binding shadows.
+// scopeNames returns the bindings a node introduces, or nil when it opens no scope, so defines can skip shadowed identifiers.
 func scopeNames(src string, n *ast.Node) map[string]bool {
 	var names map[string]bool
 	add := func(name *ast.Node) {
@@ -46,7 +44,6 @@ func scopeNames(src string, n *ast.Node) map[string]bool {
 	return names
 }
 
-// statementScope collects the bindings of a top level statement list.
 func statementScope(src string, statements []*ast.Node) map[string]bool {
 	names := map[string]bool{}
 	for _, stmt := range statements {
@@ -105,7 +102,6 @@ func addDeclarationListNames(src string, node *ast.Node, add func(*ast.Node)) {
 	}
 }
 
-// addBindingNames collects the names a binding pattern declares.
 func addBindingNames(src string, name *ast.Node, names map[string]bool) {
 	if name == nil {
 		return

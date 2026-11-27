@@ -9,16 +9,14 @@ import (
 
 func bundleDir(t *testing.T, dir, entry string) string {
 	t.Helper()
-	code, err := Bundle(context.Background(), Options{Mode: ModeApp, Entry: filepath.Join(dir, entry)})
+	code, err := Bundle(context.Background(), Options{Mode: ModeApp, Entries: []string{filepath.Join(dir, entry)}})
 	if err != nil {
 		t.Fatalf("bundle: %v", err)
 	}
 	return code
 }
 
-// TestAppBundleKeepsDefaultParameterReferences guards a default value that
-// reads a module binding: the parameter scope used to be walked without its
-// initializers, so the binding looked unused and was dropped.
+// TestAppBundleKeepsDefaultParameterReferences guards a default value reading a module binding that was wrongly dropped.
 func TestAppBundleKeepsDefaultParameterReferences(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.js"), `import { out } from "./main.js";
@@ -42,9 +40,7 @@ console.log(JSON.stringify(m));`))
 	}
 }
 
-// TestAppBundleRenamesPropertyAccessObjects guards `x.prop` where x is a module
-// local: the object reference was left unrenamed, so a second module owning the
-// same source name made the access read the wrong binding.
+// TestAppBundleRenamesPropertyAccessObjects guards x.prop where a module-local object used to keep its source name.
 func TestAppBundleRenamesPropertyAccessObjects(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.js"), `import { a } from "./a.js";
@@ -68,9 +64,7 @@ console.log(JSON.stringify(m));`))
 	}
 }
 
-// TestAppBundleKeepsNamesOfUnusedSideEffectDeclarations guards a top-level
-// declaration nothing references: the statement stays for its side effect, so
-// its name still has to stay unique across modules.
+// TestAppBundleKeepsNamesOfUnusedSideEffectDeclarations guards name uniqueness for side-effect-only declarations.
 func TestAppBundleKeepsNamesOfUnusedSideEffectDeclarations(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.js"), `import { a } from "./a.js";
@@ -99,9 +93,7 @@ console.log(JSON.stringify(m));`))
 	}
 }
 
-// TestAppBundleKeepsPropertiesReadThroughThis guards property-level tree
-// shaking of an object literal: a method reading `this.x` keeps x alive even
-// though no caller names it.
+// TestAppBundleKeepsPropertiesReadThroughThis guards this.x reads that keep x alive in property-level shaking.
 func TestAppBundleKeepsPropertiesReadThroughThis(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "index.js"), `import { value } from "./store.js";

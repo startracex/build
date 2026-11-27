@@ -7,13 +7,11 @@ import (
 	"github.com/startracex/build/pkg/jsedit"
 )
 
-// RemapEdits rewrites generated positions in mapJSON after edits were applied
-// to genSource (the file the map describes). Points that fall inside a deleted
-// range are dropped, points inside a replaced range move to the replacement,
-// and points after an edit shift by the net byte delta.
-func RemapEdits(mapJSON, genSource string, edits []jsedit.Edit) string {
-	if strings.TrimSpace(mapJSON) == "" || len(edits) == 0 {
-		return mapJSON
+// RemapEdits rewrites generated positions in m after edits to genSource, the file the map describes.
+// Points in a deleted range are dropped, points in a replaced range move to the replacement, and later points shift by the net byte delta.
+func RemapEdits(m *Map, genSource string, edits []jsedit.Edit) *Map {
+	if m.IsZero() || len(edits) == 0 {
+		return m
 	}
 	var raw struct {
 		Version        int       `json:"version"`
@@ -23,12 +21,12 @@ func RemapEdits(mapJSON, genSource string, edits []jsedit.Edit) string {
 		Names          []string  `json:"names"`
 		Mappings       string    `json:"mappings"`
 	}
-	if json.Unmarshal([]byte(mapJSON), &raw) != nil || raw.Mappings == "" {
-		return mapJSON
+	if json.Unmarshal([]byte(m.JSON()), &raw) != nil || raw.Mappings == "" {
+		return m
 	}
 	points := decodeAllPoints(raw.Mappings)
 	if len(points) == 0 {
-		return mapJSON
+		return m
 	}
 	sorted := append([]jsedit.Edit(nil), edits...)
 	for i := range sorted {
@@ -40,7 +38,7 @@ func RemapEdits(mapJSON, genSource string, edits []jsedit.Edit) string {
 	}
 	newSrc, err := jsedit.ApplyEdits(genSource, sorted)
 	if err != nil {
-		return mapJSON
+		return m
 	}
 	oldStarts := lineStartOffsets(genSource)
 	newStarts := lineStartOffsets(newSrc)
@@ -59,8 +57,7 @@ func RemapEdits(mapJSON, genSource string, edits []jsedit.Edit) string {
 			genLine: line, genCol: col,
 			source: p.source, srcLine: p.srcLine, srcCol: p.srcCol,
 		}
-		// Clamping a replaced region to its start can put several points on one
-		// generated position; the first one wins so the mappings stay sorted.
+		// Clamping a replaced region can put several points on one position; keeping the first preserves sorted mappings.
 		if n := len(kept); n > 0 && kept[n-1].genLine == line && kept[n-1].genCol == col {
 			continue
 		}
@@ -78,19 +75,19 @@ func RemapEdits(mapJSON, genSource string, edits []jsedit.Edit) string {
 	}
 	buf, err := marshalMap(out)
 	if err != nil {
-		return mapJSON
+		return m
 	}
-	return string(buf)
+	return newMap(string(buf))
 }
 
-// OffsetColumns shifts every generated column in a source map by n (wrap indent).
-func OffsetColumns(mapJSON string, n int) string {
-	if n == 0 || strings.TrimSpace(mapJSON) == "" {
-		return mapJSON
+// OffsetColumns shifts every generated column in m by n (wrap indent).
+func OffsetColumns(m *Map, n int) *Map {
+	if n == 0 || m.IsZero() {
+		return m
 	}
 	var raw map[string]any
-	if json.Unmarshal([]byte(mapJSON), &raw) != nil {
-		return mapJSON
+	if json.Unmarshal([]byte(m.JSON()), &raw) != nil {
+		return m
 	}
 	mappings, _ := raw["mappings"].(string)
 	points := decodeAllPoints(mappings)
@@ -103,9 +100,9 @@ func OffsetColumns(mapJSON string, n int) string {
 	raw["mappings"] = encodeMappingsCol(points)
 	buf, err := marshalMap(raw)
 	if err != nil {
-		return mapJSON
+		return m
 	}
-	return string(buf)
+	return newMap(string(buf))
 }
 
 func mapOffsetThroughEdits(src string, off int, sorted []jsedit.Edit) (newOff int, drop bool) {
@@ -113,17 +110,14 @@ func mapOffsetThroughEdits(src string, off int, sorted []jsedit.Edit) (newOff in
 	for _, e := range sorted {
 		if off >= e.End {
 			if off == e.End && deletedTrailer(src, e) {
-				// The point describes the end of the removed statement. It
-				// would land on the end of the previous line and claim code
-				// that is gone.
+				// Such a point would land at the previous line's end and claim removed code.
 				return 0, true
 			}
 			delta += len(e.Text) - (e.End - e.Start)
 			continue
 		}
 		if off >= e.Start {
-			// A deleted range has no code left to point at. A replaced range
-			// keeps its mapping: the new text starts at the edit's position.
+			// A deleted range has no code to point at; a replaced range keeps its mapping at the edit's position.
 			if e.Text == "" {
 				return 0, true
 			}
@@ -134,8 +128,7 @@ func mapOffsetThroughEdits(src string, off int, sorted []jsedit.Edit) (newOff in
 	return off + delta, false
 }
 
-// deletedTrailer reports whether e removes a complete statement, so a mapping
-// at e.End belongs to the removed code instead of the code that follows it.
+// deletedTrailer reports whether e removes a whole statement, so a mapping at e.End belongs to the removed code.
 func deletedTrailer(src string, e jsedit.Edit) bool {
 	if e.Text != "" || e.End <= e.Start || e.End > len(src) {
 		return false

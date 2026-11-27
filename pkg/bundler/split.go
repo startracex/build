@@ -3,22 +3,20 @@ package bundler
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/jsedit"
 	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/build/pkg/output"
 	"github.com/startracex/build/pkg/sourcemap"
 	"github.com/startracex/build/pkg/wrap"
 	"github.com/startracex/tsgo/pkg/ast"
 )
 
-// emitSplit builds entry bundles plus shared/dynamic chunks for an app graph.
-//
-// Every import() target becomes its own chunk, so the dynamic import stays
-// lazy. Modules reachable from several entries go to a shared chunk.
+// emitSplit builds entry bundles plus shared/dynamic chunks; import() targets stay lazy and multi-entry modules are shared.
 func (b *bundler) emitSplit(entries []string) (*Result, error) {
 	b.chunkPaths = map[string]string{}
 	graph := b.staticDeps()
@@ -32,7 +30,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 		entrySync[id] = reach(graph, id)
 	}
 
-	// Modules reachable from ≥2 entry roots (static) are shared across entries.
+	// Modules reachable from multiple entries are shared.
 	entryOwner := map[string]int{}
 	for _, set := range entrySync {
 		for id := range set {
@@ -42,7 +40,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 	sharedMods := map[string]bool{}
 	for id, n := range entryOwner {
 		if n > 1 {
-			// Entry roots themselves stay in their entry files.
+			// Entry roots stay in their own entry files.
 			isEntry := slices.Contains(entryIDs, id)
 			if !isEntry {
 				sharedMods[id] = true
@@ -91,7 +89,7 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 	var files []Output
 	manifest := map[string]string{}
 
-	// Manual chunk assignments override automatic shared/async placement.
+	// Manual chunk assignments override automatic placement.
 	manualGroups := map[string][]string{}
 	for id := range b.units {
 		if name := b.manualChunkName(id); name != "" {
@@ -109,36 +107,44 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 	for _, name := range manualNames {
 		ids := manualGroups[name]
 		sort.Strings(ids)
-		rel := "chunks/" + name + ".js"
+		rel := b.chunkOutputRel(name, name, ids, "chunks/"+name+".js")
+		for _, id := range ids {
+			b.chunkPaths[id] = rel
+		}
 		js, err := b.linkChunk(ids[0], rel, ids)
 		if err != nil {
 			return nil, err
 		}
-		out := filepath.Join(b.opts.OutDir, filepath.FromSlash(rel))
+		out := filepath.Join(b.output.OutDir, filepath.FromSlash(rel))
 		files = append(files, Output{Path: out, Data: js})
 		manifest[rel] = out
 	}
 
 	if len(sharedMods) > 0 {
-		sharedRel := "chunks/shared-" + shortHash(keysOf(sharedMods)) + ".js"
+		sharedIDs := keysOf(sharedMods)
+		sharedRel := b.chunkOutputRel("shared", "shared", sharedIDs, "chunks/shared-"+shortHash(sharedIDs)+".js")
 		for id := range sharedMods {
 			if _, ok := b.chunkPaths[id]; ok {
 				continue
 			}
 			b.chunkPaths[id] = sharedRel
 		}
-		root := keysOf(sharedMods)[0]
-		js, err := b.linkChunk(root, sharedRel, keysOf(sharedMods))
+		root := sharedIDs[0]
+		js, err := b.linkChunk(root, sharedRel, sharedIDs)
 		if err != nil {
 			return nil, err
 		}
-		out := filepath.Join(b.opts.OutDir, filepath.FromSlash(sharedRel))
+		out := filepath.Join(b.output.OutDir, filepath.FromSlash(sharedRel))
 		files = append(files, Output{Path: out, Data: js})
 		manifest[sharedRel] = out
 	}
 
 	asyncRootList := keysOf(asyncRoots)
 	sort.Strings(asyncRootList)
+	rootDir := b.rootDir
+	if rootDir == "" {
+		rootDir = modpath.DisplayRoot(b.cwd, entries)
+	}
 	for _, root := range asyncRootList {
 		if _, ok := b.chunkPaths[root]; ok {
 			continue
@@ -154,7 +160,12 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 			mods[id] = true
 		}
 		mods[root] = true
-		chunkRel := "chunks/" + chunkName(root) + ".js"
+		chunkRel := b.chunkOutputRel(
+			modpath.BaseStem(root),
+			entryRelPath(rootDir, root),
+			[]string{root},
+			"chunks/"+chunkName(root)+".js",
+		)
 		for id := range mods {
 			if !sharedMods[id] {
 				if _, ok := b.chunkPaths[id]; ok {
@@ -167,16 +178,13 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 		if err != nil {
 			return nil, err
 		}
-		out := filepath.Join(b.opts.OutDir, filepath.FromSlash(chunkRel))
+		out := filepath.Join(b.output.OutDir, filepath.FromSlash(chunkRel))
 		files = append(files, Output{Path: out, Data: js})
 		manifest[root] = out
 	}
 
 	var entryJS string
-	rootDir := b.opts.RootDir
-	if rootDir == "" {
-		rootDir = modpath.DisplayRoot(entries)
-	}
+	entryOut := make(map[string]string, len(entries))
 	for i, e := range entries {
 		rel := filepath.Base(modpath.JavascriptOutputAbs(e))
 		if r, err := filepath.Rel(rootDir, modpath.JavascriptOutputAbs(e)); err == nil {
@@ -187,14 +195,29 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 		if linkFmt == FormatIIFE || linkFmt == FormatUMD {
 			b.format = FormatCJS
 		}
+		// Chunk imports resolve from the entry's output directory, which a name pattern can move; hashing changes only the file name.
+		entryRel, fullPath := b.renderedEntryRel(rel, emitFmt, "")
+		entryDir := filepath.Dir(entryRel)
+		if fullPath {
+			if r, err := filepath.Rel(b.output.OutDir, entryRel); err == nil {
+				entryDir = filepath.Dir(r)
+			}
+		}
+		prevLinking := b.linkingChunk
+		if entryDir == "" {
+			b.linkingChunk = "index.js"
+		} else {
+			b.linkingChunk = entryDir + "/index.js"
+		}
 		linked, err := b.linkModules(modpath.ModuleID(e), nil)
+		b.linkingChunk = prevLinking
 		b.format = emitFmt
 		if err != nil {
 			return nil, err
 		}
-		js := wrap.WrapFormat(linked, string(emitFmt), b.opts.GlobalName)
-		out := filepath.Join(b.opts.OutDir, filepath.FromSlash(rel))
-		if b.sourceMap {
+		js := wrap.WrapFormat(linked, string(emitFmt), b.output.Name)
+		out := b.entryOutputPath(rel, emitFmt, js)
+		if b.output.sourceMap(b.compilerOpts) {
 			mapName := filepath.Base(out) + ".map"
 			js = strings.TrimRight(js, "\n") + "\n//# sourceMappingURL=" + mapName + "\n"
 			mapData := b.composeAppSourceMap(linked, filepath.Base(out))
@@ -206,9 +229,10 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 					mapData = sourcemap.OffsetColumns(mapData, indent)
 				}
 			}
-			files = append(files, Output{Path: out + ".map", Data: mapData})
+			files = append(files, Output{Path: out + ".map", Data: mapData.JSON()})
 		}
 		files = append(files, Output{Path: out, Data: js})
+		entryOut[e] = out
 		if i == 0 {
 			entryJS = js
 		}
@@ -219,14 +243,79 @@ func (b *bundler) emitSplit(entries []string) (*Result, error) {
 
 	result := &Result{Files: files, Manifest: manifest, entry: entryJS}
 	for _, e := range entries {
-		rel := filepath.Base(modpath.JavascriptOutputAbs(e))
-		if r, err := filepath.Rel(rootDir, modpath.JavascriptOutputAbs(e)); err == nil {
-			rel = filepath.ToSlash(r)
-		}
-		out := filepath.Join(b.opts.OutDir, filepath.FromSlash(rel))
-		b.emitEntryCSS(result, out, e)
+		b.emitEntryCSS(result, entryOut[e], e)
 	}
 	return result, nil
+}
+
+// entryOutputPath resolves a name template, EntryFileNames, or the rootDir-relative layout.
+func (b *bundler) entryOutputPath(defaultRel string, format Format, js string) string {
+	pattern := b.entryPattern()
+	if pattern == "" {
+		return filepath.Join(b.output.OutDir, filepath.FromSlash(defaultRel))
+	}
+	hash := ""
+	if output.HasHashPlaceholder(pattern) {
+		hash = output.ContentHash(js)
+	}
+	rel, fullPath := b.renderedEntryRel(defaultRel, format, hash)
+	if fullPath {
+		return rel
+	}
+	return filepath.Join(b.output.OutDir, filepath.FromSlash(rel))
+}
+
+// entryPattern prefers the full-path --outfile template over OutDir-joined EntryFileNames.
+func (b *bundler) entryPattern() string {
+	if b.output.NameTemplate != "" {
+		return b.output.NameTemplate
+	}
+	return b.output.EntryFileNames
+}
+
+// renderedEntryRel renders an entry path without OutDir; fullPath marks a complete NameTemplate path.
+func (b *bundler) renderedEntryRel(defaultRel string, format Format, hash string) (string, bool) {
+	pattern := b.entryPattern()
+	if pattern == "" {
+		return defaultRel, false
+	}
+	rendered := output.RenderFileName(pattern, output.FileNameParts{
+		Name:   modpath.BaseStem(defaultRel),
+		Path:   modpath.Stem(filepath.ToSlash(defaultRel)),
+		Ext:    modpath.Ext(defaultRel),
+		Type:   "entry",
+		Format: string(format),
+		Hash:   hash,
+	})
+	return filepath.ToSlash(rendered), b.output.NameTemplate != ""
+}
+
+// chunkOutputRel returns an OutDir-relative chunk path, using the built-in layout when ChunkFileNames is empty.
+func (b *bundler) chunkOutputRel(name, path string, mods []string, fallback string) string {
+	if b.output.ChunkFileNames == "" {
+		return fallback
+	}
+	hash := ""
+	if output.HasHashPlaceholder(b.output.ChunkFileNames) {
+		hash = shortHash(mods)
+	}
+	return filepath.ToSlash(output.RenderFileName(b.output.ChunkFileNames, output.FileNameParts{
+		Name:   name,
+		Path:   path,
+		Ext:    ".js",
+		Type:   "chunk",
+		Format: string(FormatESM),
+		Hash:   hash,
+	}))
+}
+
+// entryRelPath returns the rootDir-relative entry path without extension for [path] patterns.
+func entryRelPath(rootDir, abs string) string {
+	p := modpath.JavascriptOutputAbs(abs)
+	if r, err := filepath.Rel(rootDir, p); err == nil {
+		return modpath.Stem(filepath.ToSlash(r))
+	}
+	return modpath.BaseStem(p)
 }
 
 func (b *bundler) linkChunk(entryID, chunkRel string, preserve []string) (string, error) {
@@ -254,8 +343,7 @@ func (b *bundler) staticDeps() map[string][]string {
 			}
 			dep := modpath.ModuleID(resolved)
 			if _, loaded := b.units[dep]; !loaded {
-				// The graph must not point at a module that was never loaded:
-				// a chunk built from such an id has no entry module.
+				// A chunk must not point at a module that was never loaded, which has no entry module.
 				continue
 			}
 			out[id] = append(out[id], dep)
@@ -264,8 +352,7 @@ func (b *bundler) staticDeps() map[string][]string {
 	return out
 }
 
-// dynamicImportEdges lists the import() targets of each module. A require call
-// is synchronous and stays in its bundle, so it must not become a chunk root.
+// dynamicImportEdges lists import() targets; require() is synchronous and must not become a chunk root.
 func (b *bundler) dynamicImportEdges() map[string]map[string]bool {
 	edges := map[string]map[string]bool{}
 	for id, unit := range b.units {
@@ -342,11 +429,11 @@ func shortHash(parts []string) string {
 }
 
 func (b *bundler) manualChunkName(moduleID string) string {
-	if b == nil || len(b.opts.ManualChunks) == 0 {
+	if b == nil || len(b.output.ManualChunks) == 0 {
 		return ""
 	}
 	bestKey, bestName := "", ""
-	for key, name := range b.opts.ManualChunks {
+	for key, name := range b.output.ManualChunks {
 		if key == "" || name == "" {
 			continue
 		}

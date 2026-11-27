@@ -4,28 +4,30 @@ import (
 	"encoding/json/v2"
 	"sort"
 	"strings"
+
+	"github.com/startracex/tsgo/pkg/vfs"
 )
 
 // ModuleMap is one module's transpile map plus original source text.
 type ModuleMap struct {
 	Display  string // path as written in "// file" linker comments
 	Original string // original source content
-	JSMap    string // transpile source map JSON (may be empty)
+	JSMap    *Map   // transpile source map (may be nil)
 }
 
-// Compose chains two source maps. inner maps the current text back to an
-// intermediate text (for example a plugin transform), and outer maps that
-// intermediate text back to the original source (the transpile). The result maps
-// the current text straight to the original source, so the module keeps a usable
-// map after a plugin rewrites it.
-func Compose(outerJSON, innerJSON, fallbackContent string) string {
-	outer := decodeMap(outerJSON, fallbackContent)
-	inner := decodeMap(innerJSON, fallbackContent)
-	if outer == nil || inner == nil {
-		return innerJSON
+// Compose chains two source maps: inner maps current text to an intermediate one (a plugin transform), outer maps that to the original (the transpile).
+// The result maps current text straight to the original, keeping a usable map after a plugin rewrite.
+func Compose(outer, inner *Map, fallbackContent string) *Map {
+	if outer.IsZero() || inner.IsZero() {
+		return inner
+	}
+	outMap := outer.decode(fallbackContent)
+	inMap := inner.decode(fallbackContent)
+	if outMap == nil || inMap == nil {
+		return inner
 	}
 	maxLine := -1
-	for line := range inner.segs {
+	for line := range inMap.segs {
 		if line > maxLine {
 			maxLine = line
 		}
@@ -35,22 +37,22 @@ func Compose(outerJSON, innerJSON, fallbackContent string) string {
 	var contents []string
 	sourceIndex := map[int]int{}
 	for line := 0; line <= maxLine; line++ {
-		segs := append([]seg(nil), inner.segs[line]...)
+		segs := append([]seg(nil), inMap.segs[line]...)
 		sort.Slice(segs, func(i, j int) bool { return segs[i].genCol < segs[j].genCol })
 		for _, s := range segs {
-			if s.srcIdx < 0 || s.srcIdx >= len(inner.sources) {
+			if s.srcIdx < 0 || s.srcIdx >= len(inMap.sources) {
 				continue
 			}
-			orig, ok := lookupSegment(outer, s.srcLine, s.srcCol)
-			if !ok || orig.srcIdx < 0 || orig.srcIdx >= len(outer.sources) {
+			orig, ok := lookupSegment(outMap, s.srcLine, s.srcCol)
+			if !ok || orig.srcIdx < 0 || orig.srcIdx >= len(outMap.sources) {
 				continue
 			}
 			out, seen := sourceIndex[orig.srcIdx]
 			if !seen {
 				out = len(sources)
 				sourceIndex[orig.srcIdx] = out
-				sources = append(sources, outer.sources[orig.srcIdx])
-				contents = append(contents, outer.content[orig.srcIdx])
+				sources = append(sources, outMap.sources[orig.srcIdx])
+				contents = append(contents, outMap.content[orig.srcIdx])
 			}
 			points = append(points, mapPointCol{
 				genLine: line,
@@ -62,7 +64,7 @@ func Compose(outerJSON, innerJSON, fallbackContent string) string {
 		}
 	}
 	if len(points) == 0 {
-		return innerJSON
+		return inner
 	}
 	content := make([]*string, len(contents))
 	for i := range contents {
@@ -78,13 +80,12 @@ func Compose(outerJSON, innerJSON, fallbackContent string) string {
 	}
 	buf, err := marshalMap(raw)
 	if err != nil {
-		return innerJSON
+		return inner
 	}
-	return string(buf)
+	return newMap(string(buf))
 }
 
-// lookupSegment returns the outer segment that covers generated position
-// line:col: the last segment on that line starting at or before the column.
+// lookupSegment returns the outer segment covering line:col: the last one starting at or before the column.
 func lookupSegment(m *decodedMap, line, col int) (seg, bool) {
 	segs := append([]seg(nil), m.segs[line]...)
 	if len(segs) == 0 {
@@ -102,14 +103,13 @@ func lookupSegment(m *decodedMap, line, col int) (seg, bool) {
 	return best, found
 }
 
-// ComposeLinked builds a source map for linked output by combining per-module
-// transpile maps with "// path" section markers. Generated columns map to
-// original columns when a transpile map is present; otherwise line identity.
-func ComposeLinked(js, fileName string, modules []ModuleMap) string {
+// ComposeLinked builds a linked-output source map from per-module maps and "// path" section markers.
+// Generated columns map to original columns when a transpile map exists, otherwise by line identity.
+// A nil fs reads source contents from the OS file system.
+func ComposeLinked(fs vfs.FS, js, fileName string, modules []ModuleMap) *Map {
 	byDisplay := map[string]ModuleMap{}
 	for _, m := range modules {
 		byDisplay[m.Display] = m
-		// also allow slash-normalized lookup
 		byDisplay[strings.ReplaceAll(m.Display, "\\", "/")] = m
 	}
 
@@ -135,10 +135,10 @@ func ComposeLinked(js, fileName string, modules []ModuleMap) string {
 		if ok {
 			srcContent = m.Original
 			if srcContent == "" {
-				srcContent = readIfExists(currentDisplay)
+				srcContent = readIfExists(fs, currentDisplay)
 			}
 		} else {
-			srcContent = readIfExists(currentDisplay)
+			srcContent = readIfExists(fs, currentDisplay)
 		}
 		si, seen := index[srcName]
 		if !seen {
@@ -155,9 +155,9 @@ func ComposeLinked(js, fileName string, modules []ModuleMap) string {
 			currentDisplay = name
 			sectionStart = i + 1
 			srcLineInSection = 0
-			if m, ok := byDisplay[name]; ok && strings.TrimSpace(m.JSMap) != "" {
+			if m, ok := byDisplay[name]; ok && !m.JSMap.IsZero() {
 				if decodedMaps[name] == nil {
-					decodedMaps[name] = decodeMap(m.JSMap, m.Original)
+					decodedMaps[name] = m.JSMap.decode(m.Original)
 				}
 			}
 			continue
@@ -166,7 +166,7 @@ func ComposeLinked(js, fileName string, modules []ModuleMap) string {
 			continue
 		}
 		if dm := decodedMaps[currentDisplay]; dm != nil {
-			// Map this generated line relative to section using transpile map's gen lines.
+			// Map the generated line relative to the section using the transpile map's gen lines.
 			rel := max(i-sectionStart, 0)
 			if segs := dm.segs[rel]; len(segs) > 0 {
 				for _, s := range segs {
@@ -221,15 +221,15 @@ func ComposeLinked(js, fileName string, modules []ModuleMap) string {
 	}
 	buf, err := marshalMap(raw)
 	if err != nil {
-		return "{}"
+		return newMap("{}")
 	}
-	return string(buf)
+	return newMap(string(buf))
 }
 
 type decodedMap struct {
-	sources []string
-	content []string
 	segs    map[int][]seg
+	content []string
+	sources []string
 }
 
 type seg struct {
@@ -357,31 +357,31 @@ func encodeMappingsCol(points []mapPointCol) string {
 }
 
 // OffsetLines shifts every generated line in a source map by n (e.g. wrap preamble).
-func OffsetLines(mapJSON string, n int) string {
-	if n == 0 || strings.TrimSpace(mapJSON) == "" {
-		return mapJSON
+func OffsetLines(m *Map, n int) *Map {
+	if n == 0 || m.IsZero() {
+		return m
 	}
 	var raw map[string]any
-	if json.Unmarshal([]byte(mapJSON), &raw) != nil {
-		return mapJSON
+	if json.Unmarshal([]byte(m.JSON()), &raw) != nil {
+		return m
 	}
 	mappings, _ := raw["mappings"].(string)
 	raw["mappings"] = strings.Repeat(";", n) + mappings
 	buf, err := marshalMap(raw)
 	if err != nil {
-		return mapJSON
+		return m
 	}
-	return string(buf)
+	return newMap(string(buf))
 }
 
 // DropLeadingLines removes the first n generated lines from a source map.
-func DropLeadingLines(mapJSON string, n int) string {
-	if n <= 0 || strings.TrimSpace(mapJSON) == "" {
-		return mapJSON
+func DropLeadingLines(m *Map, n int) *Map {
+	if n <= 0 || m.IsZero() {
+		return m
 	}
 	var raw map[string]any
-	if json.Unmarshal([]byte(mapJSON), &raw) != nil {
-		return mapJSON
+	if json.Unmarshal([]byte(m.JSON()), &raw) != nil {
+		return m
 	}
 	mappings, _ := raw["mappings"].(string)
 	points := decodeAllPoints(mappings)
@@ -396,7 +396,7 @@ func DropLeadingLines(mapJSON string, n int) string {
 	raw["mappings"] = encodeMappingsCol(kept)
 	buf, err := marshalMap(raw)
 	if err != nil {
-		return mapJSON
+		return m
 	}
-	return string(buf)
+	return newMap(string(buf))
 }

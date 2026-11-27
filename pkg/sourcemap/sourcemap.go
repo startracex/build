@@ -3,18 +3,16 @@ package sourcemap
 import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/startracex/build/pkg/asset"
+	"github.com/startracex/build/pkg/filepath"
 	"github.com/startracex/build/pkg/modpath"
+	"github.com/startracex/tsgo/pkg/vfs"
 )
 
-// marshalMap encodes a source map object with the settings the v1 encoder used:
-// sorted keys, '<', '>', '&', U+2028 and U+2029 escaped, and invalid UTF-8
-// replaced with U+FFFD. Source maps embed file contents, so keeping the same
-// escaping leaves the output byte-stable for the same input.
+// marshalMap encodes a map with the v1 encoder's settings: sorted keys, escaped HTML/JS chars, and invalid UTF-8 replaced with U+FFFD.
+// Matching that escaping keeps output byte-stable since maps embed file contents.
 func marshalMap(v any) ([]byte, error) {
 	return json.Marshal(v,
 		json.Deterministic(true),
@@ -24,8 +22,9 @@ func marshalMap(v any) ([]byte, error) {
 	)
 }
 
-// AppSourceMap builds a line-level source map from linker source comments.
-func AppSourceMap(js, file string) string {
+// AppSourceMap builds a line-level map from linker source comments, reading marked sources through fs to fill sourcesContent.
+// A nil fs reads the OS file system.
+func AppSourceMap(fs vfs.FS, js, file string) *Map {
 	lines := strings.Split(js, "\n")
 	var sources []string
 	index := map[string]int{}
@@ -40,7 +39,7 @@ func AppSourceMap(js, file string) string {
 				n = len(sources)
 				index[name] = n
 				sources = append(sources, name)
-				contents[name] = readIfExists(name)
+				contents[name] = readIfExists(fs, name)
 			}
 			current = n
 			srcLine = 0
@@ -68,9 +67,9 @@ func AppSourceMap(js, file string) string {
 	}
 	buf, err := marshalMap(raw)
 	if err != nil {
-		return "{}"
+		return newMap("{}")
 	}
-	return string(buf)
+	return newMap(string(buf))
 }
 
 type mapPoint struct {
@@ -130,8 +129,8 @@ func sourceComment(line string) (string, bool) {
 	return "", false
 }
 
-func readIfExists(path string) string {
-	buf, err := os.ReadFile(filepath.FromSlash(path))
+func readIfExists(fs vfs.FS, path string) string {
+	buf, err := modpath.ReadFile(fs, filepath.FromSlash(path))
 	if err != nil {
 		return ""
 	}
@@ -161,70 +160,126 @@ func vlq(n int) string {
 	return string(out)
 }
 
+// sourceMapSource returns the path stored for source relative to outputDir (holding the emitted .map), matching tsc.
+// A source under src with a map under build becomes "../src/index.ts", not "index.ts" relative to the source root.
+func sourceMapSource(outputDir, source string) string {
+	if outputDir == "" {
+		return filepath.ToSlash(source)
+	}
+	rel, err := filepath.Rel(outputDir, source)
+	if err != nil || rel == "." {
+		return filepath.Base(source)
+	}
+	return filepath.ToSlash(rel)
+}
+
 // RetargetSourceMap rewrites file/sources for a per-module map.
-func RetargetSourceMap(mapText, fileName, sourceName, sourceContent string) string {
-	if strings.TrimSpace(mapText) == "" {
-		return ""
+// An empty outputDir keeps sourceName as given for callers that have not resolved the output location.
+func RetargetSourceMap(m *Map, fileName, sourceName, sourceContent, outputDir, sourceAbs string) *Map {
+	if m.IsZero() {
+		return nil
 	}
 	var raw map[string]any
-	if json.Unmarshal([]byte(mapText), &raw) != nil {
-		return mapText
+	if json.Unmarshal([]byte(m.JSON()), &raw) != nil {
+		return m
+	}
+	name := sourceName
+	if outputDir != "" && sourceAbs != "" {
+		name = sourceMapSource(outputDir, sourceAbs)
 	}
 	raw["file"] = fileName
-	raw["sources"] = []string{sourceName}
+	raw["sourceRoot"] = ""
+	raw["sources"] = []string{name}
 	raw["sourcesContent"] = []string{sourceContent}
 	buf, err := marshalMap(raw)
 	if err != nil {
-		return mapText
+		return m
 	}
-	return string(buf)
+	return newMap(string(buf))
 }
 
-// IdentitySourceMap maps every generated line to the same source line. It
-// describes output whose text is unchanged, such as a module kept verbatim.
-func IdentitySourceMap(file, sourceName, sourceContent string) string {
+// IdentitySourceMap maps every generated line to the same source line for unchanged output, such as a verbatim module.
+// outputDir/sourceAbs, when set, place the source relative to the emitted map.
+func IdentitySourceMap(file, sourceName, sourceContent, outputDir, sourceAbs string) *Map {
 	lines := strings.Count(sourceContent, "\n") + 1
 	points := make([]mapPointCol, 0, lines)
 	for i := range lines {
 		points = append(points, mapPointCol{genLine: i, source: 0, srcLine: i})
 	}
+	name := sourceName
+	if outputDir != "" && sourceAbs != "" {
+		name = sourceMapSource(outputDir, sourceAbs)
+	}
 	raw := map[string]any{
 		"version":        3,
 		"file":           file,
-		"sources":        []string{sourceName},
+		"sourceRoot":     "",
+		"sources":        []string{name},
 		"names":          []string{},
 		"mappings":       encodeMappingsCol(points),
 		"sourcesContent": []string{sourceContent},
 	}
 	buf, err := marshalMap(raw)
 	if err != nil {
-		return "{}"
+		return newMap("{}")
 	}
-	return string(buf)
+	return newMap(string(buf))
 }
 
-// RelativizeDeclarationMap makes absolute source paths relative to root.
-func RelativizeDeclarationMap(mapText, fileName, root string) string {
-	if strings.TrimSpace(mapText) == "" {
-		return ""
+// RelativizeSourceMap rewrites sources relative to outputDir (holding the emitted .map), matching tsc.
+// Relative input sources resolve against sourceBase first; absolute sources are used as-is.
+// sourceRoot here is NOT the tsconfig field, which ApplySourceMapConfig applies.
+func RelativizeSourceMap(m *Map, fileName, outputDir, sourceBase string) *Map {
+	if m.IsZero() {
+		return nil
 	}
 	var raw map[string]any
-	if json.Unmarshal([]byte(mapText), &raw) != nil {
-		return mapText
+	if json.Unmarshal([]byte(m.JSON()), &raw) != nil {
+		return m
 	}
 	raw["file"] = fileName
 	sources, _ := raw["sources"].([]any)
 	for i, source := range sources {
 		name, _ := source.(string)
-		cleaned := filepath.FromSlash(name)
-		if filepath.IsAbs(cleaned) {
-			sources[i] = modpath.DisplayRel(root, cleaned)
+		if name == "" {
+			continue
 		}
+		abs := filepath.FromSlash(name)
+		if !filepath.IsAbs(abs) && sourceBase != "" {
+			abs = filepath.Join(sourceBase, abs)
+		}
+		sources[i] = sourceMapSource(outputDir, abs)
 	}
 	raw["sources"] = sources
 	buf, err := marshalMap(raw)
 	if err != nil {
-		return mapText
+		return m
 	}
-	return string(buf)
+	return newMap(string(buf))
+}
+
+// ApplySourceMapConfig finalizes a map with tsconfig options that change contents but not mapping positions.
+// sourceRoot is written verbatim (tsc does not resolve it).
+// inlineSources false removes sourcesContent to match tsc; true fills it from sourceContent when absent.
+func ApplySourceMapConfig(m *Map, sourceRoot string, inlineSources bool, sourceContent string) *Map {
+	if m.IsZero() {
+		return nil
+	}
+	var raw map[string]any
+	if json.Unmarshal([]byte(m.JSON()), &raw) != nil {
+		return m
+	}
+	raw["sourceRoot"] = sourceRoot
+	if inlineSources {
+		if content, ok := raw["sourcesContent"].([]any); !ok || len(content) == 0 {
+			raw["sourcesContent"] = []any{sourceContent}
+		}
+	} else {
+		delete(raw, "sourcesContent")
+	}
+	buf, err := marshalMap(raw)
+	if err != nil {
+		return m
+	}
+	return newMap(string(buf))
 }

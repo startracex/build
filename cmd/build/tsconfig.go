@@ -23,13 +23,10 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-// applyTSConfig reads tsconfig.json and applies it to the build. It returns
-// the compiler options from the config file so the bundler can use the ones
-// that change the emitted code, the declarations, and module resolution.
-func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration, declarationMap *bool) (*core.CompilerOptions, error) {
-	// Files on the command line (without -p) ignore tsconfig.json, matching
-	// classic tsc / bundler CLI behavior.
-	if c.String("project") == "" && (len(opts.Entries) > 0 || opts.Entry != "") {
+// applyTSConfig applies tsconfig.json and returns compiler options affecting emitted code, declarations and module resolution.
+func applyTSConfig(c *cli.Context, opts *bundler.Options, out *bundler.OutputOptions) (*core.CompilerOptions, error) {
+	// Files on the command line (without -p) ignore tsconfig.json, matching classic tsc CLI behavior.
+	if c.String("project") == "" && len(opts.Entries) > 0 {
 		return nil, nil
 	}
 	path, err := tsconfigPath(c)
@@ -46,35 +43,22 @@ func applyTSConfig(c *cli.Context, opts *bundler.Options, declaration, declarati
 	compiler := parsed.CompilerOptions()
 	opts.BaseURL = applyBaseURL(compiler, parsed, configFileName)
 	if !c.IsSet("format") {
-		opts.Format = formatFromModule(compiler.Module)
-	}
-	if !c.IsSet("jsx") {
-		if jsx, ok := jsxFromCompiler(compiler.Jsx); ok {
-			opts.JSX = jsx
-		}
-	}
-	if !c.IsSet("map") {
-		opts.SourceMap = new(compiler.SourceMap == core.TSTrue)
-	}
-	if !c.IsSet("dts") {
-		*declaration = compiler.Declaration == core.TSTrue || compiler.Composite == core.TSTrue
-	}
-	*declarationMap = compiler.DeclarationMap == core.TSTrue
-	if compiler.Target != core.ScriptTargetNone {
-		opts.Target = compiler.Target
+		out.Format = formatFromModule(compiler.Module)
 	}
 	if !c.IsSet("conditions") && len(compiler.CustomConditions) > 0 {
 		opts.Conditions = append([]string{}, compiler.CustomConditions...)
 	}
-	if opts.OutDir == "" && compiler.OutDir != "" {
-		opts.OutDir = filepath.FromSlash(compiler.OutDir.AsString())
+	if out.OutDir == "" && compiler.OutDir != "" {
+		out.OutDir = filepath.FromSlash(compiler.OutDir.AsString())
 	}
-	if compiler.RootDir != "" {
-		opts.RootDir = filepath.FromSlash(compiler.RootDir.AsString())
-	} else if common := parsed.CommonSourceDirectory(); common != "" {
-		opts.RootDir = filepath.FromSlash(common.AsString())
+	if !c.IsSet("root-dir") {
+		if compiler.RootDir != "" {
+			opts.RootDir = filepath.FromSlash(compiler.RootDir.AsString())
+		} else if common := parsed.CommonSourceDirectory(); common != "" {
+			opts.RootDir = filepath.FromSlash(common.AsString())
+		}
 	}
-	if len(opts.Entries) == 0 && opts.Entry == "" {
+	if len(opts.Entries) == 0 {
 		files, err := configFiles(parsed)
 		if err != nil {
 			return nil, err
@@ -91,8 +75,7 @@ func tsconfigPath(c *cli.Context) (string, error) {
 	return findTSConfig()
 }
 
-// findTSConfig walks from the working directory through each ancestor, the same
-// order as TypeScript's findConfigFile.
+// findTSConfig walks up from the working directory, matching TypeScript's findConfigFile order.
 func findTSConfig() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -101,9 +84,7 @@ func findTSConfig() (string, error) {
 	return findTSConfigIn(dir)
 }
 
-// findTSConfigIn walks from dir through each ancestor. The service uses it so a
-// request's working directory never has to become the process working
-// directory.
+// findTSConfigIn walks up from dir so callers need not change the process working directory.
 func findTSConfigIn(dir string) (string, error) {
 	for {
 		candidate := filepath.Join(dir, "tsconfig.json")
@@ -165,19 +146,9 @@ func readTSConfig(path string) (*tsoptions.ParsedCommandLine, tspath.RootedFileP
 	return parsed, rooted, nil
 }
 
-// applyBaseURL folds the removed "baseUrl" option into the "paths" mappings.
-//
-// TypeScript 5 resolved every "paths" substitution relative to "baseUrl" and
-// used "baseUrl" as the root for bare specifiers. TypeScript 7 dropped
-// "baseUrl": substitutions are resolved relative to the directory of the
-// tsconfig that declared "paths", and bare specifiers have no project root to
-// fall back to. The substitutions are rebased so that they keep naming the
-// same files, and the wildcard mapping that stands in for the project root is
-// returned to the caller.
-//
-// The value is read from the serialized config instead of the deprecated
-// CompilerOptions field, which TypeScript 7 only allows inside option parsing
-// and validation.
+// applyBaseURL folds the removed "baseUrl" into "paths" so substitutions keep naming the same files.
+// The wildcard for the project root is returned for bare specifiers, which no longer have a fallback root.
+// The value comes from the serialized config because the deprecated field is only valid during option parsing.
 func applyBaseURL(compiler *core.CompilerOptions, parsed *tsoptions.ParsedCommandLine, configFileName tspath.RootedFilePath) resolve.BaseURLFallback {
 	baseURL := tsconfigBaseURL(parsed, configFileName)
 	if baseURL == "" {
@@ -204,8 +175,7 @@ func applyBaseURL(compiler *core.CompilerOptions, parsed *tsoptions.ParsedComman
 	return resolve.BaseURLFallback{Directory: baseURL, CaseSensitivity: caseSensitivity}
 }
 
-// tsconfigBaseURL returns the directory of the "baseUrl" option, or an empty
-// path when the config does not set it.
+// tsconfigBaseURL returns the "baseUrl" directory, or empty when unset.
 func tsconfigBaseURL(parsed *tsoptions.ParsedCommandLine, configFileName tspath.RootedFilePath) tspath.RootedDirectoryPath {
 	serialized := tsoptions.ConvertToTSConfig(parsed, configFileName)
 	if serialized == nil || serialized.CompilerOptions == nil {
@@ -223,9 +193,7 @@ func tsconfigBaseURL(parsed *tsoptions.ParsedCommandLine, configFileName tspath.
 	return tspath.ToRootedDirectoryPath(text, configFileName.Directory())
 }
 
-// rebasePathValue rewrites a "paths" substitution so that it stays relative to
-// basePath while still naming the file the original substitution named under
-// baseURL.
+// rebasePathValue keeps a "paths" substitution relative to basePath while naming the same file under baseURL.
 func rebasePathValue(value string, baseURL, basePath tspath.RootedDirectoryPath, caseSensitivity tspath.CaseSensitivity) string {
 	if value == "" || tspath.IsRootedDiskPath(value) {
 		return value
@@ -255,23 +223,6 @@ func formatFromModule(kind core.ModuleKind) bundler.Format {
 		return bundler.FormatCJS
 	}
 	return bundler.FormatESM
-}
-
-func jsxFromCompiler(kind core.JsxEmit) (bundler.JSX, bool) {
-	switch kind {
-	case core.JsxEmitReact:
-		return bundler.JSXReact, true
-	case core.JsxEmitReactJSX:
-		return bundler.JSXAutomatic, true
-	case core.JsxEmitReactJSXDev:
-		return bundler.JSXReactJSXDev, true
-	case core.JsxEmitPreserve:
-		return bundler.JSXPreserve, true
-	case core.JsxEmitReactNative:
-		return bundler.JSXReactNative, true
-	default:
-		return "", false
-	}
 }
 
 func diagnosticError(diags []*ast.Diagnostic) error {

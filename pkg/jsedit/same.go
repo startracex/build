@@ -2,11 +2,7 @@ package jsedit
 
 import "github.com/startracex/tsgo/pkg/ast"
 
-// SameTokens reports whether two parses describe the same program. Positions,
-// whitespace, comments, and optional semicolons are ignored, so a reprint of
-// the same code compares equal while any transform the emitter applied does
-// not: a downleveled operator, a rewritten class field, or a new helper
-// statement all change a node kind or the statement list.
+// SameTokens compares two parses ignoring positions, whitespace, comments, and optional semicolons, so a reprint compares equal but any emitter transform (downleveling, rewritten class fields, new helpers) does not.
 func SameTokens(aSrc string, a *ast.SourceFile, bSrc string, b *ast.SourceFile) bool {
 	var aStmts, bStmts []*ast.Node
 	if a != nil && a.Statements != nil {
